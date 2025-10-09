@@ -1,0 +1,24 @@
+/** \defgroup DRAWING Drawing
+ *  \ingroup CWORKBENCHES
+ *  \brief The Drawing workbench provides 2D drawing functionality
+ *
+ * The Drawing workbench is a complete C++ implementation that demonstrates
+ * the use of AST/YAPTU tools for creating FreeCAD extensions. It provides
+ * functionality similar to the Draft workbench but implemented entirely
+ * in C++ for better performance and as a learning example.
+ *
+ * Key features:
+ * - Interactive mouse input for coordinate picking
+ * - Basic 2D drawing objects (Line, Circle, Rectangle, Polygon)
+ * - Text annotation support
+ * - Dimension creation
+ * - Full Python API through auto-generated bindings
+ * - Modern C++ design with proper separation of concerns
+ *
+ * This workbench serves as an excellent example of:
+ * - How to create C++ workbenches in FreeCAD
+ * - How to use AST/YAPTU for Python binding generation
+ * - How to implement interactive mouse commands
+ * - How to create custom ViewProviders for 2D objects
+ * - How to structure a complex C++ FreeCAD module
+ */
