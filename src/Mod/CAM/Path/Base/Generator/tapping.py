@@ -1,5 +1,4 @@
 # SPDX-License-Identifier: LGPL-2.1-or-later
-# -*- coding: utf-8 -*-
 # ***************************************************************************
 # *   Copyright (c) 2021 sliptonic <shopinthewoods@gmail.com>               *
 # *   Copyright (c) 2023 luvtofish                                          *
@@ -27,7 +26,7 @@ import numpy
 
 __title__ = "Tapping Path Generator"
 __author__ = "sliptonic (Brad Collette)"
-__url__ = "https://www.freecadweb.org"
+__url__ = "https://www.freecad.org"
 __doc__ = "Generates the Tapping toolpath for a single spotshape"
 __contributors__ = "luvtofish (Dan Henderson)"
 
