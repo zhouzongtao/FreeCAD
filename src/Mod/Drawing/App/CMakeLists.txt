@@ -63,13 +63,12 @@ target_sources(Drawing PRIVATE
     ${Python_SRCS}
 )
 
-SET_BIN_DIR(Drawing Drawing /bin)
+SET_BIN_DIR(Drawing Drawing /Mod/Drawing)
+SET_PYTHON_PREFIX_SUFFIX(Drawing)
 
 if(WIN32)
     set_target_properties(Drawing PROPERTIES SUFFIX ".pyd")
     set_target_properties(Drawing PROPERTIES DEBUG_OUTPUT_NAME "Drawing_d")
-    set_target_properties(Drawing PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
-    set_target_properties(Drawing PROPERTIES LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 endif(WIN32)
 
-INSTALL(TARGETS Drawing DESTINATION ${CMAKE_INSTALL_LIBDIR})
+INSTALL(TARGETS Drawing DESTINATION ${CMAKE_INSTALL_LIBDIR}/Mod/Drawing)

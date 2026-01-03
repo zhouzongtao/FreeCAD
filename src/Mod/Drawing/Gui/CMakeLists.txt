@@ -65,13 +65,12 @@ target_sources(DrawingGui PRIVATE
     ${Workbench_SRCS}
 )
 
-SET_BIN_DIR(DrawingGui DrawingGui /bin)
+SET_BIN_DIR(DrawingGui DrawingGui /Mod/Drawing)
+SET_PYTHON_PREFIX_SUFFIX(DrawingGui)
 
 if(WIN32)
     set_target_properties(DrawingGui PROPERTIES SUFFIX ".pyd")
     set_target_properties(DrawingGui PROPERTIES DEBUG_OUTPUT_NAME "DrawingGui_d")
-    set_target_properties(DrawingGui PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
-    set_target_properties(DrawingGui PROPERTIES LIBRARY_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib)
 endif(WIN32)
 
-INSTALL(TARGETS DrawingGui DESTINATION ${CMAKE_INSTALL_LIBDIR})
+INSTALL(TARGETS DrawingGui DESTINATION ${CMAKE_INSTALL_LIBDIR}/Mod/Drawing)
