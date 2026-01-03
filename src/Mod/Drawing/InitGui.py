@@ -5,7 +5,11 @@
 # *                                                                         *
 # ***************************************************************************
 
-"""Drawing workbench GUI initialization."""
+"""Drawing workbench GUI initialization.
+
+This module registers the Drawing workbench which uses C++ commands
+defined in DrawingGui::CreateDrawingCommands().
+"""
 
 
 class DrawingWorkbench(Workbench):
@@ -16,27 +20,18 @@ class DrawingWorkbench(Workbench):
     
     def Initialize(self):
         import FreeCAD
-        import FreeCADGui
-        
         FreeCAD.Console.PrintMessage("Initializing Drawing workbench...\n")
         
-        # Load C++ modules
+        # Load C++ modules - this registers the C++ commands
         import DrawingGui
         import Drawing
         
-        # Register commands
-        import DrawingCommands
-        DrawingCommands.registerCommands()
+        # Command list - these are registered by C++ code in DrawingGui
+        self.cmdList = ["Drawing_Line", "Drawing_Circle"]
         
         # Create toolbar and menu
-        self.cmdList = ["Drawing_Line", "Drawing_Circle", "Drawing_Rectangle", 
-                        "Drawing_Polygon", "Drawing_Text", "Drawing_Dimension"]
-        self.modifyList = ["Drawing_Move", "Drawing_Copy", "Drawing_Rotate",
-                           "Drawing_Scale", "Drawing_Trim", "Drawing_Extend"]
-        
-        self.appendToolbar("Drawing Creation", self.cmdList)
-        self.appendToolbar("Drawing Modification", self.modifyList)
-        self.appendMenu("Drawing", self.cmdList + self.modifyList)
+        self.appendToolbar("Drawing Tools", self.cmdList)
+        self.appendMenu("Drawing", self.cmdList)
         
         FreeCAD.Console.PrintMessage("Drawing workbench initialized.\n")
     
@@ -48,6 +43,7 @@ class DrawingWorkbench(Workbench):
         pass
     
     def GetClassName(self):
+        # Use Python workbench for simplicity
         return "Gui::PythonWorkbench"
 
 

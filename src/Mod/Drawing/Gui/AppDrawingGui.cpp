@@ -33,10 +33,10 @@
 
 #include "Workbench.h"
 #include "ViewProviderDrawing.h"
-// #include "Command.h"  // Temporarily disabled
+#include "Command.h"
 
-// use a different name to CreateCommand()
-// void CreateDrawingCommands(void);  // Temporarily disabled
+// Forward declaration
+void CreateDrawingCommands(void);
 
 void loadDrawingResource()
 {
@@ -70,20 +70,11 @@ PyMOD_INIT_FUNC(DrawingGui)
     PyObject* mod = DrawingGui::initModule();
     Base::Console().log("Loading DrawingGui module... done\n");
 
-    // Register workbench
-    (void)new DrawingGui::Workbench();
+    // Initialize type system for workbench
+    DrawingGui::Workbench::init();
 
-    // Register view providers - temporarily disabled as init() methods don't exist
-    // DrawingGui::ViewProviderDrawing::init();
-    // DrawingGui::ViewProviderLine::init();
-    // DrawingGui::ViewProviderCircle::init();
-    // DrawingGui::ViewProviderRectangle::init();
-    // DrawingGui::ViewProviderPolygon::init();
-    // DrawingGui::ViewProviderText::init();
-    // DrawingGui::ViewProviderDimension::init();
-
-    // Register commands - temporarily disabled
-    // CreateDrawingCommands();
+    // Register commands
+    DrawingGui::CreateDrawingCommands();
 
     // Load resources - temporarily disabled
     // loadDrawingResource();

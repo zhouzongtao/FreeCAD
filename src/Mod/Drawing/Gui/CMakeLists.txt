@@ -41,8 +41,8 @@ SET(Module_SRCS
 SOURCE_GROUP("Module" FILES ${Module_SRCS})
 
 SET(Command_SRCS
-    # Command.cpp  # Temporarily disabled due to compilation issues
-    # Command.h
+    Command.cpp
+    Command.h
 )
 SOURCE_GROUP("Command" FILES ${Command_SRCS})
 
@@ -60,7 +60,7 @@ SOURCE_GROUP("Workbench" FILES ${Workbench_SRCS})
 
 target_sources(DrawingGui PRIVATE
     ${Module_SRCS}
-    # ${Command_SRCS}  # Temporarily disabled
+    ${Command_SRCS}
     ${ViewProvider_SRCS}
     ${Workbench_SRCS}
 )

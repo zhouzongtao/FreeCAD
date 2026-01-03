@@ -22,367 +22,352 @@
 
 #include "PreCompiled.h"
 
-#include <QInputDialog>
-#include <QMessageBox>
-#include <QApplication>
+#ifndef _PreComp_
+# include <QMessageBox>
+#endif
 
 #include <Gui/Application.h>
 #include <Gui/Document.h>
 #include <Gui/View3DInventor.h>
 #include <Gui/View3DInventorViewer.h>
-// #include <Gui/Selection.h> // Temporarily disabled
-#include <Gui/CommandT.h>
+#include <Gui/Command.h>
+#include <Gui/MainWindow.h>
 #include <Base/Console.h>
-#include <Base/Exception.h>
 #include <App/Application.h>
 #include <App/Document.h>
 
-#include <Inventor/nodes/SoCamera.h>
-#include <Inventor/SbLinear.h>
+#include <Inventor/events/SoMouseButtonEvent.h>
+#include <Inventor/events/SoKeyboardEvent.h>
+#include <Inventor/events/SoEvent.h>
+#include <Inventor/nodes/SoEventCallback.h>
 
-#include "Command.h"
-#include "../App/DrawingFeature.h"
-
-using namespace DrawingGui;
 using namespace Gui;
 
-// =============================================================================
-// DrawingCommand base class
-// =============================================================================
-
-DrawingCommand::DrawingCommand(const char* sMenu, const char* sToolTip, 
-                              const char* sWhat, const char* sStatus, 
-                              const char* sPixmap, const char* sAccel)
-    : Gui::Command(sMenu, sToolTip, sWhat, sStatus, sPixmap, sAccel)
-    , maxPoints(0)
-    , isPickingPoints(false)
-    , previewObject(nullptr)
-{
-}
-
-DrawingCommand::~DrawingCommand() = default;
-
-Base::Vector3d DrawingCommand::getCurrentPoint(const SbVec2s& pos, Gui::View3DInventorViewer* viewer)
-{
-    // Get the current working plane (simplified - assume XY plane)
-    SbVec3f point, normal;
-    viewer->getNearPlane(pos, point, normal);
-    
-    // Project to XY plane (Z=0)
-    Base::Vector3d result(point[0], point[1], 0.0);
-    
-    return snapToGrid(result);
-}
-
-Base::Vector3d DrawingCommand::snapToGrid(const Base::Vector3d& point)
-{
-    // Simple grid snapping (1mm grid)
-    double gridSize = 1.0;
-    
-    double x = round(point.x / gridSize) * gridSize;
-    double y = round(point.y / gridSize) * gridSize;
-    double z = point.z; // Keep Z unchanged
-    
-    return Base::Vector3d(x, y, z);
-}
-
-bool DrawingCommand::getCoordinateInput(const QString& prompt, Base::Vector3d& point)
-{
-    bool ok;
-    QString input = QInputDialog::getText(nullptr, tr("Coordinate Input"), 
-                                         prompt, QLineEdit::Normal, QString(), &ok);
-    
-    if (!ok || input.isEmpty()) {
-        return false;
-    }
-    
-    // Parse coordinate input (format: "x,y" or "x,y,z")
-    QStringList coords = input.split(',');
-    if (coords.size() >= 2) {
-        point.x = coords[0].trimmed().toDouble();
-        point.y = coords[1].trimmed().toDouble();
-        point.z = (coords.size() >= 3) ? coords[2].trimmed().toDouble() : 0.0;
-        return true;
-    }
-    
-    QMessageBox::warning(nullptr, tr("Invalid Input"), 
-                        tr("Please enter coordinates in format: x,y or x,y,z"));
-    return false;
-}
-
-void DrawingCommand::startPointPicking(const QString& prompt)
-{
-    isPickingPoints = true;
-    pickedPoints.clear();
-    
-    // Show status message
-    getMainWindow()->showMessage(prompt);
-    
-    // Enable mouse tracking in 3D view
-    Gui::View3DInventor* view = qobject_cast<Gui::View3DInventor*>(getMainWindow()->activeWindow());
-    if (view) {
-        view->getViewer()->setEditing(true);
-        view->getViewer()->addEventCallback(SoMouseButtonEvent::getClassTypeId(), 
-                                           handleMouseEventCallback, this);
-    }
-}
-
-bool DrawingCommand::handleMouseEvent(const SbVec2s& pos, int button, bool pressed)
-{
-    // Base implementation - to be overridden by derived classes
-    return false;
-}
-
-void DrawingCommand::finishCommand()
-{
-    isPickingPoints = false;
-    
-    // Disable mouse tracking
-    Gui::View3DInventor* view = qobject_cast<Gui::View3DInventor*>(getMainWindow()->activeWindow());
-    if (view) {
-        view->getViewer()->setEditing(false);
-        view->getViewer()->removeEventCallback(SoMouseButtonEvent::getClassTypeId(), 
-                                              handleMouseEventCallback, this);
-    }
-    
-    // Clean up preview object
-    if (previewObject) {
-        getActiveGuiDocument()->getDocument()->removeObject(previewObject->getNameInDocument());
-        previewObject = nullptr;
-    }
-    
-    getMainWindow()->showMessage(QString());
-}
-
-void DrawingCommand::cancelCommand()
-{
-    finishCommand();
-    getMainWindow()->showMessage(tr("Command cancelled"));
-}
+namespace DrawingGui {
 
 // =============================================================================
-// CmdDrawingLine implementation
+// Helper class for interactive point picking
 // =============================================================================
+
+class DrawLineHandler {
+public:
+    DrawLineHandler() : view(nullptr) {}
+    
+    std::vector<Base::Vector3d> points;
+    Gui::View3DInventorViewer* view;
+    
+    void finish() {
+        if (view) {
+            view->setEditing(false);
+            view->setRedirectToSceneGraph(false);
+            view->removeEventCallback(SoEvent::getClassTypeId(), 
+                                     DrawLineHandler::eventCallback, this);
+        }
+        points.clear();
+        Gui::getMainWindow()->showMessage(QString());
+    }
+    
+    static void eventCallback(void* userData, SoEventCallback* eventCB) {
+        DrawLineHandler* handler = static_cast<DrawLineHandler*>(userData);
+        const SoEvent* event = eventCB->getEvent();
+        
+        // Handle ESC key
+        if (event->isOfType(SoKeyboardEvent::getClassTypeId())) {
+            const SoKeyboardEvent* ke = static_cast<const SoKeyboardEvent*>(event);
+            if (ke->getState() == SoButtonEvent::DOWN && 
+                ke->getKey() == SoKeyboardEvent::ESCAPE) {
+                handler->finish();
+                eventCB->setHandled();
+                return;
+            }
+        }
+        
+        // Handle mouse click
+        if (event->isOfType(SoMouseButtonEvent::getClassTypeId())) {
+            const SoMouseButtonEvent* mbe = static_cast<const SoMouseButtonEvent*>(event);
+            
+            if (mbe->getButton() == SoMouseButtonEvent::BUTTON1 &&
+                mbe->getState() == SoButtonEvent::DOWN) {
+                
+                SbVec2s pos = mbe->getPosition();
+                SbVec3f point3d = handler->view->getPointOnFocalPlane(pos);
+                Base::Vector3d pt(point3d[0], point3d[1], 0.0);
+                
+                handler->points.push_back(pt);
+                
+                if (handler->points.size() == 1) {
+                    Base::Console().log("First point: (%.2f, %.2f)\n", pt.x, pt.y);
+                    Gui::getMainWindow()->showMessage(
+                        QObject::tr("Click second point..."));
+                }
+                else if (handler->points.size() == 2) {
+                    Base::Console().log("Second point: (%.2f, %.2f)\n", pt.x, pt.y);
+                    handler->createLine();
+                    handler->finish();
+                }
+                
+                eventCB->setHandled();
+            }
+        }
+    }
+    
+    void createLine() {
+        if (points.size() != 2) return;
+        
+        try {
+            Gui::Command::openCommand("Create Line");
+            Gui::Command::doCommand(Gui::Command::Doc, "import Part");
+            Gui::Command::doCommand(Gui::Command::Doc, 
+                "line = Part.makeLine(FreeCAD.Vector(%f, %f, %f), FreeCAD.Vector(%f, %f, %f))",
+                points[0].x, points[0].y, points[0].z,
+                points[1].x, points[1].y, points[1].z);
+            Gui::Command::doCommand(Gui::Command::Doc, 
+                "obj = FreeCAD.ActiveDocument.addObject('Part::Feature', 'Line')");
+            Gui::Command::doCommand(Gui::Command::Doc, "obj.Shape = line");
+            Gui::Command::doCommand(Gui::Command::Doc, 
+                "obj.ViewObject.LineColor = (0.0, 0.0, 0.0)");
+            Gui::Command::doCommand(Gui::Command::Doc, "obj.ViewObject.LineWidth = 2.0");
+            Gui::Command::doCommand(Gui::Command::Doc, "FreeCAD.ActiveDocument.recompute()");
+            Gui::Command::commitCommand();
+            
+            double length = (points[1] - points[0]).Length();
+            Base::Console().log("Line created: length = %.2f mm\n", length);
+            
+        } catch (const Base::Exception& e) {
+            Gui::Command::abortCommand();
+            Base::Console().warning("Failed to create line: %s\n", e.what());
+        }
+    }
+};
+
+// Global handler instance
+static DrawLineHandler* lineHandler = nullptr;
+
+// =============================================================================
+// CmdDrawingLine
+// =============================================================================
+
+DEF_STD_CMD_A(CmdDrawingLine)
 
 CmdDrawingLine::CmdDrawingLine()
-    : DrawingCommand("Drawing_Line", 
-                    QT_TR_NOOP("Create line"),
-                    QT_TR_NOOP("Create a line by picking two points"),
-                    QT_TR_NOOP("Create a line by picking two points"),
-                    "Drawing_Line",
-                    "L")
+    : Command("Drawing_Line")
 {
-    maxPoints = 2;
+    sAppModule    = "Drawing";
+    sGroup        = "Drawing";
+    sMenuText     = QT_TR_NOOP("Line");
+    sToolTipText  = QT_TR_NOOP("Draw a line by clicking two points");
+    sWhatsThis    = "Drawing_Line";
+    sStatusTip    = sToolTipText;
+    sAccel        = "L";
 }
-
-CmdDrawingLine::~CmdDrawingLine() = default;
 
 void CmdDrawingLine::activated(int iMsg)
 {
     Q_UNUSED(iMsg);
     
-    if (!getActiveGuiDocument()) {
-        QMessageBox::warning(nullptr, tr("No Document"), 
-                            tr("Please create or open a document first."));
+    if (!Gui::Application::Instance->activeDocument()) {
+        QMessageBox::warning(Gui::getMainWindow(), 
+            QObject::tr("No Document"),
+            QObject::tr("Please create or open a document first."));
         return;
     }
     
-    startPointPicking(tr("Pick first point for line:"));
+    // Get active 3D view
+    Gui::MDIView* mdi = Gui::getMainWindow()->activeWindow();
+    Gui::View3DInventor* view3d = qobject_cast<Gui::View3DInventor*>(mdi);
+    if (!view3d) {
+        QMessageBox::warning(Gui::getMainWindow(),
+            QObject::tr("No 3D View"),
+            QObject::tr("Please activate a 3D view first."));
+        return;
+    }
+    
+    // Clean up previous handler if exists
+    if (lineHandler) {
+        lineHandler->finish();
+        delete lineHandler;
+    }
+    
+    // Create new handler
+    lineHandler = new DrawLineHandler();
+    lineHandler->view = view3d->getViewer();
+    lineHandler->view->setEditing(true);
+    lineHandler->view->setRedirectToSceneGraph(true);
+    lineHandler->view->addEventCallback(
+        SoEvent::getClassTypeId(),
+        DrawLineHandler::eventCallback,
+        lineHandler);
+    
+    Base::Console().log("=== Draw Line ===\n");
+    Gui::getMainWindow()->showMessage(QObject::tr("Click first point (ESC to cancel)..."));
 }
 
 bool CmdDrawingLine::isActive()
 {
-    return getActiveGuiDocument() != nullptr;
-}
-
-bool CmdDrawingLine::handleMouseEvent(const SbVec2s& pos, int button, bool pressed)
-{
-    if (!pressed || button != 1) // Only handle left mouse button press
-        return false;
-    
-    Gui::View3DInventor* view = qobject_cast<Gui::View3DInventor*>(getMainWindow()->activeWindow());
-    if (!view)
-        return false;
-    
-    Base::Vector3d point = getCurrentPoint(pos, view->getViewer());
-    pickedPoints.push_back(point);
-    
-    if (pickedPoints.size() == 1) {
-        getMainWindow()->showMessage(tr("Pick second point for line:"));
-        updatePreview();
-    } else if (pickedPoints.size() == 2) {
-        createLine();
-        finishCommand();
-    }
-    
-    return true;
-}
-
-void CmdDrawingLine::updatePreview()
-{
-    if (pickedPoints.size() == 1 && !previewObject) {
-        // Create preview line
-        App::Document* doc = getActiveGuiDocument()->getDocument();
-        previewObject = doc->addObject("Drawing::Line", "PreviewLine");
-        
-        Drawing::Line* line = static_cast<Drawing::Line*>(previewObject);
-        line->StartPoint.setValue(pickedPoints[0]);
-        line->Construction.setValue(true); // Mark as construction for preview
-        doc->recompute();
-    }
-}
-
-void CmdDrawingLine::createLine()
-{
-    if (pickedPoints.size() != 2)
-        return;
-    
-    try {
-        openCommand(QT_TRANSLATE_NOOP("Command", "Create Line"));
-        
-        App::Document* doc = getActiveGuiDocument()->getDocument();
-        Drawing::Line* line = static_cast<Drawing::Line*>(
-            doc->addObject("Drawing::Line", "Line"));
-        
-        line->StartPoint.setValue(pickedPoints[0]);
-        line->EndPoint.setValue(pickedPoints[1]);
-        
-        // Calculate length and angle
-        Base::Vector3d diff = pickedPoints[1] - pickedPoints[0];
-        line->Length.setValue(diff.Length());
-        line->Angle.setValue(atan2(diff.y, diff.x) * 180.0 / M_PI);
-        
-        doc->recompute();
-        commitCommand();
-        
-        getMainWindow()->showMessage(tr("Line created successfully"));
-        
-    } catch (const Base::Exception& e) {
-        abortCommand();
-        QMessageBox::critical(nullptr, tr("Error"), 
-                             tr("Failed to create line: %1").arg(QString::fromUtf8(e.what())));
-    }
+    return Gui::Application::Instance->activeDocument() != nullptr;
 }
 
 // =============================================================================
-// CmdDrawingCircle implementation
+// CmdDrawingCircle
 // =============================================================================
+
+class DrawCircleHandler {
+public:
+    DrawCircleHandler() : view(nullptr) {}
+    
+    std::vector<Base::Vector3d> points;
+    Gui::View3DInventorViewer* view;
+    
+    void finish() {
+        if (view) {
+            view->setEditing(false);
+            view->setRedirectToSceneGraph(false);
+            view->removeEventCallback(SoEvent::getClassTypeId(),
+                                     DrawCircleHandler::eventCallback, this);
+        }
+        points.clear();
+        Gui::getMainWindow()->showMessage(QString());
+    }
+    
+    static void eventCallback(void* userData, SoEventCallback* eventCB) {
+        DrawCircleHandler* handler = static_cast<DrawCircleHandler*>(userData);
+        const SoEvent* event = eventCB->getEvent();
+        
+        if (event->isOfType(SoKeyboardEvent::getClassTypeId())) {
+            const SoKeyboardEvent* ke = static_cast<const SoKeyboardEvent*>(event);
+            if (ke->getState() == SoButtonEvent::DOWN &&
+                ke->getKey() == SoKeyboardEvent::ESCAPE) {
+                handler->finish();
+                eventCB->setHandled();
+                return;
+            }
+        }
+        
+        if (event->isOfType(SoMouseButtonEvent::getClassTypeId())) {
+            const SoMouseButtonEvent* mbe = static_cast<const SoMouseButtonEvent*>(event);
+            
+            if (mbe->getButton() == SoMouseButtonEvent::BUTTON1 &&
+                mbe->getState() == SoButtonEvent::DOWN) {
+                
+                SbVec2s pos = mbe->getPosition();
+                SbVec3f point3d = handler->view->getPointOnFocalPlane(pos);
+                Base::Vector3d pt(point3d[0], point3d[1], 0.0);
+                
+                handler->points.push_back(pt);
+                
+                if (handler->points.size() == 1) {
+                    Base::Console().log("Center: (%.2f, %.2f)\n", pt.x, pt.y);
+                    Gui::getMainWindow()->showMessage(
+                        QObject::tr("Click point on circle..."));
+                }
+                else if (handler->points.size() == 2) {
+                    handler->createCircle();
+                    handler->finish();
+                }
+                
+                eventCB->setHandled();
+            }
+        }
+    }
+    
+    void createCircle() {
+        if (points.size() != 2) return;
+        
+        double radius = (points[1] - points[0]).Length();
+        
+        try {
+            Gui::Command::openCommand("Create Circle");
+            Gui::Command::doCommand(Gui::Command::Doc, "import Part");
+            Gui::Command::doCommand(Gui::Command::Doc,
+                "circle = Part.makeCircle(%f, FreeCAD.Vector(%f, %f, %f), FreeCAD.Vector(0, 0, 1))",
+                radius, points[0].x, points[0].y, points[0].z);
+            Gui::Command::doCommand(Gui::Command::Doc,
+                "obj = FreeCAD.ActiveDocument.addObject('Part::Feature', 'Circle')");
+            Gui::Command::doCommand(Gui::Command::Doc, "obj.Shape = circle");
+            Gui::Command::doCommand(Gui::Command::Doc,
+                "obj.ViewObject.LineColor = (0.0, 0.0, 0.0)");
+            Gui::Command::doCommand(Gui::Command::Doc, "obj.ViewObject.LineWidth = 2.0");
+            Gui::Command::doCommand(Gui::Command::Doc, "FreeCAD.ActiveDocument.recompute()");
+            Gui::Command::commitCommand();
+            
+            Base::Console().log("Circle created: radius = %.2f mm\n", radius);
+            
+        } catch (const Base::Exception& e) {
+            Gui::Command::abortCommand();
+            Base::Console().warning("Failed to create circle: %s\n", e.what());
+        }
+    }
+};
+
+static DrawCircleHandler* circleHandler = nullptr;
+
+DEF_STD_CMD_A(CmdDrawingCircle)
 
 CmdDrawingCircle::CmdDrawingCircle()
-    : DrawingCommand("Drawing_Circle",
-                    QT_TR_NOOP("Create circle"),
-                    QT_TR_NOOP("Create a circle by picking center and radius"),
-                    QT_TR_NOOP("Create a circle by picking center and radius"),
-                    "Drawing_Circle",
-                    "C")
-    , currentState(PickingCenter)
+    : Command("Drawing_Circle")
 {
-    maxPoints = 2;
+    sAppModule    = "Drawing";
+    sGroup        = "Drawing";
+    sMenuText     = QT_TR_NOOP("Circle");
+    sToolTipText  = QT_TR_NOOP("Draw a circle by clicking center and radius point");
+    sWhatsThis    = "Drawing_Circle";
+    sStatusTip    = sToolTipText;
+    sAccel        = "C";
 }
-
-CmdDrawingCircle::~CmdDrawingCircle() = default;
 
 void CmdDrawingCircle::activated(int iMsg)
 {
     Q_UNUSED(iMsg);
     
-    if (!getActiveGuiDocument()) {
-        QMessageBox::warning(nullptr, tr("No Document"), 
-                            tr("Please create or open a document first."));
+    if (!Gui::Application::Instance->activeDocument()) {
+        QMessageBox::warning(Gui::getMainWindow(),
+            QObject::tr("No Document"),
+            QObject::tr("Please create or open a document first."));
         return;
     }
     
-    currentState = PickingCenter;
-    startPointPicking(tr("Pick center point for circle:"));
+    Gui::MDIView* mdi = Gui::getMainWindow()->activeWindow();
+    Gui::View3DInventor* view3d = qobject_cast<Gui::View3DInventor*>(mdi);
+    if (!view3d) {
+        QMessageBox::warning(Gui::getMainWindow(),
+            QObject::tr("No 3D View"),
+            QObject::tr("Please activate a 3D view first."));
+        return;
+    }
+    
+    if (circleHandler) {
+        circleHandler->finish();
+        delete circleHandler;
+    }
+    
+    circleHandler = new DrawCircleHandler();
+    circleHandler->view = view3d->getViewer();
+    circleHandler->view->setEditing(true);
+    circleHandler->view->setRedirectToSceneGraph(true);
+    circleHandler->view->addEventCallback(
+        SoEvent::getClassTypeId(),
+        DrawCircleHandler::eventCallback,
+        circleHandler);
+    
+    Base::Console().log("=== Draw Circle ===\n");
+    Gui::getMainWindow()->showMessage(QObject::tr("Click center point (ESC to cancel)..."));
 }
 
 bool CmdDrawingCircle::isActive()
 {
-    return getActiveGuiDocument() != nullptr;
-}
-
-bool CmdDrawingCircle::handleMouseEvent(const SbVec2s& pos, int button, bool pressed)
-{
-    if (!pressed || button != 1)
-        return false;
-    
-    Gui::View3DInventor* view = qobject_cast<Gui::View3DInventor*>(getMainWindow()->activeWindow());
-    if (!view)
-        return false;
-    
-    Base::Vector3d point = getCurrentPoint(pos, view->getViewer());
-    
-    if (currentState == PickingCenter) {
-        pickedPoints.clear();
-        pickedPoints.push_back(point);
-        currentState = PickingRadius;
-        getMainWindow()->showMessage(tr("Pick point on circle:"));
-        updatePreview();
-    } else if (currentState == PickingRadius) {
-        pickedPoints.push_back(point);
-        createCircle();
-        finishCommand();
-    }
-    
-    return true;
-}
-
-void CmdDrawingCircle::updatePreview()
-{
-    if (pickedPoints.size() == 1 && !previewObject) {
-        App::Document* doc = getActiveGuiDocument()->getDocument();
-        previewObject = doc->addObject("Drawing::Circle", "PreviewCircle");
-        
-        Drawing::Circle* circle = static_cast<Drawing::Circle*>(previewObject);
-        circle->Center.setValue(pickedPoints[0]);
-        circle->Radius.setValue(5.0); // Default preview radius
-        circle->Construction.setValue(true);
-        doc->recompute();
-    }
-}
-
-void CmdDrawingCircle::createCircle()
-{
-    if (pickedPoints.size() != 2)
-        return;
-    
-    try {
-        openCommand(QT_TRANSLATE_NOOP("Command", "Create Circle"));
-        
-        App::Document* doc = getActiveGuiDocument()->getDocument();
-        Drawing::Circle* circle = static_cast<Drawing::Circle*>(
-            doc->addObject("Drawing::Circle", "Circle"));
-        
-        Base::Vector3d center = pickedPoints[0];
-        Base::Vector3d radiusPoint = pickedPoints[1];
-        double radius = (radiusPoint - center).Length();
-        
-        circle->Center.setValue(center);
-        circle->Radius.setValue(radius);
-        circle->FirstAngle.setValue(0.0);
-        circle->LastAngle.setValue(360.0);
-        
-        doc->recompute();
-        commitCommand();
-        
-        getMainWindow()->showMessage(tr("Circle created successfully"));
-        
-    } catch (const Base::Exception& e) {
-        abortCommand();
-        QMessageBox::critical(nullptr, tr("Error"), 
-                             tr("Failed to create circle: %1").arg(QString::fromUtf8(e.what())));
-    }
+    return Gui::Application::Instance->activeDocument() != nullptr;
 }
 
 // =============================================================================
 // Command registration
 // =============================================================================
 
-void DrawingGui::CreateDrawingCommands()
+void CreateDrawingCommands()
 {
-    Gui::CommandManager &rcCmdMgr = Gui::Application::Instance->commandManager();
+    Gui::CommandManager& rcCmdMgr = Gui::Application::Instance->commandManager();
     
     rcCmdMgr.addCommand(new CmdDrawingLine());
     rcCmdMgr.addCommand(new CmdDrawingCircle());
-    // Add more commands as they are implemented
 }
+
+} // namespace DrawingGui
