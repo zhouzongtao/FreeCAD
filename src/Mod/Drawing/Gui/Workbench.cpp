@@ -57,28 +57,14 @@ Gui::MenuItem* Workbench::setupMenuBar() const
     Gui::MenuItem* drawing = new Gui::MenuItem;
     drawing->setCommand("&Drawing");
     
-    // Create submenu
-    Gui::MenuItem* create = new Gui::MenuItem;
-    create->setCommand("&Create");
-    *create << "Drawing_Line"
-            << "Drawing_Circle" 
-            << "Drawing_Rectangle"
-            << "Drawing_Polygon"
-            << "Separator"
-            << "Drawing_Text"
-            << "Drawing_Dimension";
-    
-    Gui::MenuItem* modify = new Gui::MenuItem;
-    modify->setCommand("&Modify");
-    *modify << "Drawing_Move"
-            << "Drawing_Copy"
-            << "Drawing_Rotate"
-            << "Drawing_Scale"
-            << "Separator"
-            << "Drawing_Trim"
-            << "Drawing_Extend";
-    
-    *drawing << create << modify;
+    // Canvas commands
+    *drawing << "Drawing_NewCanvas"
+             << "Separator"
+             << "Drawing_Line"
+             << "Drawing_Circle" 
+             << "Drawing_Rectangle"
+             << "Separator"
+             << "Drawing_ExportSVG";
     
     // Insert Drawing menu before Help
     root->insertItem(drawing, root->findItem("&Help"));
@@ -92,25 +78,14 @@ Gui::ToolBarItem* Workbench::setupToolBars() const
     
     // Create Drawing toolbar
     Gui::ToolBarItem* drawing = new Gui::ToolBarItem(root);
-    drawing->setCommand("Drawing Creation");
-    *drawing << "Drawing_Line"
-             << "Drawing_Circle"
-             << "Drawing_Rectangle" 
-             << "Drawing_Polygon"
+    drawing->setCommand("Drawing Tools");
+    *drawing << "Drawing_NewCanvas"
              << "Separator"
-             << "Drawing_Text"
-             << "Drawing_Dimension";
-    
-    // Modify toolbar
-    Gui::ToolBarItem* modify = new Gui::ToolBarItem(root);
-    modify->setCommand("Drawing Modification");
-    *modify << "Drawing_Move"
-            << "Drawing_Copy"
-            << "Drawing_Rotate"
-            << "Drawing_Scale"
-            << "Separator"
-            << "Drawing_Trim"
-            << "Drawing_Extend";
+             << "Drawing_Line"
+             << "Drawing_Circle"
+             << "Drawing_Rectangle"
+             << "Separator"
+             << "Drawing_ExportSVG";
     
     return root;
 }

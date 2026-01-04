@@ -1,37 +1,86 @@
+# Drawing GUI module with Skia rendering
+
 add_library(DrawingGui SHARED)
 
+# Skia configuration
+set(SKIA_DIR "/Users/zhouzongtao/repository/skia")
+set(SKIA_BUILD_DIR "${SKIA_DIR}/out/Release")
+
+# Skia include directories
 target_include_directories(DrawingGui PRIVATE
     ${CMAKE_BINARY_DIR}
     ${CMAKE_SOURCE_DIR}/src
     ${CMAKE_CURRENT_BINARY_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/..
+    ${SKIA_DIR}
 )
 
 target_include_directories(DrawingGui SYSTEM PRIVATE
     ${QtCore_INCLUDE_DIRS}
     ${QtWidgets_INCLUDE_DIRS}
     ${QtOpenGL_INCLUDE_DIRS}
-    ${COIN3D_INCLUDE_DIRS}
-    ${SOQT_INCLUDE_DIRS}
 )
 
+# Find Skia static library
+find_library(SKIA_LIBRARY
+    NAMES skia
+    PATHS ${SKIA_BUILD_DIR}
+    NO_DEFAULT_PATH
+)
+
+if(NOT SKIA_LIBRARY)
+    message(WARNING "Skia library not found at ${SKIA_BUILD_DIR}")
+    set(SKIA_LIBRARY "${SKIA_BUILD_DIR}/libskia.a")
+endif()
+
+message(STATUS "Skia library: ${SKIA_LIBRARY}")
+
+# macOS frameworks required by Skia with Metal backend
+if(APPLE)
+    find_library(METAL_FRAMEWORK Metal)
+    find_library(METALKIT_FRAMEWORK MetalKit)
+    find_library(FOUNDATION_FRAMEWORK Foundation)
+    find_library(COREFOUNDATION_FRAMEWORK CoreFoundation)
+    find_library(COREGRAPHICS_FRAMEWORK CoreGraphics)
+    find_library(CORETEXT_FRAMEWORK CoreText)
+    find_library(APPKIT_FRAMEWORK AppKit)
+    find_library(IOKIT_FRAMEWORK IOKit)
+    find_library(IOSURFACE_FRAMEWORK IOSurface)
+    
+    set(SKIA_FRAMEWORKS
+        ${METAL_FRAMEWORK}
+        ${METALKIT_FRAMEWORK}
+        ${FOUNDATION_FRAMEWORK}
+        ${COREFOUNDATION_FRAMEWORK}
+        ${COREGRAPHICS_FRAMEWORK}
+        ${CORETEXT_FRAMEWORK}
+        ${APPKIT_FRAMEWORK}
+        ${IOKIT_FRAMEWORK}
+        ${IOSURFACE_FRAMEWORK}
+    )
+endif()
+
+# Libraries to link
 set(DrawingGui_LIBS
     FreeCADGui
     Drawing
+    ${SKIA_LIBRARY}
 )
+
+if(APPLE)
+    list(APPEND DrawingGui_LIBS ${SKIA_FRAMEWORKS})
+endif()
 
 target_link_libraries(DrawingGui ${DrawingGui_LIBS})
 
-# Note: GUI components typically don't need Python bindings
-# ViewProviders are usually accessed through the App objects they represent
-# Workbench is registered through InitGui.py
+# Compiler definitions for Skia
+target_compile_definitions(DrawingGui PRIVATE
+    SK_RELEASE
+    SK_GANESH
+    SK_METAL
+)
 
 # Source files
-SET(Python_SRCS
-    # No Python bindings needed for GUI components in this implementation
-)
-SOURCE_GROUP("Python" FILES ${Python_SRCS})
-
 SET(Module_SRCS
     AppDrawingGui.cpp
     AppDrawingGuiPy.cpp
@@ -58,11 +107,20 @@ SET(Workbench_SRCS
 )
 SOURCE_GROUP("Workbench" FILES ${Workbench_SRCS})
 
+SET(Skia_SRCS
+    SkiaCanvas.cpp
+    SkiaCanvas.h
+    MDIViewDrawing.cpp
+    MDIViewDrawing.h
+)
+SOURCE_GROUP("Skia" FILES ${Skia_SRCS})
+
 target_sources(DrawingGui PRIVATE
     ${Module_SRCS}
     ${Command_SRCS}
     ${ViewProvider_SRCS}
     ${Workbench_SRCS}
+    ${Skia_SRCS}
 )
 
 SET_BIN_DIR(DrawingGui DrawingGui /Mod/Drawing)

@@ -35,9 +35,6 @@
 #include "ViewProviderDrawing.h"
 #include "Command.h"
 
-// Forward declaration
-void CreateDrawingCommands(void);
-
 void loadDrawingResource()
 {
     // add resources and reloads the translators

@@ -1,39 +1,48 @@
 # ***************************************************************************
 # *   Copyright (c) 2024 FreeCAD Project                                   *
 # *                                                                         *
-# *   Drawing workbench GUI initialization                                  *
+# *   Drawing workbench GUI initialization (Skia-based)                    *
 # *                                                                         *
 # ***************************************************************************
 
 """Drawing workbench GUI initialization.
 
-This module registers the Drawing workbench which uses C++ commands
-defined in DrawingGui::CreateDrawingCommands().
+This module registers the Drawing workbench which uses Skia for 2D rendering.
 """
 
 
 class DrawingWorkbench(Workbench):
-    """Drawing workbench object"""
+    """Drawing workbench with Skia-based 2D canvas"""
     
     MenuText = "Drawing"
-    ToolTip = "2D Drawing workbench"
+    ToolTip = "2D Drawing workbench (Skia)"
     
     def Initialize(self):
         import FreeCAD
-        FreeCAD.Console.PrintMessage("Initializing Drawing workbench...\n")
+        FreeCAD.Console.PrintMessage("Initializing Drawing workbench (Skia)...\n")
         
-        # Load C++ modules - this registers the C++ commands
+        # Load C++ GUI module - this registers the C++ commands
         import DrawingGui
-        import Drawing
         
-        # Command list - these are registered by C++ code in DrawingGui
-        self.cmdList = ["Drawing_Line", "Drawing_Circle"]
+        # Command list - registered by C++ code in DrawingGui
+        self.drawingTools = [
+            "Drawing_NewCanvas",
+            "Drawing_Line", 
+            "Drawing_Circle",
+            "Drawing_Rectangle",
+        ]
+        
+        self.exportTools = [
+            "Drawing_ExportSVG",
+        ]
         
         # Create toolbar and menu
-        self.appendToolbar("Drawing Tools", self.cmdList)
-        self.appendMenu("Drawing", self.cmdList)
+        self.appendToolbar("Drawing Tools", self.drawingTools)
+        self.appendToolbar("Export", self.exportTools)
         
-        FreeCAD.Console.PrintMessage("Drawing workbench initialized.\n")
+        self.appendMenu("Drawing", self.drawingTools + ["Separator"] + self.exportTools)
+        
+        FreeCAD.Console.PrintMessage("Drawing workbench (Skia) initialized.\n")
     
     def Activated(self):
         import FreeCAD
@@ -43,7 +52,6 @@ class DrawingWorkbench(Workbench):
         pass
     
     def GetClassName(self):
-        # Use Python workbench for simplicity
         return "Gui::PythonWorkbench"
 
 
