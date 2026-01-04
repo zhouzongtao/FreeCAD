@@ -9,6 +9,10 @@
 #include "MDIViewDrawing.h"
 #include "SkiaCanvas.h"
 
+#ifdef __APPLE__
+#include "SkiaMetalCanvas.h"
+#endif
+
 #include <QToolBar>
 #include <QAction>
 #include <QVBoxLayout>
@@ -24,27 +28,58 @@ namespace DrawingGui {
 
 TYPESYSTEM_SOURCE_ABSTRACT(DrawingGui::MDIViewDrawing, Gui::MDIView)
 
-MDIViewDrawing::MDIViewDrawing(Gui::Document* doc, QWidget* parent)
+MDIViewDrawing::MDIViewDrawing(Gui::Document* doc, QWidget* parent, bool useGpu)
     : Gui::MDIView(doc, parent)
-    , m_canvas(nullptr)
+    , m_useGpu(useGpu)
 {
-    // Create canvas
-    m_canvas = new SkiaCanvas(this);
-    setCentralWidget(m_canvas);
+#ifdef __APPLE__
+    if (m_useGpu) {
+        // Try GPU rendering first
+        m_gpuCanvas = new SkiaMetalCanvas(this);
+        if (m_gpuCanvas->isGpuAvailable()) {
+            setCentralWidget(m_gpuCanvas);
+            
+            connect(m_gpuCanvas, &SkiaMetalCanvas::lineCreated, 
+                    this, &MDIViewDrawing::onLineCreated);
+            connect(m_gpuCanvas, &SkiaMetalCanvas::circleCreated,
+                    this, &MDIViewDrawing::onCircleCreated);
+            connect(m_gpuCanvas, &SkiaMetalCanvas::cursorPositionChanged,
+                    this, &MDIViewDrawing::onCursorPositionChanged);
+            
+            Base::Console().message("MDIViewDrawing: Using GPU (Metal) rendering\n");
+        } else {
+            // Fall back to CPU
+            delete m_gpuCanvas;
+            m_gpuCanvas = nullptr;
+            m_useGpu = false;
+        }
+    }
+#else
+    m_useGpu = false;
+#endif
+
+    if (!m_useGpu) {
+        // Use CPU rendering
+        m_cpuCanvas = new SkiaCanvas(this);
+        setCentralWidget(m_cpuCanvas);
+        
+        connect(m_cpuCanvas, &SkiaCanvas::lineCreated, 
+                this, &MDIViewDrawing::onLineCreated);
+        connect(m_cpuCanvas, &SkiaCanvas::circleCreated,
+                this, &MDIViewDrawing::onCircleCreated);
+        connect(m_cpuCanvas, &SkiaCanvas::cursorPositionChanged,
+                this, &MDIViewDrawing::onCursorPositionChanged);
+        
+        Base::Console().message("MDIViewDrawing: Using CPU (Raster) rendering\n");
+    }
     
     // Setup UI
     createActions();
     setupToolbar();
     
-    // Connect signals
-    connect(m_canvas, &SkiaCanvas::lineCreated, 
-            this, &MDIViewDrawing::onLineCreated);
-    connect(m_canvas, &SkiaCanvas::circleCreated,
-            this, &MDIViewDrawing::onCircleCreated);
-    connect(m_canvas, &SkiaCanvas::cursorPositionChanged,
-            this, &MDIViewDrawing::onCursorPositionChanged);
-    
-    setWindowTitle(tr("Drawing Canvas [Skia]"));
+    QString title = m_useGpu ? tr("Drawing Canvas [GPU: Metal]") 
+                             : tr("Drawing Canvas [CPU: Raster]");
+    setWindowTitle(title);
     resize(800, 600);
     
     Base::Console().message("MDIViewDrawing: Created\n");
@@ -117,7 +152,15 @@ void MDIViewDrawing::setupToolbar()
     layout->setContentsMargins(0, 0, 0, 0);
     layout->setSpacing(0);
     layout->addWidget(toolbar);
-    layout->addWidget(m_canvas);
+    
+#ifdef __APPLE__
+    if (m_useGpu && m_gpuCanvas) {
+        layout->addWidget(m_gpuCanvas);
+    } else
+#endif
+    {
+        layout->addWidget(m_cpuCanvas);
+    }
     
     QWidget* container = new QWidget(this);
     container->setLayout(layout);
@@ -154,8 +197,13 @@ bool MDIViewDrawing::onHasMsg(const char* pMsg) const
 
 void MDIViewDrawing::onUpdate()
 {
-    if (m_canvas) {
-        m_canvas->update();
+#ifdef __APPLE__
+    if (m_useGpu && m_gpuCanvas) {
+        m_gpuCanvas->update();
+    } else
+#endif
+    if (m_cpuCanvas) {
+        m_cpuCanvas->update();
     }
 }
 
@@ -167,35 +215,77 @@ void MDIViewDrawing::closeEvent(QCloseEvent* event)
 // Command implementations
 void MDIViewDrawing::cmdDrawLine()
 {
-    m_canvas->setDrawMode(DrawMode::Line);
+#ifdef __APPLE__
+    if (m_useGpu && m_gpuCanvas) {
+        m_gpuCanvas->setDrawMode(DrawMode::Line);
+    } else
+#endif
+    if (m_cpuCanvas) {
+        m_cpuCanvas->setDrawMode(DrawMode::Line);
+    }
     Gui::getMainWindow()->showMessage(tr("Click first point for line..."));
 }
 
 void MDIViewDrawing::cmdDrawCircle()
 {
-    m_canvas->setDrawMode(DrawMode::Circle);
+#ifdef __APPLE__
+    if (m_useGpu && m_gpuCanvas) {
+        m_gpuCanvas->setDrawMode(DrawMode::Circle);
+    } else
+#endif
+    if (m_cpuCanvas) {
+        m_cpuCanvas->setDrawMode(DrawMode::Circle);
+    }
     Gui::getMainWindow()->showMessage(tr("Click center point for circle..."));
 }
 
 void MDIViewDrawing::cmdDrawRectangle()
 {
-    m_canvas->setDrawMode(DrawMode::Rectangle);
+#ifdef __APPLE__
+    if (m_useGpu && m_gpuCanvas) {
+        m_gpuCanvas->setDrawMode(DrawMode::Rectangle);
+    } else
+#endif
+    if (m_cpuCanvas) {
+        m_cpuCanvas->setDrawMode(DrawMode::Rectangle);
+    }
     Gui::getMainWindow()->showMessage(tr("Click first corner for rectangle..."));
 }
 
 void MDIViewDrawing::cmdZoomFit()
 {
-    m_canvas->zoomToFit();
+#ifdef __APPLE__
+    if (m_useGpu && m_gpuCanvas) {
+        m_gpuCanvas->zoomToFit();
+    } else
+#endif
+    if (m_cpuCanvas) {
+        m_cpuCanvas->zoomToFit();
+    }
 }
 
 void MDIViewDrawing::cmdZoomIn()
 {
-    m_canvas->setZoom(m_canvas->zoom() * 1.2f);
+#ifdef __APPLE__
+    if (m_useGpu && m_gpuCanvas) {
+        m_gpuCanvas->setZoom(m_gpuCanvas->zoom() * 1.2f);
+    } else
+#endif
+    if (m_cpuCanvas) {
+        m_cpuCanvas->setZoom(m_cpuCanvas->zoom() * 1.2f);
+    }
 }
 
 void MDIViewDrawing::cmdZoomOut()
 {
-    m_canvas->setZoom(m_canvas->zoom() / 1.2f);
+#ifdef __APPLE__
+    if (m_useGpu && m_gpuCanvas) {
+        m_gpuCanvas->setZoom(m_gpuCanvas->zoom() / 1.2f);
+    } else
+#endif
+    if (m_cpuCanvas) {
+        m_cpuCanvas->setZoom(m_cpuCanvas->zoom() / 1.2f);
+    }
 }
 
 void MDIViewDrawing::cmdExportSVG()
@@ -207,7 +297,14 @@ void MDIViewDrawing::cmdExportSVG()
         if (!filename.endsWith(QStringLiteral(".svg"), Qt::CaseInsensitive)) {
             filename += QStringLiteral(".svg");
         }
-        m_canvas->exportToSVG(filename);
+#ifdef __APPLE__
+        if (m_useGpu && m_gpuCanvas) {
+            m_gpuCanvas->exportToSVG(filename);
+        } else
+#endif
+        if (m_cpuCanvas) {
+            m_cpuCanvas->exportToSVG(filename);
+        }
     }
 }
 
@@ -220,13 +317,27 @@ void MDIViewDrawing::cmdExportPNG()
         if (!filename.endsWith(QStringLiteral(".png"), Qt::CaseInsensitive)) {
             filename += QStringLiteral(".png");
         }
-        m_canvas->exportToPNG(filename);
+#ifdef __APPLE__
+        if (m_useGpu && m_gpuCanvas) {
+            m_gpuCanvas->exportToPNG(filename);
+        } else
+#endif
+        if (m_cpuCanvas) {
+            m_cpuCanvas->exportToPNG(filename);
+        }
     }
 }
 
 void MDIViewDrawing::cmdClear()
 {
-    m_canvas->clearGeometry();
+#ifdef __APPLE__
+    if (m_useGpu && m_gpuCanvas) {
+        m_gpuCanvas->clearGeometry();
+    } else
+#endif
+    if (m_cpuCanvas) {
+        m_cpuCanvas->clearGeometry();
+    }
 }
 
 // Slots
@@ -244,9 +355,8 @@ void MDIViewDrawing::onCircleCreated(const SkiaCircle& circle)
 
 void MDIViewDrawing::onCursorPositionChanged(float x, float y)
 {
-    QString msg = QStringLiteral("X: %1  Y: %2").arg(x, 0, 'f', 2).arg(y, 0, 'f', 2);
-    Q_UNUSED(msg);
-    // Could update status bar here
+    Q_UNUSED(x);
+    Q_UNUSED(y);
 }
 
 } // namespace DrawingGui

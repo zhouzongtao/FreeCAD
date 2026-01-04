@@ -46,6 +46,8 @@ if(APPLE)
     find_library(APPKIT_FRAMEWORK AppKit)
     find_library(IOKIT_FRAMEWORK IOKit)
     find_library(IOSURFACE_FRAMEWORK IOSurface)
+    find_library(QUARTZCORE_FRAMEWORK QuartzCore)
+    find_library(COCOA_FRAMEWORK Cocoa)
     
     set(SKIA_FRAMEWORKS
         ${METAL_FRAMEWORK}
@@ -57,6 +59,8 @@ if(APPLE)
         ${APPKIT_FRAMEWORK}
         ${IOKIT_FRAMEWORK}
         ${IOSURFACE_FRAMEWORK}
+        ${QUARTZCORE_FRAMEWORK}
+        ${COCOA_FRAMEWORK}
     )
 endif()
 
@@ -115,6 +119,20 @@ SET(Skia_SRCS
 )
 SOURCE_GROUP("Skia" FILES ${Skia_SRCS})
 
+# Metal GPU canvas (macOS only)
+if(APPLE)
+    SET(SkiaMetal_SRCS
+        SkiaMetalCanvas.mm
+        SkiaMetalCanvas.h
+    )
+    SOURCE_GROUP("SkiaMetal" FILES ${SkiaMetal_SRCS})
+    
+    # Enable Objective-C++ for .mm files
+    set_source_files_properties(SkiaMetalCanvas.mm PROPERTIES
+        COMPILE_FLAGS "-x objective-c++"
+    )
+endif()
+
 target_sources(DrawingGui PRIVATE
     ${Module_SRCS}
     ${Command_SRCS}
@@ -122,6 +140,10 @@ target_sources(DrawingGui PRIVATE
     ${Workbench_SRCS}
     ${Skia_SRCS}
 )
+
+if(APPLE)
+    target_sources(DrawingGui PRIVATE ${SkiaMetal_SRCS})
+endif()
 
 SET_BIN_DIR(DrawingGui DrawingGui /Mod/Drawing)
 SET_PYTHON_PREFIX_SUFFIX(DrawingGui)

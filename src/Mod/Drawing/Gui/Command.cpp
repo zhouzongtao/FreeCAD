@@ -55,9 +55,8 @@ void CmdDrawingNewCanvas::activated(int iMsg)
         doc = Gui::Application::Instance->activeDocument();
     }
     
-    // Create and show the MDI view
-    MDIViewDrawing* view = new MDIViewDrawing(doc, Gui::getMainWindow());
-    view->setWindowTitle(QObject::tr("Drawing Canvas"));
+    // Create and show the MDI view (use CPU rendering for now)
+    MDIViewDrawing* view = new MDIViewDrawing(doc, Gui::getMainWindow(), false);
     Gui::getMainWindow()->addWindow(view);
     
     Base::Console().message("Drawing: New Skia canvas created\n");

@@ -14,9 +14,19 @@
 namespace DrawingGui {
 
 class SkiaCanvas;
+#ifdef __APPLE__
+class SkiaMetalCanvas;
+#endif
+
+// Forward declare geometry types
+struct SkiaLine;
+struct SkiaCircle;
 
 /**
  * @brief MDI View window for 2D Drawing using Skia
+ * 
+ * On macOS, uses Metal GPU backend for hardware acceleration.
+ * On other platforms, uses CPU raster backend.
  */
 class MDIViewDrawing : public Gui::MDIView
 {
@@ -24,11 +34,11 @@ class MDIViewDrawing : public Gui::MDIView
     TYPESYSTEM_HEADER_WITH_OVERRIDE();
 
 public:
-    MDIViewDrawing(Gui::Document* doc, QWidget* parent = nullptr);
+    MDIViewDrawing(Gui::Document* doc, QWidget* parent = nullptr, bool useGpu = true);
     ~MDIViewDrawing() override;
 
-    // Access to canvas
-    SkiaCanvas* getCanvas() { return m_canvas; }
+    // Check if GPU rendering is active
+    bool isGpuRendering() const { return m_useGpu; }
 
     // MDIView interface
     const char* getName() const override { return "MDIViewDrawing"; }
@@ -51,15 +61,21 @@ protected:
     void closeEvent(QCloseEvent* event) override;
 
 private Q_SLOTS:
-    void onLineCreated(const struct SkiaLine& line);
-    void onCircleCreated(const struct SkiaCircle& circle);
+    void onLineCreated(const SkiaLine& line);
+    void onCircleCreated(const SkiaCircle& circle);
     void onCursorPositionChanged(float x, float y);
 
 private:
     void setupToolbar();
     void createActions();
 
-    SkiaCanvas* m_canvas;
+    bool m_useGpu;
+    
+    // Canvas widgets (only one is used)
+    SkiaCanvas* m_cpuCanvas = nullptr;
+#ifdef __APPLE__
+    SkiaMetalCanvas* m_gpuCanvas = nullptr;
+#endif
     
     // Actions
     QAction* m_actLine;

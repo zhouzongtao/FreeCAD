@@ -1,44 +1,41 @@
 /***************************************************************************
  *   Copyright (c) 2024 FreeCAD Project                                   *
  *                                                                         *
- *   Skia-based 2D Canvas for Drawing workbench                           *
+ *   Skia Metal GPU Canvas for Drawing workbench (macOS)                  *
  *                                                                         *
  ***************************************************************************/
 
-#ifndef DRAWING_SKIA_CANVAS_H
-#define DRAWING_SKIA_CANVAS_H
+#ifndef DRAWING_SKIA_METAL_CANVAS_H
+#define DRAWING_SKIA_METAL_CANVAS_H
 
 #include <QWidget>
-#include <QTimer>
 #include <memory>
 #include <vector>
-#include <functional>
 
 #include "SkiaTypes.h"
 
-// Forward declarations for Skia types
-class SkSurface;
-class SkCanvas;
-class SkPath;
-class SkPaint;
+// Forward declarations
 class GrDirectContext;
 
 namespace DrawingGui {
 
 /**
- * @brief Skia-based 2D drawing canvas widget (CPU Raster backend)
+ * @brief Skia Metal GPU-accelerated 2D drawing canvas
  * 
- * This widget provides software-rendered 2D graphics using Skia's
- * raster backend.
+ * This widget uses Skia with Metal backend for hardware-accelerated
+ * 2D rendering on macOS.
  */
-class SkiaCanvas : public QWidget
+class SkiaMetalCanvas : public QWidget
 {
     Q_OBJECT
 
 public:
-    explicit SkiaCanvas(QWidget* parent = nullptr);
-    ~SkiaCanvas() override;
+    explicit SkiaMetalCanvas(QWidget* parent = nullptr);
+    ~SkiaMetalCanvas() override;
 
+    // Check if GPU rendering is available
+    bool isGpuAvailable() const { return m_gpuAvailable; }
+    
     // Drawing mode
     void setDrawMode(DrawMode mode);
     DrawMode drawMode() const { return m_drawMode; }
@@ -88,12 +85,15 @@ protected:
     void wheelEvent(QWheelEvent* event) override;
     void keyPressEvent(QKeyEvent* event) override;
 
-private:
-    // Skia initialization
-    bool initSkia();
-    void cleanupSkia();
-    void createSurface(int width, int height);
+    // For native Metal view on macOS
+    QPaintEngine* paintEngine() const override { return nullptr; }
 
+private:
+    // Metal/Skia initialization
+    bool initMetal();
+    bool initSkiaGpu();
+    void cleanup();
+    
     // Rendering
     void render();
     void drawGrid();
@@ -110,9 +110,11 @@ private:
     void cancelCurrentDrawing();
 
 private:
-    // Skia objects (using pimpl to hide Skia types)
-    class SkiaImpl;
-    std::unique_ptr<SkiaImpl> m_impl;
+    // Platform-specific implementation (pimpl)
+    class MetalImpl;
+    std::unique_ptr<MetalImpl> m_metal;
+    
+    bool m_gpuAvailable = false;
 
     // View state
     float m_zoom = 1.0f;
@@ -135,15 +137,15 @@ private:
     // Display settings
     bool m_showGrid = true;
     float m_gridSpacing = 10.0f;
-    uint32_t m_backgroundColor = 0xFFFFFFFF; // White
-    uint32_t m_gridColor = 0xFFE0E0E0;       // Light gray
-    uint32_t m_currentColor = 0xFF000000;    // Black
+    uint32_t m_backgroundColor = 0xFFFFFFFF;
+    uint32_t m_gridColor = 0xFFE0E0E0;
+    uint32_t m_currentColor = 0xFF000000;
     float m_currentStrokeWidth = 2.0f;
     
-    // Cursor position in world coordinates
+    // Cursor position
     SkiaPoint m_cursorWorld{0, 0};
 };
 
 } // namespace DrawingGui
 
-#endif // DRAWING_SKIA_CANVAS_H
+#endif // DRAWING_SKIA_METAL_CANVAS_H
