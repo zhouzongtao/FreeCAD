@@ -13,6 +13,7 @@
 #include <QKeyEvent>
 #include <QPainter>
 #include <QWindow>
+#include <QTimer>
 #include <cmath>
 
 // Metal and Cocoa headers
@@ -56,143 +57,150 @@ public:
     sk_sp<GrDirectContext> grContext;
     sk_sp<SkSurface> surface;
     SkCanvas* canvas = nullptr;
+    id<CAMetalDrawable> currentDrawable = nil;
     
     int width = 0;
     int height = 0;
+    bool initialized = false;
     
-    bool init(QWidget* widget) {
-        // Get default Metal device
-        device = MTLCreateSystemDefaultDevice();
-        if (!device) {
-            Base::Console().error("SkiaMetalCanvas: No Metal device available\n");
-            return false;
-        }
-        
-        Base::Console().message("SkiaMetalCanvas: Using Metal device: %s\n", 
-            [[device name] UTF8String]);
-        
-        // Create command queue
-        commandQueue = [device newCommandQueue];
-        if (!commandQueue) {
-            Base::Console().error("SkiaMetalCanvas: Failed to create command queue\n");
-            return false;
-        }
-        
-        // Create Metal layer
-        metalLayer = [CAMetalLayer layer];
-        metalLayer.device = device;
-        metalLayer.pixelFormat = MTLPixelFormatBGRA8Unorm;
-        metalLayer.framebufferOnly = NO;  // Allow reading back for export
-        metalLayer.contentsScale = widget->devicePixelRatio();
-        
-        // Attach Metal layer to widget's native view
-        NSView* view = reinterpret_cast<NSView*>(widget->winId());
-        if (!view) {
-            Base::Console().error("SkiaMetalCanvas: Failed to get native view\n");
-            return false;
-        }
-        
-        [view setWantsLayer:YES];
-        [view setLayer:metalLayer];
-        
-        // Create Skia GPU context
-        GrMtlBackendContext backendContext = {};
-        backendContext.fDevice.retain((__bridge void*)device);
-        backendContext.fQueue.retain((__bridge void*)commandQueue);
-        
-        grContext = GrDirectContexts::MakeMetal(backendContext);
-        if (!grContext) {
-            Base::Console().error("SkiaMetalCanvas: Failed to create Skia GPU context\n");
-            return false;
-        }
-        
-        Base::Console().message("SkiaMetalCanvas: GPU context created successfully\n");
-        return true;
-    }
-    
-    bool createSurface(int w, int h, qreal devicePixelRatio) {
-        if (!grContext || !metalLayer) return false;
-        
-        width = w * devicePixelRatio;
-        height = h * devicePixelRatio;
-        
-        if (width <= 0 || height <= 0) return false;
-        
-        // Update Metal layer size
-        metalLayer.drawableSize = CGSizeMake(width, height);
-        
-        // Surface will be created per-frame from drawable
-        return true;
-    }
-    
-    bool beginFrame() {
-        if (!grContext || !metalLayer) return false;
-        
+    bool init() {
         @autoreleasepool {
-            id<CAMetalDrawable> drawable = [metalLayer nextDrawable];
-            if (!drawable) {
+            // Get default Metal device
+            device = MTLCreateSystemDefaultDevice();
+            if (!device) {
+                Base::Console().error("SkiaMetalCanvas: No Metal device available\n");
                 return false;
             }
             
-            // Create Skia surface from Metal texture
-            GrMtlTextureInfo textureInfo;
-            textureInfo.fTexture.retain((__bridge void*)drawable.texture);
+            Base::Console().message("SkiaMetalCanvas: Using Metal device: %s\n", 
+                [[device name] UTF8String]);
             
-            GrBackendRenderTarget backendRT = GrBackendRenderTargets::MakeMtl(
-                width, height, textureInfo);
-            
-            surface = SkSurfaces::WrapBackendRenderTarget(
-                grContext.get(),
-                backendRT,
-                kTopLeft_GrSurfaceOrigin,
-                kBGRA_8888_SkColorType,
-                nullptr,  // colorSpace
-                nullptr   // surfaceProps
-            );
-            
-            if (!surface) {
+            // Create command queue
+            commandQueue = [device newCommandQueue];
+            if (!commandQueue) {
+                Base::Console().error("SkiaMetalCanvas: Failed to create command queue\n");
                 return false;
             }
             
-            canvas = surface->getCanvas();
+            // Create Skia GPU context
+            GrMtlBackendContext backendContext = {};
+            backendContext.fDevice.retain((__bridge void*)device);
+            backendContext.fQueue.retain((__bridge void*)commandQueue);
             
-            // Store drawable for endFrame
-            currentDrawable = drawable;
+            grContext = GrDirectContexts::MakeMetal(backendContext);
+            if (!grContext) {
+                Base::Console().error("SkiaMetalCanvas: Failed to create Skia GPU context\n");
+                return false;
+            }
+            
+            Base::Console().message("SkiaMetalCanvas: GPU context created successfully\n");
             return true;
         }
     }
     
-    void endFrame() {
-        if (!grContext || !currentDrawable) return;
+    bool attachToView(NSView* view, qreal devicePixelRatio) {
+        if (!device || !grContext) return false;
         
         @autoreleasepool {
-            // Flush Skia commands
-            grContext->flushAndSubmit(surface.get());
+            // Create Metal layer
+            metalLayer = [CAMetalLayer layer];
+            metalLayer.device = device;
+            metalLayer.pixelFormat = MTLPixelFormatBGRA8Unorm;
+            metalLayer.framebufferOnly = NO;
+            metalLayer.contentsScale = devicePixelRatio;
             
-            // Present drawable
-            id<MTLCommandBuffer> commandBuffer = [commandQueue commandBuffer];
-            [commandBuffer presentDrawable:currentDrawable];
-            [commandBuffer commit];
+            // Set layer on view
+            [view setWantsLayer:YES];
+            view.layer = metalLayer;
             
-            // Clear references
-            surface.reset();
-            canvas = nullptr;
-            currentDrawable = nil;
+            initialized = true;
+            Base::Console().message("SkiaMetalCanvas: Metal layer attached to view\n");
+            return true;
         }
     }
     
-    void cleanup() {
-        surface.reset();
-        canvas = nullptr;
-        grContext.reset();
-        currentDrawable = nil;
-        metalLayer = nil;
-        commandQueue = nil;
-        device = nil;
+    bool createSurface(int w, int h, qreal devicePixelRatio) {
+        if (!initialized || !metalLayer) return false;
+        
+        width = static_cast<int>(w * devicePixelRatio);
+        height = static_cast<int>(h * devicePixelRatio);
+        
+        if (width <= 0 || height <= 0) return false;
+        
+        @autoreleasepool {
+            metalLayer.drawableSize = CGSizeMake(width, height);
+            metalLayer.contentsScale = devicePixelRatio;
+        }
+        return true;
     }
     
-private:
-    id<CAMetalDrawable> currentDrawable = nil;
+    bool beginFrame() {
+        if (!initialized || !grContext || !metalLayer) return false;
+        
+        currentDrawable = [metalLayer nextDrawable];
+        if (!currentDrawable) {
+            Base::Console().warning("SkiaMetalCanvas: No drawable available\n");
+            return false;
+        }
+        
+        // Create Skia surface from Metal texture
+        GrMtlTextureInfo textureInfo;
+        textureInfo.fTexture.retain((__bridge void*)currentDrawable.texture);
+        
+        GrBackendRenderTarget backendRT = GrBackendRenderTargets::MakeMtl(
+            width, height, textureInfo);
+        
+        surface = SkSurfaces::WrapBackendRenderTarget(
+            grContext.get(),
+            backendRT,
+            kTopLeft_GrSurfaceOrigin,
+            kBGRA_8888_SkColorType,
+            nullptr,
+            nullptr
+        );
+        
+        if (!surface) {
+            Base::Console().error("SkiaMetalCanvas: Failed to create surface\n");
+            currentDrawable = nil;
+            return false;
+        }
+        
+        canvas = surface->getCanvas();
+        return true;
+    }
+    
+    void endFrame() {
+        if (!initialized || !currentDrawable) return;
+        
+        // Flush Skia commands
+        if (grContext && surface) {
+            grContext->flushAndSubmit(surface.get());
+        }
+        
+        // Present drawable
+        id<MTLCommandBuffer> commandBuffer = [commandQueue commandBuffer];
+        [commandBuffer presentDrawable:currentDrawable];
+        [commandBuffer commit];
+        [commandBuffer waitUntilCompleted];
+        
+        // Clear references
+        surface.reset();
+        canvas = nullptr;
+        currentDrawable = nil;
+    }
+    
+    void cleanup() {
+        @autoreleasepool {
+            surface.reset();
+            canvas = nullptr;
+            grContext.reset();
+            currentDrawable = nil;
+            metalLayer = nil;
+            commandQueue = nil;
+            device = nil;
+            initialized = false;
+        }
+    }
 };
 
 // SkiaMetalCanvas implementation
@@ -200,19 +208,22 @@ SkiaMetalCanvas::SkiaMetalCanvas(QWidget* parent)
     : QWidget(parent)
     , m_metal(std::make_unique<MetalImpl>())
 {
-    setAttribute(Qt::WA_PaintOnScreen);
-    setAttribute(Qt::WA_NoSystemBackground);
-    setAttribute(Qt::WA_NativeWindow);
+    // Set widget attributes for native rendering
+    setAttribute(Qt::WA_PaintOnScreen, true);
+    setAttribute(Qt::WA_NoSystemBackground, true);
+    setAttribute(Qt::WA_OpaquePaintEvent, true);
+    
     setMouseTracking(true);
     setFocusPolicy(Qt::StrongFocus);
+    setAutoFillBackground(false);
     
-    // Initialize Metal
-    m_gpuAvailable = m_metal->init(this);
+    // Initialize Metal device and context (not layer yet)
+    m_gpuAvailable = m_metal->init();
     
     if (m_gpuAvailable) {
-        Base::Console().message("SkiaMetalCanvas: GPU rendering enabled\n");
+        Base::Console().message("SkiaMetalCanvas: Metal initialized, waiting for window\n");
     } else {
-        Base::Console().warning("SkiaMetalCanvas: GPU not available, falling back to CPU\n");
+        Base::Console().warning("SkiaMetalCanvas: Metal not available\n");
     }
 }
 
@@ -221,9 +232,46 @@ SkiaMetalCanvas::~SkiaMetalCanvas()
     cleanup();
 }
 
+void SkiaMetalCanvas::showEvent(QShowEvent* event)
+{
+    QWidget::showEvent(event);
+    
+    // Delay Metal layer attachment until widget is visible
+    if (m_gpuAvailable && !m_metal->initialized) {
+        QTimer::singleShot(0, this, [this]() {
+            initMetalLayer();
+        });
+    }
+}
+
+void SkiaMetalCanvas::initMetalLayer()
+{
+    if (!m_gpuAvailable || m_metal->initialized) return;
+    
+    // Force native window creation
+    setAttribute(Qt::WA_NativeWindow, true);
+    winId();  // Ensure native window is created
+    
+    // Get the native view
+    NSView* view = reinterpret_cast<NSView*>(winId());
+    if (!view) {
+        Base::Console().error("SkiaMetalCanvas: Failed to get native view\n");
+        m_gpuAvailable = false;
+        return;
+    }
+    
+    if (m_metal->attachToView(view, devicePixelRatio())) {
+        m_metal->createSurface(width(), height(), devicePixelRatio());
+        Base::Console().message("SkiaMetalCanvas: GPU rendering ready\n");
+        update();
+    } else {
+        m_gpuAvailable = false;
+    }
+}
+
 bool SkiaMetalCanvas::initMetal()
 {
-    return m_metal->init(this);
+    return m_metal->init();
 }
 
 bool SkiaMetalCanvas::initSkiaGpu()
@@ -240,23 +288,31 @@ void SkiaMetalCanvas::paintEvent(QPaintEvent* event)
 {
     Q_UNUSED(event);
     
-    if (!m_gpuAvailable) return;
-    
-    m_metal->createSurface(width(), height(), devicePixelRatio());
-    
-    if (!m_metal->beginFrame()) {
+    if (!m_gpuAvailable || !m_metal->initialized) {
+        // Fallback: draw a placeholder
+        QPainter painter(this);
+        painter.fillRect(rect(), Qt::white);
+        painter.drawText(rect(), Qt::AlignCenter, QStringLiteral("Initializing GPU..."));
         return;
     }
     
-    render();
-    
-    m_metal->endFrame();
+    @autoreleasepool {
+        m_metal->createSurface(width(), height(), devicePixelRatio());
+        
+        if (!m_metal->beginFrame()) {
+            return;
+        }
+        
+        render();
+        
+        m_metal->endFrame();
+    }
 }
 
 void SkiaMetalCanvas::resizeEvent(QResizeEvent* event)
 {
     QWidget::resizeEvent(event);
-    if (m_gpuAvailable) {
+    if (m_gpuAvailable && m_metal->initialized) {
         m_metal->createSurface(event->size().width(), event->size().height(), devicePixelRatio());
     }
     update();
@@ -274,19 +330,15 @@ void SkiaMetalCanvas::render()
     
     // Apply view transformation
     canvas->save();
-    canvas->scale(scale, scale);  // Handle high DPI
+    canvas->scale(scale, scale);
     canvas->translate(width() / 2.0f + m_pan.x, height() / 2.0f + m_pan.y);
     canvas->scale(m_zoom, -m_zoom);
     
-    // Draw grid
     if (m_showGrid) {
         drawGrid();
     }
     
-    // Draw all geometry
     drawGeometry();
-    
-    // Draw temporary geometry
     drawTempGeometry();
     
     canvas->restore();
@@ -326,7 +378,6 @@ void SkiaMetalCanvas::drawGrid()
         canvas->drawLine(left, y, right, y, paint);
     }
     
-    // Axes
     paint.setColor(0xFFCCCCCC);
     paint.setStrokeWidth(2.0f / m_zoom);
     canvas->drawLine(left, 0, right, 0, paint);
@@ -419,7 +470,6 @@ void SkiaMetalCanvas::drawTempGeometry()
             break;
     }
     
-    // Draw points
     paint.setStyle(SkPaint::kFill_Style);
     paint.setColor(0xFFFF0000);
     for (const auto& pt : m_tempPoints) {
@@ -576,7 +626,6 @@ void SkiaMetalCanvas::finishCurrentDrawing()
                 line.strokeWidth = m_currentStrokeWidth;
                 m_lines.push_back(line);
                 Q_EMIT lineCreated(line);
-                Base::Console().message("SkiaMetalCanvas: Line created\n");
             }
             break;
             
@@ -591,7 +640,6 @@ void SkiaMetalCanvas::finishCurrentDrawing()
                 circle.strokeWidth = m_currentStrokeWidth;
                 m_circles.push_back(circle);
                 Q_EMIT circleCreated(circle);
-                Base::Console().message("SkiaMetalCanvas: Circle created\n");
             }
             break;
             
@@ -606,7 +654,6 @@ void SkiaMetalCanvas::finishCurrentDrawing()
                 rect.strokeWidth = m_currentStrokeWidth;
                 m_rects.push_back(rect);
                 Q_EMIT rectCreated(rect);
-                Base::Console().message("SkiaMetalCanvas: Rectangle created\n");
             }
             break;
             
@@ -626,7 +673,6 @@ void SkiaMetalCanvas::cancelCurrentDrawing()
     update();
 }
 
-// Public API
 void SkiaMetalCanvas::setDrawMode(DrawMode mode)
 {
     if (m_isDrawing) {
@@ -720,84 +766,26 @@ void SkiaMetalCanvas::zoomToFit()
     update();
 }
 
-void SkiaMetalCanvas::addLine(const SkiaLine& line)
-{
-    m_lines.push_back(line);
-    update();
-}
-
-void SkiaMetalCanvas::addCircle(const SkiaCircle& circle)
-{
-    m_circles.push_back(circle);
-    update();
-}
-
-void SkiaMetalCanvas::addRect(const SkiaRect& rect)
-{
-    m_rects.push_back(rect);
-    update();
-}
-
-void SkiaMetalCanvas::clearGeometry()
-{
-    m_lines.clear();
-    m_circles.clear();
-    m_rects.clear();
-    update();
-}
-
-void SkiaMetalCanvas::setShowGrid(bool show)
-{
-    m_showGrid = show;
-    update();
-}
-
-void SkiaMetalCanvas::setGridSpacing(float spacing)
-{
-    m_gridSpacing = spacing;
-    update();
-}
-
-void SkiaMetalCanvas::setBackgroundColor(uint32_t color)
-{
-    m_backgroundColor = color;
-    update();
-}
-
-void SkiaMetalCanvas::setGridColor(uint32_t color)
-{
-    m_gridColor = color;
-    update();
-}
-
-void SkiaMetalCanvas::setCurrentColor(uint32_t color)
-{
-    m_currentColor = color;
-}
-
-void SkiaMetalCanvas::setCurrentStrokeWidth(float w)
-{
-    m_currentStrokeWidth = w;
-}
+void SkiaMetalCanvas::addLine(const SkiaLine& line) { m_lines.push_back(line); update(); }
+void SkiaMetalCanvas::addCircle(const SkiaCircle& circle) { m_circles.push_back(circle); update(); }
+void SkiaMetalCanvas::addRect(const SkiaRect& rect) { m_rects.push_back(rect); update(); }
+void SkiaMetalCanvas::clearGeometry() { m_lines.clear(); m_circles.clear(); m_rects.clear(); update(); }
+void SkiaMetalCanvas::setShowGrid(bool show) { m_showGrid = show; update(); }
+void SkiaMetalCanvas::setGridSpacing(float spacing) { m_gridSpacing = spacing; update(); }
+void SkiaMetalCanvas::setBackgroundColor(uint32_t color) { m_backgroundColor = color; update(); }
+void SkiaMetalCanvas::setGridColor(uint32_t color) { m_gridColor = color; update(); }
+void SkiaMetalCanvas::setCurrentColor(uint32_t color) { m_currentColor = color; }
+void SkiaMetalCanvas::setCurrentStrokeWidth(float w) { m_currentStrokeWidth = w; }
 
 bool SkiaMetalCanvas::exportToSVG(const QString& filename)
 {
-    // For SVG export, we render to a CPU surface
     SkRect bounds = SkRect::MakeWH(width(), height());
-    
     SkFILEWStream stream(filename.toStdString().c_str());
-    if (!stream.isValid()) {
-        Base::Console().error("SkiaMetalCanvas: Failed to open SVG file\n");
-        return false;
-    }
+    if (!stream.isValid()) return false;
     
     std::unique_ptr<SkCanvas> svgCanvas = SkSVGCanvas::Make(bounds, &stream);
-    if (!svgCanvas) {
-        Base::Console().error("SkiaMetalCanvas: Failed to create SVG canvas\n");
-        return false;
-    }
+    if (!svgCanvas) return false;
     
-    // Render to SVG
     svgCanvas->clear(m_backgroundColor);
     svgCanvas->translate(width() / 2.0f + m_pan.x, height() / 2.0f + m_pan.y);
     svgCanvas->scale(m_zoom, -m_zoom);
@@ -825,23 +813,16 @@ bool SkiaMetalCanvas::exportToSVG(const QString& filename)
         svgCanvas->drawRect(skRect, paint);
     }
     
-    Base::Console().message("SkiaMetalCanvas: Exported to SVG\n");
     return true;
 }
 
 bool SkiaMetalCanvas::exportToPNG(const QString& filename)
 {
-    // Create a raster surface for PNG export
     SkImageInfo info = SkImageInfo::MakeN32Premul(width(), height());
     sk_sp<SkSurface> rasterSurface = SkSurfaces::Raster(info);
-    if (!rasterSurface) {
-        Base::Console().error("SkiaMetalCanvas: Failed to create raster surface for PNG\n");
-        return false;
-    }
+    if (!rasterSurface) return false;
     
     SkCanvas* canvas = rasterSurface->getCanvas();
-    
-    // Render to raster surface
     canvas->clear(m_backgroundColor);
     canvas->translate(width() / 2.0f + m_pan.x, height() / 2.0f + m_pan.y);
     canvas->scale(m_zoom, -m_zoom);
@@ -870,25 +851,15 @@ bool SkiaMetalCanvas::exportToPNG(const QString& filename)
     }
     
     sk_sp<SkImage> image = rasterSurface->makeImageSnapshot();
-    if (!image) {
-        Base::Console().error("SkiaMetalCanvas: Failed to create image snapshot\n");
-        return false;
-    }
+    if (!image) return false;
     
     sk_sp<SkData> pngData = SkPngEncoder::Encode(nullptr, image.get(), {});
-    if (!pngData) {
-        Base::Console().error("SkiaMetalCanvas: Failed to encode PNG\n");
-        return false;
-    }
+    if (!pngData) return false;
     
     SkFILEWStream stream(filename.toStdString().c_str());
-    if (!stream.isValid()) {
-        Base::Console().error("SkiaMetalCanvas: Failed to open PNG file\n");
-        return false;
-    }
+    if (!stream.isValid()) return false;
     
     stream.write(pngData->data(), pngData->size());
-    Base::Console().message("SkiaMetalCanvas: Exported to PNG\n");
     return true;
 }
 
