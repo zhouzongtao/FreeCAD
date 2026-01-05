@@ -8,6 +8,7 @@
 #include "PreCompiled.h"
 #include "MDIViewDrawing.h"
 #include "SkiaCanvas.h"
+#include "SkiaGLCanvas.h"
 
 #ifdef __APPLE__
 #include "SkiaMetalCanvas.h"
@@ -19,6 +20,7 @@
 #include <QFileDialog>
 #include <QStatusBar>
 #include <QLabel>
+#include <QOpenGLContext>
 
 #include <Gui/MainWindow.h>
 #include <Gui/Document.h>
@@ -28,66 +30,110 @@ namespace DrawingGui {
 
 TYPESYSTEM_SOURCE_ABSTRACT(DrawingGui::MDIViewDrawing, Gui::MDIView)
 
-MDIViewDrawing::MDIViewDrawing(Gui::Document* doc, QWidget* parent, bool useGpu)
+MDIViewDrawing::MDIViewDrawing(Gui::Document* doc, QWidget* parent, RenderBackend backend)
     : Gui::MDIView(doc, parent)
-    , m_useGpu(useGpu)
 {
-#ifdef __APPLE__
-    if (m_useGpu) {
-        // Try GPU rendering first
-        m_gpuCanvas = new SkiaMetalCanvas(this);
-        if (m_gpuCanvas->isGpuAvailable()) {
-            setCentralWidget(m_gpuCanvas);
-            
-            connect(m_gpuCanvas, &SkiaMetalCanvas::lineCreated, 
-                    this, &MDIViewDrawing::onLineCreated);
-            connect(m_gpuCanvas, &SkiaMetalCanvas::circleCreated,
-                    this, &MDIViewDrawing::onCircleCreated);
-            connect(m_gpuCanvas, &SkiaMetalCanvas::cursorPositionChanged,
-                    this, &MDIViewDrawing::onCursorPositionChanged);
-            
-            Base::Console().message("MDIViewDrawing: Using GPU (Metal) rendering\n");
-        } else {
-            // Fall back to CPU
-            delete m_gpuCanvas;
-            m_gpuCanvas = nullptr;
-            m_useGpu = false;
-        }
-    }
-#else
-    m_useGpu = false;
-#endif
-
-    if (!m_useGpu) {
-        // Use CPU rendering
-        m_cpuCanvas = new SkiaCanvas(this);
-        setCentralWidget(m_cpuCanvas);
-        
-        connect(m_cpuCanvas, &SkiaCanvas::lineCreated, 
-                this, &MDIViewDrawing::onLineCreated);
-        connect(m_cpuCanvas, &SkiaCanvas::circleCreated,
-                this, &MDIViewDrawing::onCircleCreated);
-        connect(m_cpuCanvas, &SkiaCanvas::cursorPositionChanged,
-                this, &MDIViewDrawing::onCursorPositionChanged);
-        
-        Base::Console().message("MDIViewDrawing: Using CPU (Raster) rendering\n");
-    }
-    
-    // Setup UI
+    initCanvas(backend);
     createActions();
     setupToolbar();
     
-    QString title = m_useGpu ? tr("Drawing Canvas [GPU: Metal]") 
-                             : tr("Drawing Canvas [CPU: Raster]");
-    setWindowTitle(title);
+    // Set window title based on backend
+    QString backendName;
+    switch (m_backend) {
+        case RenderBackend::OpenGL:
+            backendName = QStringLiteral("GPU: OpenGL");
+            break;
+        case RenderBackend::Metal:
+            backendName = QStringLiteral("GPU: Metal");
+            break;
+        case RenderBackend::CPU:
+        default:
+            backendName = QStringLiteral("CPU: Raster");
+            break;
+    }
+    setWindowTitle(tr("Drawing Canvas [%1]").arg(backendName));
     resize(800, 600);
     
-    Base::Console().message("MDIViewDrawing: Created\n");
+    Base::Console().message("MDIViewDrawing: Created with %s backend\n", 
+                           backendName.toStdString().c_str());
 }
 
 MDIViewDrawing::~MDIViewDrawing()
 {
     Base::Console().message("MDIViewDrawing: Destroyed\n");
+}
+
+void MDIViewDrawing::initCanvas(RenderBackend backend)
+{
+    // Auto-select best backend
+    if (backend == RenderBackend::Auto) {
+#ifdef __APPLE__
+        // On macOS, prefer Metal, then OpenGL, then CPU
+        backend = RenderBackend::Metal;
+#else
+        // On Windows/Linux, prefer OpenGL, then CPU
+        backend = RenderBackend::OpenGL;
+#endif
+    }
+    
+    // Try to create the requested backend
+#ifdef __APPLE__
+    if (backend == RenderBackend::Metal) {
+        m_metalCanvas = new SkiaMetalCanvas(this);
+        if (m_metalCanvas->isGpuAvailable()) {
+            m_backend = RenderBackend::Metal;
+            
+            connect(m_metalCanvas, &SkiaMetalCanvas::lineCreated, 
+                    this, &MDIViewDrawing::onLineCreated);
+            connect(m_metalCanvas, &SkiaMetalCanvas::circleCreated,
+                    this, &MDIViewDrawing::onCircleCreated);
+            connect(m_metalCanvas, &SkiaMetalCanvas::cursorPositionChanged,
+                    this, &MDIViewDrawing::onCursorPositionChanged);
+            
+            Base::Console().message("MDIViewDrawing: Using Metal GPU rendering\n");
+            return;
+        } else {
+            delete m_metalCanvas;
+            m_metalCanvas = nullptr;
+            backend = RenderBackend::OpenGL; // Fall back to OpenGL
+        }
+    }
+#endif
+
+    if (backend == RenderBackend::OpenGL) {
+        // Check if OpenGL is available
+        QOpenGLContext testContext;
+        if (testContext.create()) {
+            m_glCanvas = new SkiaGLCanvas(this);
+            m_backend = RenderBackend::OpenGL;
+            
+            connect(m_glCanvas, &SkiaGLCanvas::lineCreated, 
+                    this, &MDIViewDrawing::onLineCreated);
+            connect(m_glCanvas, &SkiaGLCanvas::circleCreated,
+                    this, &MDIViewDrawing::onCircleCreated);
+            connect(m_glCanvas, &SkiaGLCanvas::cursorPositionChanged,
+                    this, &MDIViewDrawing::onCursorPositionChanged);
+            
+            Base::Console().message("MDIViewDrawing: Using OpenGL GPU rendering\n");
+            return;
+        } else {
+            Base::Console().warning("MDIViewDrawing: OpenGL not available, falling back to CPU\n");
+            backend = RenderBackend::CPU;
+        }
+    }
+    
+    // CPU fallback
+    m_cpuCanvas = new SkiaCanvas(this);
+    m_backend = RenderBackend::CPU;
+    
+    connect(m_cpuCanvas, &SkiaCanvas::lineCreated, 
+            this, &MDIViewDrawing::onLineCreated);
+    connect(m_cpuCanvas, &SkiaCanvas::circleCreated,
+            this, &MDIViewDrawing::onCircleCreated);
+    connect(m_cpuCanvas, &SkiaCanvas::cursorPositionChanged,
+            this, &MDIViewDrawing::onCursorPositionChanged);
+    
+    Base::Console().message("MDIViewDrawing: Using CPU (Raster) rendering\n");
 }
 
 void MDIViewDrawing::createActions()
@@ -129,6 +175,7 @@ void MDIViewDrawing::createActions()
     connect(m_actClear, &QAction::triggered, this, &MDIViewDrawing::cmdClear);
 }
 
+
 void MDIViewDrawing::setupToolbar()
 {
     QToolBar* toolbar = new QToolBar(tr("Drawing Tools"), this);
@@ -153,13 +200,20 @@ void MDIViewDrawing::setupToolbar()
     layout->setSpacing(0);
     layout->addWidget(toolbar);
     
+    // Add the active canvas
+    switch (m_backend) {
 #ifdef __APPLE__
-    if (m_useGpu && m_gpuCanvas) {
-        layout->addWidget(m_gpuCanvas);
-    } else
+        case RenderBackend::Metal:
+            if (m_metalCanvas) layout->addWidget(m_metalCanvas);
+            break;
 #endif
-    {
-        layout->addWidget(m_cpuCanvas);
+        case RenderBackend::OpenGL:
+            if (m_glCanvas) layout->addWidget(m_glCanvas);
+            break;
+        case RenderBackend::CPU:
+        default:
+            if (m_cpuCanvas) layout->addWidget(m_cpuCanvas);
+            break;
     }
     
     QWidget* container = new QWidget(this);
@@ -197,13 +251,19 @@ bool MDIViewDrawing::onHasMsg(const char* pMsg) const
 
 void MDIViewDrawing::onUpdate()
 {
+    switch (m_backend) {
 #ifdef __APPLE__
-    if (m_useGpu && m_gpuCanvas) {
-        m_gpuCanvas->update();
-    } else
+        case RenderBackend::Metal:
+            if (m_metalCanvas) m_metalCanvas->update();
+            break;
 #endif
-    if (m_cpuCanvas) {
-        m_cpuCanvas->update();
+        case RenderBackend::OpenGL:
+            if (m_glCanvas) m_glCanvas->update();
+            break;
+        case RenderBackend::CPU:
+        default:
+            if (m_cpuCanvas) m_cpuCanvas->update();
+            break;
     }
 }
 
@@ -212,79 +272,91 @@ void MDIViewDrawing::closeEvent(QCloseEvent* event)
     Gui::MDIView::closeEvent(event);
 }
 
-// Command implementations
+// Command implementations - use macros to reduce repetition
+#define CANVAS_CALL(method) \
+    switch (m_backend) { \
+        case RenderBackend::OpenGL: \
+            if (m_glCanvas) m_glCanvas->method; \
+            break; \
+        case RenderBackend::CPU: \
+        default: \
+            if (m_cpuCanvas) m_cpuCanvas->method; \
+            break; \
+    }
+
+#ifdef __APPLE__
+#undef CANVAS_CALL
+#define CANVAS_CALL(method) \
+    switch (m_backend) { \
+        case RenderBackend::Metal: \
+            if (m_metalCanvas) m_metalCanvas->method; \
+            break; \
+        case RenderBackend::OpenGL: \
+            if (m_glCanvas) m_glCanvas->method; \
+            break; \
+        case RenderBackend::CPU: \
+        default: \
+            if (m_cpuCanvas) m_cpuCanvas->method; \
+            break; \
+    }
+#endif
+
 void MDIViewDrawing::cmdDrawLine()
 {
-#ifdef __APPLE__
-    if (m_useGpu && m_gpuCanvas) {
-        m_gpuCanvas->setDrawMode(DrawMode::Line);
-    } else
-#endif
-    if (m_cpuCanvas) {
-        m_cpuCanvas->setDrawMode(DrawMode::Line);
-    }
+    CANVAS_CALL(setDrawMode(DrawMode::Line));
     Gui::getMainWindow()->showMessage(tr("Click first point for line..."));
 }
 
 void MDIViewDrawing::cmdDrawCircle()
 {
-#ifdef __APPLE__
-    if (m_useGpu && m_gpuCanvas) {
-        m_gpuCanvas->setDrawMode(DrawMode::Circle);
-    } else
-#endif
-    if (m_cpuCanvas) {
-        m_cpuCanvas->setDrawMode(DrawMode::Circle);
-    }
+    CANVAS_CALL(setDrawMode(DrawMode::Circle));
     Gui::getMainWindow()->showMessage(tr("Click center point for circle..."));
 }
 
 void MDIViewDrawing::cmdDrawRectangle()
 {
-#ifdef __APPLE__
-    if (m_useGpu && m_gpuCanvas) {
-        m_gpuCanvas->setDrawMode(DrawMode::Rectangle);
-    } else
-#endif
-    if (m_cpuCanvas) {
-        m_cpuCanvas->setDrawMode(DrawMode::Rectangle);
-    }
+    CANVAS_CALL(setDrawMode(DrawMode::Rectangle));
     Gui::getMainWindow()->showMessage(tr("Click first corner for rectangle..."));
 }
 
 void MDIViewDrawing::cmdZoomFit()
 {
-#ifdef __APPLE__
-    if (m_useGpu && m_gpuCanvas) {
-        m_gpuCanvas->zoomToFit();
-    } else
-#endif
-    if (m_cpuCanvas) {
-        m_cpuCanvas->zoomToFit();
-    }
+    CANVAS_CALL(zoomToFit());
 }
 
 void MDIViewDrawing::cmdZoomIn()
 {
+    switch (m_backend) {
 #ifdef __APPLE__
-    if (m_useGpu && m_gpuCanvas) {
-        m_gpuCanvas->setZoom(m_gpuCanvas->zoom() * 1.2f);
-    } else
+        case RenderBackend::Metal:
+            if (m_metalCanvas) m_metalCanvas->setZoom(m_metalCanvas->zoom() * 1.2f);
+            break;
 #endif
-    if (m_cpuCanvas) {
-        m_cpuCanvas->setZoom(m_cpuCanvas->zoom() * 1.2f);
+        case RenderBackend::OpenGL:
+            if (m_glCanvas) m_glCanvas->setZoom(m_glCanvas->zoom() * 1.2f);
+            break;
+        case RenderBackend::CPU:
+        default:
+            if (m_cpuCanvas) m_cpuCanvas->setZoom(m_cpuCanvas->zoom() * 1.2f);
+            break;
     }
 }
 
 void MDIViewDrawing::cmdZoomOut()
 {
+    switch (m_backend) {
 #ifdef __APPLE__
-    if (m_useGpu && m_gpuCanvas) {
-        m_gpuCanvas->setZoom(m_gpuCanvas->zoom() / 1.2f);
-    } else
+        case RenderBackend::Metal:
+            if (m_metalCanvas) m_metalCanvas->setZoom(m_metalCanvas->zoom() / 1.2f);
+            break;
 #endif
-    if (m_cpuCanvas) {
-        m_cpuCanvas->setZoom(m_cpuCanvas->zoom() / 1.2f);
+        case RenderBackend::OpenGL:
+            if (m_glCanvas) m_glCanvas->setZoom(m_glCanvas->zoom() / 1.2f);
+            break;
+        case RenderBackend::CPU:
+        default:
+            if (m_cpuCanvas) m_cpuCanvas->setZoom(m_cpuCanvas->zoom() / 1.2f);
+            break;
     }
 }
 
@@ -297,14 +369,7 @@ void MDIViewDrawing::cmdExportSVG()
         if (!filename.endsWith(QStringLiteral(".svg"), Qt::CaseInsensitive)) {
             filename += QStringLiteral(".svg");
         }
-#ifdef __APPLE__
-        if (m_useGpu && m_gpuCanvas) {
-            m_gpuCanvas->exportToSVG(filename);
-        } else
-#endif
-        if (m_cpuCanvas) {
-            m_cpuCanvas->exportToSVG(filename);
-        }
+        CANVAS_CALL(exportToSVG(filename));
     }
 }
 
@@ -317,28 +382,16 @@ void MDIViewDrawing::cmdExportPNG()
         if (!filename.endsWith(QStringLiteral(".png"), Qt::CaseInsensitive)) {
             filename += QStringLiteral(".png");
         }
-#ifdef __APPLE__
-        if (m_useGpu && m_gpuCanvas) {
-            m_gpuCanvas->exportToPNG(filename);
-        } else
-#endif
-        if (m_cpuCanvas) {
-            m_cpuCanvas->exportToPNG(filename);
-        }
+        CANVAS_CALL(exportToPNG(filename));
     }
 }
 
 void MDIViewDrawing::cmdClear()
 {
-#ifdef __APPLE__
-    if (m_useGpu && m_gpuCanvas) {
-        m_gpuCanvas->clearGeometry();
-    } else
-#endif
-    if (m_cpuCanvas) {
-        m_cpuCanvas->clearGeometry();
-    }
+    CANVAS_CALL(clearGeometry());
 }
+
+#undef CANVAS_CALL
 
 // Slots
 void MDIViewDrawing::onLineCreated(const SkiaLine& line)

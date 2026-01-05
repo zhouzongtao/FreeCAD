@@ -14,6 +14,7 @@
 namespace DrawingGui {
 
 class SkiaCanvas;
+class SkiaGLCanvas;
 #ifdef __APPLE__
 class SkiaMetalCanvas;
 #endif
@@ -25,8 +26,10 @@ struct SkiaCircle;
 /**
  * @brief MDI View window for 2D Drawing using Skia
  * 
- * On macOS, uses Metal GPU backend for hardware acceleration.
- * On other platforms, uses CPU raster backend.
+ * Supports multiple rendering backends:
+ * - OpenGL (cross-platform GPU acceleration)
+ * - Metal (macOS-specific GPU acceleration)
+ * - CPU Raster (fallback software rendering)
  */
 class MDIViewDrawing : public Gui::MDIView
 {
@@ -34,11 +37,20 @@ class MDIViewDrawing : public Gui::MDIView
     TYPESYSTEM_HEADER_WITH_OVERRIDE();
 
 public:
-    MDIViewDrawing(Gui::Document* doc, QWidget* parent = nullptr, bool useGpu = true);
+    enum class RenderBackend {
+        Auto,       // Automatically select best backend
+        OpenGL,     // Cross-platform GPU (Windows, Linux, macOS)
+        Metal,      // macOS-only GPU
+        CPU         // Software raster (fallback)
+    };
+
+    MDIViewDrawing(Gui::Document* doc, QWidget* parent = nullptr, 
+                   RenderBackend backend = RenderBackend::Auto);
     ~MDIViewDrawing() override;
 
-    // Check if GPU rendering is active
-    bool isGpuRendering() const { return m_useGpu; }
+    // Check rendering backend
+    RenderBackend renderBackend() const { return m_backend; }
+    bool isGpuRendering() const { return m_backend != RenderBackend::CPU; }
 
     // MDIView interface
     const char* getName() const override { return "MDIViewDrawing"; }
@@ -68,25 +80,27 @@ private Q_SLOTS:
 private:
     void setupToolbar();
     void createActions();
+    void initCanvas(RenderBackend backend);
 
-    bool m_useGpu;
+    RenderBackend m_backend = RenderBackend::CPU;
     
-    // Canvas widgets (only one is used)
+    // Canvas widgets (only one is used at a time)
     SkiaCanvas* m_cpuCanvas = nullptr;
+    SkiaGLCanvas* m_glCanvas = nullptr;
 #ifdef __APPLE__
-    SkiaMetalCanvas* m_gpuCanvas = nullptr;
+    SkiaMetalCanvas* m_metalCanvas = nullptr;
 #endif
     
     // Actions
-    QAction* m_actLine;
-    QAction* m_actCircle;
-    QAction* m_actRectangle;
-    QAction* m_actZoomFit;
-    QAction* m_actZoomIn;
-    QAction* m_actZoomOut;
-    QAction* m_actExportSVG;
-    QAction* m_actExportPNG;
-    QAction* m_actClear;
+    QAction* m_actLine = nullptr;
+    QAction* m_actCircle = nullptr;
+    QAction* m_actRectangle = nullptr;
+    QAction* m_actZoomFit = nullptr;
+    QAction* m_actZoomIn = nullptr;
+    QAction* m_actZoomOut = nullptr;
+    QAction* m_actExportSVG = nullptr;
+    QAction* m_actExportPNG = nullptr;
+    QAction* m_actClear = nullptr;
 };
 
 } // namespace DrawingGui

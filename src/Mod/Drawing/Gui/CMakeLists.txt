@@ -126,16 +126,20 @@ if(APPLE)
         SK_RELEASE
         SK_GANESH
         SK_METAL
+        SK_GL
     )
 elseif(WIN32)
     target_compile_definitions(DrawingGui PRIVATE
         SK_RELEASE
         SK_GANESH
+        SK_GL
         NOMINMAX
     )
 else()
     target_compile_definitions(DrawingGui PRIVATE
         SK_RELEASE
+        SK_GANESH
+        SK_GL
     )
 endif()
 
@@ -169,6 +173,9 @@ SOURCE_GROUP("Workbench" FILES ${Workbench_SRCS})
 SET(Skia_SRCS
     SkiaCanvas.cpp
     SkiaCanvas.h
+    SkiaGLCanvas.cpp
+    SkiaGLCanvas.h
+    SkiaTypes.h
     MDIViewDrawing.cpp
     MDIViewDrawing.h
 )
