@@ -10,8 +10,11 @@
 This module registers the Drawing workbench which uses Skia for 2D rendering.
 """
 
+import FreeCAD as App
+import FreeCADGui as Gui
 
-class DrawingWorkbench(Workbench):
+
+class DrawingWorkbench(Gui.Workbench):
     """Drawing workbench with Skia-based 2D canvas"""
     
     MenuText = "Drawing"

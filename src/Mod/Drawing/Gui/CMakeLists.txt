@@ -2,9 +2,28 @@
 
 add_library(DrawingGui SHARED)
 
-# Skia configuration
-set(SKIA_DIR "/Users/zhouzongtao/repository/skia")
-set(SKIA_BUILD_DIR "${SKIA_DIR}/out/Release")
+# Skia configuration - platform specific paths
+if(WIN32)
+    set(SKIA_DIR "E:/Repository/skia")
+    set(SKIA_BUILD_DIR "${SKIA_DIR}/out/msvc.x64.release.md")
+elseif(APPLE)
+    set(SKIA_DIR "/Users/zhouzongtao/repository/skia")
+    set(SKIA_BUILD_DIR "${SKIA_DIR}/out/Release")
+else()
+    set(SKIA_DIR "/usr/local/skia")
+    set(SKIA_BUILD_DIR "${SKIA_DIR}/out/Release")
+endif()
+
+# Allow override via CMake variable
+if(DEFINED SKIA_ROOT)
+    set(SKIA_DIR "${SKIA_ROOT}")
+endif()
+if(DEFINED SKIA_BUILD_ROOT)
+    set(SKIA_BUILD_DIR "${SKIA_BUILD_ROOT}")
+endif()
+
+message(STATUS "Skia directory: ${SKIA_DIR}")
+message(STATUS "Skia build directory: ${SKIA_BUILD_DIR}")
 
 # Skia include directories
 target_include_directories(DrawingGui PRIVATE
@@ -22,21 +41,31 @@ target_include_directories(DrawingGui SYSTEM PRIVATE
 )
 
 # Find Skia static library
-find_library(SKIA_LIBRARY
-    NAMES skia
-    PATHS ${SKIA_BUILD_DIR}
-    NO_DEFAULT_PATH
-)
-
-if(NOT SKIA_LIBRARY)
-    message(WARNING "Skia library not found at ${SKIA_BUILD_DIR}")
-    set(SKIA_LIBRARY "${SKIA_BUILD_DIR}/libskia.a")
+if(WIN32)
+    find_library(SKIA_LIBRARY
+        NAMES skia
+        PATHS ${SKIA_BUILD_DIR}
+        NO_DEFAULT_PATH
+    )
+    if(NOT SKIA_LIBRARY)
+        set(SKIA_LIBRARY "${SKIA_BUILD_DIR}/skia.lib")
+    endif()
+else()
+    find_library(SKIA_LIBRARY
+        NAMES skia
+        PATHS ${SKIA_BUILD_DIR}
+        NO_DEFAULT_PATH
+    )
+    if(NOT SKIA_LIBRARY)
+        set(SKIA_LIBRARY "${SKIA_BUILD_DIR}/libskia.a")
+    endif()
 endif()
 
 message(STATUS "Skia library: ${SKIA_LIBRARY}")
 
-# macOS frameworks required by Skia with Metal backend
+# Platform-specific dependencies
 if(APPLE)
+    # macOS frameworks required by Skia with Metal backend
     find_library(METAL_FRAMEWORK Metal)
     find_library(METALKIT_FRAMEWORK MetalKit)
     find_library(FOUNDATION_FRAMEWORK Foundation)
@@ -62,6 +91,18 @@ if(APPLE)
         ${QUARTZCORE_FRAMEWORK}
         ${COCOA_FRAMEWORK}
     )
+elseif(WIN32)
+    # Windows libraries required by Skia
+    set(SKIA_WIN_LIBS
+        opengl32
+        user32
+        gdi32
+        ole32
+        oleaut32
+        uuid
+        fontsub
+        usp10
+    )
 endif()
 
 # Libraries to link
@@ -73,16 +114,30 @@ set(DrawingGui_LIBS
 
 if(APPLE)
     list(APPEND DrawingGui_LIBS ${SKIA_FRAMEWORKS})
+elseif(WIN32)
+    list(APPEND DrawingGui_LIBS ${SKIA_WIN_LIBS})
 endif()
 
 target_link_libraries(DrawingGui ${DrawingGui_LIBS})
 
 # Compiler definitions for Skia
-target_compile_definitions(DrawingGui PRIVATE
-    SK_RELEASE
-    SK_GANESH
-    SK_METAL
-)
+if(APPLE)
+    target_compile_definitions(DrawingGui PRIVATE
+        SK_RELEASE
+        SK_GANESH
+        SK_METAL
+    )
+elseif(WIN32)
+    target_compile_definitions(DrawingGui PRIVATE
+        SK_RELEASE
+        SK_GANESH
+        NOMINMAX
+    )
+else()
+    target_compile_definitions(DrawingGui PRIVATE
+        SK_RELEASE
+    )
+endif()
 
 # Source files
 SET(Module_SRCS
