@@ -14,7 +14,7 @@
 namespace DrawingGui {
 
 class SkiaCanvas;
-class SkiaGLCanvas;
+class SkiaOpenGLCanvas;
 #ifdef __APPLE__
 class SkiaMetalCanvas;
 #endif
@@ -24,12 +24,21 @@ struct SkiaLine;
 struct SkiaCircle;
 
 /**
+ * @brief GPU backend type for rendering
+ */
+enum class GpuBackend {
+    CPU,        // Software raster (cross-platform)
+    OpenGL,     // OpenGL GPU (cross-platform) - requires Skia with skia_use_gl=true
+    Metal       // Metal GPU (macOS only, default on macOS)
+};
+
+/**
  * @brief MDI View window for 2D Drawing using Skia
  * 
  * Supports multiple rendering backends:
- * - OpenGL (cross-platform GPU acceleration)
- * - Metal (macOS-specific GPU acceleration)
- * - CPU Raster (fallback software rendering)
+ * - CPU: Software raster (all platforms)
+ * - OpenGL: GPU accelerated (Windows, Linux, macOS)
+ * - Metal: GPU accelerated (macOS only, best performance)
  */
 class MDIViewDrawing : public Gui::MDIView
 {
@@ -37,20 +46,18 @@ class MDIViewDrawing : public Gui::MDIView
     TYPESYSTEM_HEADER_WITH_OVERRIDE();
 
 public:
-    enum class RenderBackend {
-        Auto,       // Automatically select best backend
-        OpenGL,     // Cross-platform GPU (Windows, Linux, macOS)
-        Metal,      // macOS-only GPU
-        CPU         // Software raster (fallback)
-    };
-
     MDIViewDrawing(Gui::Document* doc, QWidget* parent = nullptr, 
-                   RenderBackend backend = RenderBackend::Auto);
+#ifdef __APPLE__
+                   GpuBackend backend = GpuBackend::Metal);  // Default to Metal on macOS
+#else
+                   GpuBackend backend = GpuBackend::OpenGL); // Default to OpenGL on other platforms
+#endif
     ~MDIViewDrawing() override;
 
     // Check rendering backend
-    RenderBackend renderBackend() const { return m_backend; }
-    bool isGpuRendering() const { return m_backend != RenderBackend::CPU; }
+    GpuBackend backend() const { return m_backend; }
+    bool isGpuRendering() const { return m_backend != GpuBackend::CPU; }
+    QString backendName() const;
 
     // MDIView interface
     const char* getName() const override { return "MDIViewDrawing"; }
@@ -80,13 +87,12 @@ private Q_SLOTS:
 private:
     void setupToolbar();
     void createActions();
-    void initCanvas(RenderBackend backend);
 
-    RenderBackend m_backend = RenderBackend::CPU;
+    GpuBackend m_backend;
     
     // Canvas widgets (only one is used at a time)
     SkiaCanvas* m_cpuCanvas = nullptr;
-    SkiaGLCanvas* m_glCanvas = nullptr;
+    SkiaOpenGLCanvas* m_glCanvas = nullptr;
 #ifdef __APPLE__
     SkiaMetalCanvas* m_metalCanvas = nullptr;
 #endif

@@ -27,7 +27,7 @@ using namespace Gui;
 namespace DrawingGui {
 
 // =============================================================================
-// CmdDrawingNewCanvas - Open new Skia-based drawing canvas
+// CmdDrawingNewCanvas - Open new canvas with platform-optimal GPU backend
 // =============================================================================
 
 DEF_STD_CMD_A(CmdDrawingNewCanvas)
@@ -37,8 +37,13 @@ CmdDrawingNewCanvas::CmdDrawingNewCanvas()
 {
     sAppModule    = "Drawing";
     sGroup        = "Drawing";
-    sMenuText     = QT_TR_NOOP("New Canvas");
-    sToolTipText  = QT_TR_NOOP("Open a new 2D drawing canvas (Skia)");
+#ifdef __APPLE__
+    sMenuText     = QT_TR_NOOP("New Canvas (Metal)");
+    sToolTipText  = QT_TR_NOOP("Open a new 2D drawing canvas with Metal GPU rendering");
+#else
+    sMenuText     = QT_TR_NOOP("New Canvas (OpenGL)");
+    sToolTipText  = QT_TR_NOOP("Open a new 2D drawing canvas with OpenGL GPU rendering");
+#endif
     sWhatsThis    = "Drawing_NewCanvas";
     sStatusTip    = sToolTipText;
     sAccel        = "N";
@@ -50,22 +55,58 @@ void CmdDrawingNewCanvas::activated(int iMsg)
     
     Gui::Document* doc = Gui::Application::Instance->activeDocument();
     if (!doc) {
-        // Create a new document if none exists
         App::GetApplication().newDocument("Drawing");
         doc = Gui::Application::Instance->activeDocument();
     }
     
-    // Create and show the MDI view (auto-select best rendering backend)
-    MDIViewDrawing* view = new MDIViewDrawing(doc, Gui::getMainWindow(), 
-                                               MDIViewDrawing::RenderBackend::Auto);
+    // Use platform-optimal backend
+#ifdef __APPLE__
+    MDIViewDrawing* view = new MDIViewDrawing(doc, Gui::getMainWindow(), GpuBackend::Metal);
+#else
+    MDIViewDrawing* view = new MDIViewDrawing(doc, Gui::getMainWindow(), GpuBackend::OpenGL);
+#endif
     Gui::getMainWindow()->addWindow(view);
-    
-    Base::Console().message("Drawing: New Skia canvas created\n");
 }
 
 bool CmdDrawingNewCanvas::isActive()
 {
-    return true; // Always available
+    return true;
+}
+
+// =============================================================================
+// CmdDrawingNewCanvasCPU - Open new canvas with CPU rendering
+// =============================================================================
+
+DEF_STD_CMD_A(CmdDrawingNewCanvasCPU)
+
+CmdDrawingNewCanvasCPU::CmdDrawingNewCanvasCPU()
+    : Command("Drawing_NewCanvasCPU")
+{
+    sAppModule    = "Drawing";
+    sGroup        = "Drawing";
+    sMenuText     = QT_TR_NOOP("New Canvas (CPU)");
+    sToolTipText  = QT_TR_NOOP("Open a new 2D drawing canvas with CPU software rendering");
+    sWhatsThis    = "Drawing_NewCanvasCPU";
+    sStatusTip    = sToolTipText;
+}
+
+void CmdDrawingNewCanvasCPU::activated(int iMsg)
+{
+    Q_UNUSED(iMsg);
+    
+    Gui::Document* doc = Gui::Application::Instance->activeDocument();
+    if (!doc) {
+        App::GetApplication().newDocument("Drawing");
+        doc = Gui::Application::Instance->activeDocument();
+    }
+    
+    MDIViewDrawing* view = new MDIViewDrawing(doc, Gui::getMainWindow(), GpuBackend::CPU);
+    Gui::getMainWindow()->addWindow(view);
+}
+
+bool CmdDrawingNewCanvasCPU::isActive()
+{
+    return true;
 }
 
 // =============================================================================
@@ -90,7 +131,6 @@ void CmdDrawingLine::activated(int iMsg)
 {
     Q_UNUSED(iMsg);
     
-    // Find active drawing canvas
     Gui::MDIView* mdi = Gui::getMainWindow()->activeWindow();
     MDIViewDrawing* drawView = qobject_cast<MDIViewDrawing*>(mdi);
     
@@ -236,6 +276,7 @@ void CreateDrawingCommands()
     Gui::CommandManager& rcCmdMgr = Gui::Application::Instance->commandManager();
     
     rcCmdMgr.addCommand(new CmdDrawingNewCanvas());
+    rcCmdMgr.addCommand(new CmdDrawingNewCanvasCPU());
     rcCmdMgr.addCommand(new CmdDrawingLine());
     rcCmdMgr.addCommand(new CmdDrawingCircle());
     rcCmdMgr.addCommand(new CmdDrawingRectangle());

@@ -38,6 +38,7 @@ target_include_directories(DrawingGui SYSTEM PRIVATE
     ${QtCore_INCLUDE_DIRS}
     ${QtWidgets_INCLUDE_DIRS}
     ${QtOpenGL_INCLUDE_DIRS}
+    ${QtOpenGLWidgets_INCLUDE_DIRS}
 )
 
 # Find Skia static library
@@ -62,6 +63,10 @@ else()
 endif()
 
 message(STATUS "Skia library: ${SKIA_LIBRARY}")
+
+# Find OpenGL
+find_package(OpenGL REQUIRED)
+message(STATUS "OpenGL found: ${OPENGL_LIBRARIES}")
 
 # Platform-specific dependencies
 if(APPLE)
@@ -110,6 +115,9 @@ set(DrawingGui_LIBS
     FreeCADGui
     Drawing
     ${SKIA_LIBRARY}
+    ${OPENGL_LIBRARIES}
+    Qt::OpenGL
+    Qt::OpenGLWidgets
 )
 
 if(APPLE)
@@ -121,26 +129,17 @@ endif()
 target_link_libraries(DrawingGui ${DrawingGui_LIBS})
 
 # Compiler definitions for Skia
+# SK_GANESH: Enable GPU rendering
+# SK_GL: Enable OpenGL backend (cross-platform)
+# SK_METAL: Enable Metal backend (macOS only)
+target_compile_definitions(DrawingGui PRIVATE
+    SK_RELEASE
+    SK_GANESH
+    SK_GL
+)
+
 if(APPLE)
-    target_compile_definitions(DrawingGui PRIVATE
-        SK_RELEASE
-        SK_GANESH
-        SK_METAL
-        SK_GL
-    )
-elseif(WIN32)
-    target_compile_definitions(DrawingGui PRIVATE
-        SK_RELEASE
-        SK_GANESH
-        SK_GL
-        NOMINMAX
-    )
-else()
-    target_compile_definitions(DrawingGui PRIVATE
-        SK_RELEASE
-        SK_GANESH
-        SK_GL
-    )
+    target_compile_definitions(DrawingGui PRIVATE SK_METAL)
 endif()
 
 # Source files
@@ -173,13 +172,18 @@ SOURCE_GROUP("Workbench" FILES ${Workbench_SRCS})
 SET(Skia_SRCS
     SkiaCanvas.cpp
     SkiaCanvas.h
-    SkiaGLCanvas.cpp
-    SkiaGLCanvas.h
     SkiaTypes.h
     MDIViewDrawing.cpp
     MDIViewDrawing.h
 )
 SOURCE_GROUP("Skia" FILES ${Skia_SRCS})
+
+# OpenGL GPU canvas (cross-platform)
+SET(SkiaOpenGL_SRCS
+    SkiaOpenGLCanvas.cpp
+    SkiaOpenGLCanvas.h
+)
+SOURCE_GROUP("SkiaOpenGL" FILES ${SkiaOpenGL_SRCS})
 
 # Metal GPU canvas (macOS only)
 if(APPLE)
@@ -201,6 +205,7 @@ target_sources(DrawingGui PRIVATE
     ${ViewProvider_SRCS}
     ${Workbench_SRCS}
     ${Skia_SRCS}
+    ${SkiaOpenGL_SRCS}
 )
 
 if(APPLE)

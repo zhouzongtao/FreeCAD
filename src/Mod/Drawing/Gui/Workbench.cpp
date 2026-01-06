@@ -51,43 +51,16 @@ void Workbench::deactivated()
 
 Gui::MenuItem* Workbench::setupMenuBar() const
 {
-    Gui::MenuItem* root = StdWorkbench::setupMenuBar();
-    
-    // Create Drawing menu
-    Gui::MenuItem* drawing = new Gui::MenuItem;
-    drawing->setCommand("&Drawing");
-    
-    // Canvas commands
-    *drawing << "Drawing_NewCanvas"
-             << "Separator"
-             << "Drawing_Line"
-             << "Drawing_Circle" 
-             << "Drawing_Rectangle"
-             << "Separator"
-             << "Drawing_ExportSVG";
-    
-    // Insert Drawing menu before Help
-    root->insertItem(drawing, root->findItem("&Help"));
-    
-    return root;
+    // Menu is defined in Python InitGui.py for PythonWorkbench
+    // This C++ workbench class is only used for type registration
+    return StdWorkbench::setupMenuBar();
 }
 
 Gui::ToolBarItem* Workbench::setupToolBars() const
 {
-    Gui::ToolBarItem* root = StdWorkbench::setupToolBars();
-    
-    // Create Drawing toolbar
-    Gui::ToolBarItem* drawing = new Gui::ToolBarItem(root);
-    drawing->setCommand("Drawing Tools");
-    *drawing << "Drawing_NewCanvas"
-             << "Separator"
-             << "Drawing_Line"
-             << "Drawing_Circle"
-             << "Drawing_Rectangle"
-             << "Separator"
-             << "Drawing_ExportSVG";
-    
-    return root;
+    // Toolbars are defined in Python InitGui.py for PythonWorkbench
+    // This C++ workbench class is only used for type registration
+    return StdWorkbench::setupToolBars();
 }
 
 Gui::ToolBarItem* Workbench::setupCommandBars() const

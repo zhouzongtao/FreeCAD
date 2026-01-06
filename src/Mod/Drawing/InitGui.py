@@ -28,8 +28,12 @@ class DrawingWorkbench(Gui.Workbench):
         import DrawingGui
         
         # Command list - registered by C++ code in DrawingGui
+        self.canvasTools = [
+            "Drawing_NewCanvas",      # Platform-optimal GPU (Metal on macOS)
+            "Drawing_NewCanvasCPU",   # CPU software rendering
+        ]
+        
         self.drawingTools = [
-            "Drawing_NewCanvas",
             "Drawing_Line", 
             "Drawing_Circle",
             "Drawing_Rectangle",
@@ -40,10 +44,11 @@ class DrawingWorkbench(Gui.Workbench):
         ]
         
         # Create toolbar and menu
+        self.appendToolbar("Canvas", self.canvasTools)
         self.appendToolbar("Drawing Tools", self.drawingTools)
         self.appendToolbar("Export", self.exportTools)
         
-        self.appendMenu("Drawing", self.drawingTools + ["Separator"] + self.exportTools)
+        self.appendMenu("Drawing", self.canvasTools + ["Separator"] + self.drawingTools + ["Separator"] + self.exportTools)
         
         FreeCAD.Console.PrintMessage("Drawing workbench (Skia) initialized.\n")
     
