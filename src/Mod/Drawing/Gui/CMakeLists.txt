@@ -172,6 +172,7 @@ SOURCE_GROUP("Workbench" FILES ${Workbench_SRCS})
 SET(Skia_SRCS
     SkiaCanvas.cpp
     SkiaCanvas.h
+    SkiaCanvasConcept.h
     SkiaTypes.h
     MDIViewDrawing.cpp
     MDIViewDrawing.h

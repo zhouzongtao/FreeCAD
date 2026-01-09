@@ -3,6 +3,10 @@
  *                                                                         *
  *   MDI View for Skia-based Drawing canvas                               *
  *                                                                         *
+ *   This implementation uses C++20 template features to provide a        *
+ *   unified interface for multiple canvas backends, eliminating          *
+ *   repetitive conditional code while maintaining type safety.           *
+ *                                                                         *
  ***************************************************************************/
 
 #include "PreCompiled.h"
@@ -27,19 +31,33 @@
 
 namespace DrawingGui {
 
+// ============================================================================
+// Compile-time verification that canvas classes satisfy SkiaCanvasConcept
+// 编译期验证画布类满足 SkiaCanvasConcept
+// ============================================================================
+static_assert(SkiaCanvasConcept<SkiaCanvas>, 
+    "SkiaCanvas must satisfy SkiaCanvasConcept");
+static_assert(SkiaCanvasConcept<SkiaOpenGLCanvas>, 
+    "SkiaOpenGLCanvas must satisfy SkiaCanvasConcept");
+
 TYPESYSTEM_SOURCE_ABSTRACT(DrawingGui::MDIViewDrawing, Gui::MDIView)
 
+// ============================================================================
+// Constructor / 构造函数
+// ============================================================================
 MDIViewDrawing::MDIViewDrawing(Gui::Document* doc, QWidget* parent, GpuBackend backend)
     : Gui::MDIView(doc, parent)
     , m_backend(backend)
 {
     // Set opaque background to prevent any transparency/garbage issues
+    // 设置不透明背景以防止透明/花屏问题
     setAutoFillBackground(true);
     QPalette pal = palette();
     pal.setColor(QPalette::Window, Qt::white);
     setPalette(pal);
     
     // Remove any existing central widget from base class
+    // 移除基类中任何现有的中央控件
     QWidget* oldCentral = centralWidget();
     if (oldCentral) {
         oldCentral->hide();
@@ -49,17 +67,14 @@ MDIViewDrawing::MDIViewDrawing(Gui::Document* doc, QWidget* parent, GpuBackend b
     
     QWidget* canvas = nullptr;
     
+    // Canvas creation with fallback mechanism
+    // 画布创建与回退机制
 #ifdef __APPLE__
     if (backend == GpuBackend::Metal) {
         m_metalCanvas = new SkiaMetalCanvas(this);
         if (m_metalCanvas->isGpuAvailable()) {
             canvas = m_metalCanvas;
-            connect(m_metalCanvas, &SkiaMetalCanvas::lineCreated, 
-                    this, &MDIViewDrawing::onLineCreated);
-            connect(m_metalCanvas, &SkiaMetalCanvas::circleCreated,
-                    this, &MDIViewDrawing::onCircleCreated);
-            connect(m_metalCanvas, &SkiaMetalCanvas::cursorPositionChanged,
-                    this, &MDIViewDrawing::onCursorPositionChanged);
+            connectCanvasSignals(m_metalCanvas);
         } else {
             delete m_metalCanvas;
             m_metalCanvas = nullptr;
@@ -77,12 +92,7 @@ MDIViewDrawing::MDIViewDrawing(Gui::Document* doc, QWidget* parent, GpuBackend b
     if (!canvas && backend == GpuBackend::OpenGL) {
         m_glCanvas = new SkiaOpenGLCanvas(this);
         canvas = m_glCanvas;
-        connect(m_glCanvas, &SkiaOpenGLCanvas::lineCreated, 
-                this, &MDIViewDrawing::onLineCreated);
-        connect(m_glCanvas, &SkiaOpenGLCanvas::circleCreated,
-                this, &MDIViewDrawing::onCircleCreated);
-        connect(m_glCanvas, &SkiaOpenGLCanvas::cursorPositionChanged,
-                this, &MDIViewDrawing::onCursorPositionChanged);
+        connectCanvasSignals(m_glCanvas);
     }
 
     if (!canvas || backend == GpuBackend::CPU) {
@@ -93,12 +103,7 @@ MDIViewDrawing::MDIViewDrawing(Gui::Document* doc, QWidget* parent, GpuBackend b
         m_cpuCanvas = new SkiaCanvas(this);
         canvas = m_cpuCanvas;
         m_backend = GpuBackend::CPU;
-        connect(m_cpuCanvas, &SkiaCanvas::lineCreated, 
-                this, &MDIViewDrawing::onLineCreated);
-        connect(m_cpuCanvas, &SkiaCanvas::circleCreated,
-                this, &MDIViewDrawing::onCircleCreated);
-        connect(m_cpuCanvas, &SkiaCanvas::cursorPositionChanged,
-                this, &MDIViewDrawing::onCursorPositionChanged);
+        connectCanvasSignals(m_cpuCanvas);
     }
     
     createActions();
@@ -111,6 +116,9 @@ MDIViewDrawing::MDIViewDrawing(Gui::Document* doc, QWidget* parent, GpuBackend b
 
 MDIViewDrawing::~MDIViewDrawing() = default;
 
+// ============================================================================
+// Backend information / 后端信息
+// ============================================================================
 QString MDIViewDrawing::backendName() const
 {
     switch (m_backend) {
@@ -121,6 +129,9 @@ QString MDIViewDrawing::backendName() const
     }
 }
 
+// ============================================================================
+// Action creation / 创建动作
+// ============================================================================
 void MDIViewDrawing::createActions()
 {
     m_actLine = new QAction(tr("Line"), this);
@@ -157,6 +168,9 @@ void MDIViewDrawing::createActions()
     connect(m_actClear, &QAction::triggered, this, &MDIViewDrawing::cmdClear);
 }
 
+// ============================================================================
+// Toolbar setup / 工具栏设置
+// ============================================================================
 void MDIViewDrawing::setupToolbar()
 {
     QToolBar* toolbar = new QToolBar(tr("Drawing Tools"), this);
@@ -180,14 +194,9 @@ void MDIViewDrawing::setupToolbar()
     layout->setSpacing(0);
     layout->addWidget(toolbar);
     
-    QWidget* canvas = nullptr;
-#ifdef __APPLE__
-    if (m_metalCanvas) canvas = m_metalCanvas;
-    else
-#endif
-    if (m_glCanvas) canvas = m_glCanvas;
-    else canvas = m_cpuCanvas;
-    
+    // Get active canvas widget using template helper
+    // 使用模板辅助函数获取活跃画布控件
+    QWidget* canvas = getActiveCanvasWidget();
     layout->addWidget(canvas, 1);  // Give canvas stretch factor
     
     QWidget* container = new QWidget(this);
@@ -202,6 +211,9 @@ void MDIViewDrawing::setupToolbar()
     setCentralWidget(container);
 }
 
+// ============================================================================
+// MDIView interface implementation / MDIView 接口实现
+// ============================================================================
 bool MDIViewDrawing::onMsg(const char* pMsg, const char** ppReturn)
 {
     Q_UNUSED(ppReturn);
@@ -221,11 +233,11 @@ bool MDIViewDrawing::onHasMsg(const char* pMsg) const
 
 void MDIViewDrawing::onUpdate()
 {
-#ifdef __APPLE__
-    if (m_metalCanvas) { m_metalCanvas->update(); return; }
-#endif
-    if (m_glCanvas) { m_glCanvas->update(); return; }
-    if (m_cpuCanvas) { m_cpuCanvas->update(); }
+    // Using C++20 template to call update() on active canvas
+    // 使用 C++20 模板在活跃画布上调用 update()
+    withActiveCanvas([](auto* canvas) { 
+        canvas->update(); 
+    });
 }
 
 void MDIViewDrawing::closeEvent(QCloseEvent* event)
@@ -233,103 +245,96 @@ void MDIViewDrawing::closeEvent(QCloseEvent* event)
     Gui::MDIView::closeEvent(event);
 }
 
+// ============================================================================
+// Drawing commands - Using C++20 template for unified interface
+// 绘图命令 - 使用 C++20 模板实现统一接口
+// ============================================================================
+
 void MDIViewDrawing::cmdDrawLine()
 {
-#ifdef __APPLE__
-    if (m_metalCanvas) { m_metalCanvas->setDrawMode(DrawMode::Line); }
-    else
-#endif
-    if (m_glCanvas) { m_glCanvas->setDrawMode(DrawMode::Line); }
-    else if (m_cpuCanvas) { m_cpuCanvas->setDrawMode(DrawMode::Line); }
+    withActiveCanvas([](auto* canvas) { 
+        canvas->setDrawMode(DrawMode::Line); 
+    });
     Gui::getMainWindow()->showMessage(tr("Click first point for line..."));
 }
 
 void MDIViewDrawing::cmdDrawCircle()
 {
-#ifdef __APPLE__
-    if (m_metalCanvas) { m_metalCanvas->setDrawMode(DrawMode::Circle); }
-    else
-#endif
-    if (m_glCanvas) { m_glCanvas->setDrawMode(DrawMode::Circle); }
-    else if (m_cpuCanvas) { m_cpuCanvas->setDrawMode(DrawMode::Circle); }
+    withActiveCanvas([](auto* canvas) { 
+        canvas->setDrawMode(DrawMode::Circle); 
+    });
     Gui::getMainWindow()->showMessage(tr("Click center point for circle..."));
 }
 
 void MDIViewDrawing::cmdDrawRectangle()
 {
-#ifdef __APPLE__
-    if (m_metalCanvas) { m_metalCanvas->setDrawMode(DrawMode::Rectangle); }
-    else
-#endif
-    if (m_glCanvas) { m_glCanvas->setDrawMode(DrawMode::Rectangle); }
-    else if (m_cpuCanvas) { m_cpuCanvas->setDrawMode(DrawMode::Rectangle); }
+    withActiveCanvas([](auto* canvas) { 
+        canvas->setDrawMode(DrawMode::Rectangle); 
+    });
     Gui::getMainWindow()->showMessage(tr("Click first corner for rectangle..."));
 }
 
 void MDIViewDrawing::cmdZoomFit()
 {
-#ifdef __APPLE__
-    if (m_metalCanvas) { m_metalCanvas->zoomToFit(); return; }
-#endif
-    if (m_glCanvas) { m_glCanvas->zoomToFit(); return; }
-    if (m_cpuCanvas) { m_cpuCanvas->zoomToFit(); }
+    withActiveCanvas([](auto* canvas) { 
+        canvas->zoomToFit(); 
+    });
 }
 
 void MDIViewDrawing::cmdZoomIn()
 {
-#ifdef __APPLE__
-    if (m_metalCanvas) { m_metalCanvas->setZoom(m_metalCanvas->zoom() * 1.2f); return; }
-#endif
-    if (m_glCanvas) { m_glCanvas->setZoom(m_glCanvas->zoom() * 1.2f); return; }
-    if (m_cpuCanvas) { m_cpuCanvas->setZoom(m_cpuCanvas->zoom() * 1.2f); }
+    withActiveCanvas([](auto* canvas) { 
+        canvas->setZoom(canvas->zoom() * 1.2f); 
+    });
 }
 
 void MDIViewDrawing::cmdZoomOut()
 {
-#ifdef __APPLE__
-    if (m_metalCanvas) { m_metalCanvas->setZoom(m_metalCanvas->zoom() / 1.2f); return; }
-#endif
-    if (m_glCanvas) { m_glCanvas->setZoom(m_glCanvas->zoom() / 1.2f); return; }
-    if (m_cpuCanvas) { m_cpuCanvas->setZoom(m_cpuCanvas->zoom() / 1.2f); }
+    withActiveCanvas([](auto* canvas) { 
+        canvas->setZoom(canvas->zoom() / 1.2f); 
+    });
 }
 
 void MDIViewDrawing::cmdExportSVG()
 {
-    QString filename = QFileDialog::getSaveFileName(this, tr("Export SVG"), QString(), tr("SVG Files (*.svg)"));
+    QString filename = QFileDialog::getSaveFileName(
+        this, tr("Export SVG"), QString(), tr("SVG Files (*.svg)"));
+    
     if (!filename.isEmpty()) {
-        if (!filename.endsWith(QStringLiteral(".svg"), Qt::CaseInsensitive))
+        if (!filename.endsWith(QStringLiteral(".svg"), Qt::CaseInsensitive)) {
             filename += QStringLiteral(".svg");
-#ifdef __APPLE__
-        if (m_metalCanvas) { m_metalCanvas->exportToSVG(filename); return; }
-#endif
-        if (m_glCanvas) { m_glCanvas->exportToSVG(filename); return; }
-        if (m_cpuCanvas) { m_cpuCanvas->exportToSVG(filename); }
+        }
+        withActiveCanvas([&filename](auto* canvas) { 
+            canvas->exportToSVG(filename); 
+        });
     }
 }
 
 void MDIViewDrawing::cmdExportPNG()
 {
-    QString filename = QFileDialog::getSaveFileName(this, tr("Export PNG"), QString(), tr("PNG Files (*.png)"));
+    QString filename = QFileDialog::getSaveFileName(
+        this, tr("Export PNG"), QString(), tr("PNG Files (*.png)"));
+    
     if (!filename.isEmpty()) {
-        if (!filename.endsWith(QStringLiteral(".png"), Qt::CaseInsensitive))
+        if (!filename.endsWith(QStringLiteral(".png"), Qt::CaseInsensitive)) {
             filename += QStringLiteral(".png");
-#ifdef __APPLE__
-        if (m_metalCanvas) { m_metalCanvas->exportToPNG(filename); return; }
-#endif
-        if (m_glCanvas) { m_glCanvas->exportToPNG(filename); return; }
-        if (m_cpuCanvas) { m_cpuCanvas->exportToPNG(filename); }
+        }
+        withActiveCanvas([&filename](auto* canvas) { 
+            canvas->exportToPNG(filename); 
+        });
     }
 }
 
 void MDIViewDrawing::cmdClear()
 {
-#ifdef __APPLE__
-    if (m_metalCanvas) { m_metalCanvas->clearGeometry(); return; }
-#endif
-    if (m_glCanvas) { m_glCanvas->clearGeometry(); return; }
-    if (m_cpuCanvas) { m_cpuCanvas->clearGeometry(); }
+    withActiveCanvas([](auto* canvas) { 
+        canvas->clearGeometry(); 
+    });
 }
 
+// ============================================================================
+// Signal handlers / 信号处理
+// ============================================================================
 void MDIViewDrawing::onLineCreated(const SkiaLine& line)
 {
     Q_UNUSED(line);
@@ -346,6 +351,19 @@ void MDIViewDrawing::onCursorPositionChanged(float x, float y)
 {
     Q_UNUSED(x);
     Q_UNUSED(y);
+}
+
+// ============================================================================
+// Helper: Get active canvas as QWidget*
+// 辅助函数：获取活跃画布的 QWidget 指针
+// ============================================================================
+QWidget* MDIViewDrawing::getActiveCanvasWidget()
+{
+#ifdef __APPLE__
+    if (m_metalCanvas) return m_metalCanvas;
+#endif
+    if (m_glCanvas) return m_glCanvas;
+    return m_cpuCanvas;
 }
 
 } // namespace DrawingGui
