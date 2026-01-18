@@ -64,6 +64,15 @@ class Color;
 
 class SoGroup;
 
+// 注意：移除 "class RenderNode;" 前向声明以避免与 Gui::Render::RenderNode 冲突
+// Note: Remove "class RenderNode;" forward declaration to avoid conflict with Gui::Render::RenderNode
+
+// 前向声明渲染抽象层 / Forward declarations for rendering abstraction layer
+namespace Gui {
+namespace Render {
+    class RenderNode;
+}
+}
 
 namespace Gui
 {
@@ -149,6 +158,13 @@ public:
     {
         return pcRoot;
     }
+
+    // returns the abstract render root node (for rendering abstraction layer)
+    // 默认返回包装的 Coin3D 节点
+    // returns the abstract render root node (for rendering abstraction layer)
+    // By default returns wrapped Coin3D node
+    virtual Render::RenderNode* getRenderRoot() const;
+
     // return the mode switch node of the Provider (3D)
     SoSwitch* getModeSwitch() const
     {

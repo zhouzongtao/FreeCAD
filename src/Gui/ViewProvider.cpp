@@ -44,6 +44,8 @@
 #include "Inventor/SoMouseWheelEvent.h"
 #include "Inventor/SoFCTransform.h"
 #include "ViewProvider.h"
+#include "Render/Core/RenderNode.h"
+#include "Render/Backends/Coin3D/Coin3DNode.h"
 #include "ActionFunction.h"
 #include "Application.h"
 #include "BitmapFactory.h"
@@ -945,6 +947,33 @@ SoGroup* ViewProvider::getChildRoot() const
         }
     }
     return nullptr;
+}
+
+//---------------------------------------------------------------------------
+// 渲染抽象层集成 / Rendering Abstraction Layer Integration
+//---------------------------------------------------------------------------
+
+Render::RenderNode* ViewProvider::getRenderRoot() const
+{
+    // Default implementation: Wrap Coin3D root node as abstraction layer node
+
+    if (!pcRoot) {
+        return nullptr;
+    }
+
+    // Use static cache to avoid creating wrapper each time
+    static std::unordered_map<SoSeparator*, std::shared_ptr<Gui::Render::Coin3DSeparator>> wrapperCache;
+
+    auto it = wrapperCache.find(pcRoot);
+    if (it != wrapperCache.end()) {
+        return it->second.get();
+    }
+
+    // Create new wrapper (don't take ownership, pcRoot is managed by ViewProvider)
+    auto wrapper = std::make_shared<Gui::Render::Coin3DSeparator>(pcRoot, false);
+    wrapperCache[pcRoot] = wrapper;
+
+    return wrapper.get();
 }
 
 SoSeparator* ViewProvider::getFrontRoot() const
