@@ -45,7 +45,7 @@ OsgVerseNode::OsgVerseNode(osg::Node* osgNode, bool ownsNode, NodeType type)
     , _ownsNode(ownsNode)
 {
     if (!_osgNode) {
-        Base::Console().Warning("OsgVerseNode: Creating node with null OSG node\n");
+        Base::Console().warning("OsgVerseNode: Creating node with null OSG node\n");
     }
 }
 
@@ -70,7 +70,7 @@ void OsgVerseNode::touch()
     }
 }
 
-void OsgVerseNode::setName(const std::string& name)
+void OsgVerseNode::setNodeName(const std::string& name)
 {
     RenderNode::setName(name);
     if (_osgNode) {
@@ -78,7 +78,7 @@ void OsgVerseNode::setName(const std::string& name)
     }
 }
 
-std::string OsgVerseNode::getName() const
+std::string OsgVerseNode::getNodeName() const
 {
     if (_osgNode) {
         return _osgNode->getName();
@@ -115,21 +115,21 @@ osg::Group* OsgVerseGroup::getOsgGroup() const
 void OsgVerseGroup::addChild(RenderNode::Ptr child)
 {
     if (!child) {
-        Base::Console().Warning("OsgVerseGroup::addChild: Null child\n");
+        Base::Console().warning("OsgVerseGroup::addChild: Null child\n");
         return;
     }
 
     auto* group = getOsgGroup();
     if (!group) {
-        Base::Console().Error("OsgVerseGroup::addChild: Not a group node\n");
+        Base::Console().error("OsgVerseGroup::addChild: Not a group node\n");
         return;
     }
 
     // 获取底层 OSG 节点
     // Get underlying OSG node
-    auto* osgChild = static_cast<osg::Node*>(child->getBackendNode());
+    auto* osgChild = child->getBackendNode<osg::Node>();
     if (!osgChild) {
-        Base::Console().Error("OsgVerseGroup::addChild: Child has no OSG node\n");
+        Base::Console().error("OsgVerseGroup::addChild: Child has no OSG node\n");
         return;
     }
 
@@ -145,19 +145,19 @@ void OsgVerseGroup::addChild(RenderNode::Ptr child)
 void OsgVerseGroup::insertChild(size_t index, RenderNode::Ptr child)
 {
     if (!child) {
-        Base::Console().Warning("OsgVerseGroup::insertChild: Null child\n");
+        Base::Console().warning("OsgVerseGroup::insertChild: Null child\n");
         return;
     }
 
     auto* group = getOsgGroup();
     if (!group) {
-        Base::Console().Error("OsgVerseGroup::insertChild: Not a group node\n");
+        Base::Console().error("OsgVerseGroup::insertChild: Not a group node\n");
         return;
     }
 
-    auto* osgChild = static_cast<osg::Node*>(child->getBackendNode());
+    auto* osgChild = child->getBackendNode<osg::Node>();
     if (!osgChild) {
-        Base::Console().Error("OsgVerseGroup::insertChild: Child has no OSG node\n");
+        Base::Console().error("OsgVerseGroup::insertChild: Child has no OSG node\n");
         return;
     }
 
@@ -195,7 +195,7 @@ bool OsgVerseGroup::removeChild(RenderNode* child)
 
     // 从 OSG 场景图移除
     // Remove from OSG scene graph
-    auto* osgChild = static_cast<osg::Node*>(child->getBackendNode());
+    auto* osgChild = child->getBackendNode<osg::Node>();
     if (osgChild) {
         group->removeChild(osgChild);
     }
@@ -237,8 +237,8 @@ bool OsgVerseGroup::replaceChild(RenderNode* oldChild, RenderNode::Ptr newChild)
 
     // 替换 OSG 节点
     // Replace OSG node
-    auto* osgOldChild = static_cast<osg::Node*>(oldChild->getBackendNode());
-    auto* osgNewChild = static_cast<osg::Node*>(newChild->getBackendNode());
+    auto* osgOldChild = oldChild->getBackendNode<osg::Node>();
+    auto* osgNewChild = newChild->getBackendNode<osg::Node>();
 
     if (osgOldChild && osgNewChild) {
         group->replaceChild(osgOldChild, osgNewChild);
@@ -302,7 +302,7 @@ void OsgVerseGroup::addOsgChild(osg::Node* child)
 OsgVerseSeparator::OsgVerseSeparator()
     : OsgVerseGroup(new osg::Group(), true)
 {
-    _type = NodeType::Separator;
+    _nodeType = NodeType::Separator;
 
     // 在 OSG 中，Separator 通过 StateSet 实现状态隔离
     // In OSG, Separator is implemented via StateSet for state isolation
@@ -317,7 +317,7 @@ OsgVerseSeparator::OsgVerseSeparator()
 OsgVerseSeparator::OsgVerseSeparator(osg::Group* group, bool ownsNode)
     : OsgVerseGroup(group, ownsNode)
 {
-    _type = NodeType::Separator;
+    _nodeType = NodeType::Separator;
 
     // 确保有 StateSet
     // Ensure StateSet exists
@@ -512,13 +512,13 @@ void OsgVerseTransform::reset()
 OsgVerseSwitch::OsgVerseSwitch()
     : OsgVerseGroup(new osg::Switch(), true)
 {
-    _type = NodeType::Switch;
+    _nodeType = NodeType::Switch;
 }
 
 OsgVerseSwitch::OsgVerseSwitch(osg::Switch* sw, bool ownsNode)
     : OsgVerseGroup(sw, ownsNode)
 {
-    _type = NodeType::Switch;
+    _nodeType = NodeType::Switch;
 }
 
 OsgVerseSwitch::~OsgVerseSwitch() = default;

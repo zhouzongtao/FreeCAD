@@ -45,7 +45,8 @@ using namespace Gui::Render;
 //===========================================================================
 
 OsgVerseMaterial::OsgVerseMaterial()
-    : _stateSet(new osg::StateSet())
+    : RenderNode(NodeType::Material)
+    , _stateSet(new osg::StateSet())
 {
     // 初始化默认状态 / Initialize default state
     updateStateSet();

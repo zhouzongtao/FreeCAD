@@ -96,12 +96,12 @@ public:
     /**
      * @brief 设置节点名称 / Set node name
      */
-    void setName(const std::string& name) override;
+    void setNodeName(const std::string& name);
 
     /**
      * @brief 获取节点名称 / Get node name
      */
-    std::string getName() const override;
+    std::string getNodeName() const;
 
 protected:
     void* getBackendNodeImpl() override { return _osgNode.get(); }

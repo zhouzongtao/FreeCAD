@@ -34,6 +34,7 @@
 
 #include <FCGlobal.h>
 #include "../../Core/RenderTypes.h"
+#include "../../Core/RenderNode.h"
 
 namespace Gui {
 namespace Render {
@@ -50,8 +51,9 @@ namespace Render {
  * 3. 支持多种纹理贴图
  * 4. 高效的状态管理
  */
-class GuiExport OsgVerseMaterial {
+class GuiExport OsgVerseMaterial : public RenderNode {
 public:
+    RENDER_NODE_STATIC_TYPE(NodeType::Material)
     /**
      * @brief 构造函数 / Constructor
      */

@@ -357,7 +357,7 @@ private:
     std::unordered_map<BackendType, EngineCreator> _creators;
 
     // 默认引擎类型 / Default engine type
-    BackendType _defaultType{BackendType::Coin3D};
+    BackendType _defaultType{BackendType::OsgVerse};
 };
 
 //-------------------------------------------------------------------------

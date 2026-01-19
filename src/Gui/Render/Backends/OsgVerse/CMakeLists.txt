@@ -39,7 +39,6 @@ if(BUILD_WITH_OSGVERSE)
         OsgVerseEngine.h
         OsgVerseMaterial.h
         OsgVerseGeometry.h
-        OsgVerseUtils.h
         OsgVerseViewer.h
     )
 
@@ -49,7 +48,6 @@ if(BUILD_WITH_OSGVERSE)
         OsgVerseEngine.cpp
         OsgVerseMaterial.cpp
         OsgVerseGeometry.cpp
-        OsgVerseUtils.cpp
         OsgVerseViewer.cpp
     )
 

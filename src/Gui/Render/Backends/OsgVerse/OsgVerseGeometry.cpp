@@ -35,12 +35,12 @@ using namespace Gui::Render;
 
 // Constructor
 OsgVerseGeometry::OsgVerseGeometry()
-    : OsgVerseNode(new osg::Geometry(), true)
+    : OsgVerseNode(new osg::Geometry(), true, NodeType::Geometry)
 {
 }
 
 OsgVerseGeometry::OsgVerseGeometry(osg::Geometry* geometry, bool ownsNode)
-    : OsgVerseNode(geometry, ownsNode)
+    : OsgVerseNode(geometry, ownsNode, NodeType::Geometry)
 {
 }
 

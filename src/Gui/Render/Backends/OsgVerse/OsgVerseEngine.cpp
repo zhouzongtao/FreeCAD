@@ -74,15 +74,9 @@ BackendInfo OsgVerseEngine::getInfo() const
     info.name = getName();
     info.version = getVersion();
     info.description = "Modern rendering backend based on OpenSceneGraph and OsgVerse";
-    info.features = {
-        "PBR Materials",
-        "HDR Rendering",
-        "Post-processing Effects",
-        "Advanced Shadows",
-        "Multi-threaded Rendering",
-        "Large Scene Optimization"
-    };
-    info.isAvailable = isAvailable();
+    info.supportsPBR = true;
+    info.supportsDeferredRendering = true;
+    info.supportsRaytracing = false;
     return info;
 }
 
@@ -144,7 +138,7 @@ void OsgVerseEngine::shutdown()
 RenderGroup::Ptr OsgVerseEngine::createGroup()
 {
     auto* osgGroup = new osg::Group();
-    auto node = std::make_shared<OsgVerseNode>(osgGroup, true);
+    auto node = std::make_shared<OsgVerseNode>(osgGroup, true, NodeType::Group);
     return std::static_pointer_cast<RenderGroup>(node);
 }
 
@@ -153,20 +147,20 @@ RenderSeparator::Ptr OsgVerseEngine::createSeparator()
     // In OSG, we use Group with state isolation
     auto* osgGroup = new osg::Group();
     osgGroup->setStateSet(new osg::StateSet());
-    auto node = std::make_shared<OsgVerseNode>(osgGroup, true);
+    auto node = std::make_shared<OsgVerseNode>(osgGroup, true, NodeType::Separator);
     return std::static_pointer_cast<RenderSeparator>(node);
 }
 
 RenderNode::Ptr OsgVerseEngine::createTransform()
 {
     auto* transform = new osg::MatrixTransform();
-    return std::make_shared<OsgVerseNode>(transform, true);
+    return std::make_shared<OsgVerseNode>(transform, true, NodeType::Transform);
 }
 
 RenderNode::Ptr OsgVerseEngine::createSwitch()
 {
     auto* switchNode = new osg::Switch();
-    return std::make_shared<OsgVerseNode>(switchNode, true);
+    return std::make_shared<OsgVerseNode>(switchNode, true, NodeType::Switch);
 }
 
 RenderNode::Ptr OsgVerseEngine::createMaterial()
@@ -182,7 +176,7 @@ RenderNode::Ptr OsgVerseEngine::createGeometry()
 RenderNode::Ptr OsgVerseEngine::createCamera()
 {
     auto* camera = new osg::Camera();
-    return std::make_shared<OsgVerseNode>(camera, true);
+    return std::make_shared<OsgVerseNode>(camera, true, NodeType::Camera);
 }
 
 RenderNode::Ptr OsgVerseEngine::createLight(LightType type)
@@ -207,7 +201,7 @@ RenderNode::Ptr OsgVerseEngine::createLight(LightType type)
     auto* lightSource = new osg::LightSource();
     lightSource->setLight(light);
 
-    return std::make_shared<OsgVerseNode>(lightSource, true);
+    return std::make_shared<OsgVerseNode>(lightSource, true, NodeType::Light);
 }
 
 //-----------------------------------------------------------------------
@@ -267,13 +261,15 @@ void OsgVerseEngine::setRenderMode(RenderMode mode)
             case RenderMode::Points:
                 stateSet->setMode(GL_LIGHTING, osg::StateAttribute::OFF);
                 break;
-            case RenderMode::HiddenLine:
-                // Implement hidden line rendering
+            case RenderMode::Flat:
+                stateSet->setMode(GL_LIGHTING, osg::StateAttribute::ON);
                 break;
-            case RenderMode::FlatLines:
+            case RenderMode::BoundingBox:
                 stateSet->setMode(GL_LIGHTING, osg::StateAttribute::OFF);
                 break;
             case RenderMode::Shaded:
+            case RenderMode::Gouraud:
+            case RenderMode::Phong:
             case RenderMode::Default:
             default:
                 stateSet->setMode(GL_LIGHTING, osg::StateAttribute::ON);
@@ -440,7 +436,8 @@ void OsgVerseEngine::updateStats()
     }
 
     // Update frame statistics
-    const osgViewer::ViewerBase::Scenes& scenes = _viewer->getScenes();
+    osgViewer::ViewerBase::Scenes scenes;
+    _viewer->getScenes(scenes);
     if (!scenes.empty()) {
         osg::Node* sceneData = scenes[0]->getSceneData();
         if (sceneData) {
