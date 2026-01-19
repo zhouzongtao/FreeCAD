@@ -15,10 +15,13 @@ find_path(OSGVERSE_INCLUDE_DIR
 )
 
 # 配置选项 / Configuration option
+# 注意：OsgVerse 后端目前处于开发中，存在编译错误
+# Note: OsgVerse backend is currently under development with compilation errors
 if(OPENSCENEGRAPH_FOUND AND OSGVERSE_INCLUDE_DIR)
-    option(BUILD_WITH_OSGVERSE "Build with OsgVerse rendering backend" OFF)
+    option(BUILD_WITH_OSGVERSE "Build with OsgVerse rendering backend (EXPERIMENTAL)" OFF)
     message(STATUS "OpenSceneGraph found: ${OPENSCENEGRAPH_VERSION}")
     message(STATUS "OsgVerse found at: ${OSGVERSE_INCLUDE_DIR}")
+    message(WARNING "OsgVerse backend is EXPERIMENTAL and has known compilation issues")
 else()
     set(BUILD_WITH_OSGVERSE OFF CACHE BOOL "Build with OsgVerse rendering backend" FORCE)
     if(NOT OPENSCENEGRAPH_FOUND)
