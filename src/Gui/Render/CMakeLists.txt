@@ -40,14 +40,8 @@ target_include_directories(FreeCADGui PUBLIC
 )
 
 # OsgVerse 后端源文件 / OsgVerse backend sources
-if(BUILD_WITH_OSGVERSE)
-    list(APPEND RENDER_PRIVATE_HEADERS
-        Backends/OsgVerse/OsgVerseEngine.h
-    )
-    list(APPEND RENDER_SOURCES
-        # Backends/OsgVerse/OsgVerseEngine.cpp  # 在 Phase 3 实现 / Implemented in Phase 3
-    )
-endif()
+# OsgVerse backend is optional and configured in its own CMakeLists.txt
+add_subdirectory(Backends/OsgVerse)
 
 # 创建源组 / Create source groups
 source_group("Render\\Core" FILES
