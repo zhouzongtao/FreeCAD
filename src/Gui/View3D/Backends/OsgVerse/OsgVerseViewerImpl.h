@@ -164,16 +164,24 @@ private:
     
     /**
      * @brief 初始化 OSG viewer
+     * 
+     * 设置线程模型、默认相机、光照和背景颜色。
      */
     void initializeViewer();
     
     /**
      * @brief 设置默认相机
+     * 
+     * 配置默认的相机位置、视角和投影参数。
+     * 使用配置常量中定义的默认值。
      */
     void setupDefaultCamera();
     
     /**
      * @brief 设置默认光照
+     * 
+     * 创建默认的光源并添加到场景中。
+     * 启用光照和深度测试。
      */
     void setupDefaultLighting();
     
@@ -190,6 +198,13 @@ private:
     // ViewProvider 管理
     std::vector<ViewProvider*> _viewProviders;      ///< ViewProvider 列表
     std::map<ViewProvider*, osg::ref_ptr<osg::Node>> _vpNodeMap;  ///< ViewProvider 到 OSG 节点的映射
+    
+    /**
+     * @note Phase 1 实现说明：
+     * 当前版本使用简单的红色球体作为所有对象的占位符。
+     * 这是为了验证渲染管线和场景图管理的正确性。
+     * Phase 2 将实现真实的几何体转换（TopoShape -> OSG geometry）。
+     */
 };
 
 /**
@@ -227,8 +242,35 @@ protected:
     void keyReleaseEvent(QKeyEvent* event) override;
 
 private:
+    /**
+     * @brief 初始化相关方法
+     * 
+     * 确保 OpenGL 上下文和 OSG viewer 已初始化。
+     * 这个方法可以从 initializeGL() 或 paintGL() 调用。
+     * 使用 _initialized 标志避免重复初始化。
+     * 
+     * @note Qt 的 initializeGL() 调用时机不确定，所以在 paintGL() 中也检查
+     */
+    void ensureInitialized();
+    
+    /**
+     * @brief 创建 OSG GraphicsWindow
+     * 
+     * 创建嵌入式 GraphicsWindow 用于在 Qt widget 中渲染。
+     */
+    void createGraphicsWindow();
+    
+    /**
+     * @brief 初始化 viewer 的 OpenGL 上下文
+     * 
+     * 设置 graphics context、视口和投影矩阵。
+     */
+    void initializeViewerContext();
+    
+    // 成员变量
     osgViewer::Viewer* _viewer;
     osg::ref_ptr<osgViewer::GraphicsWindow> _graphicsWindow;
+    bool _initialized = false;  ///< 初始化标志
 };
 
 } // namespace OsgVerse
