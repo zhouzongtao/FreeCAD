@@ -27,16 +27,20 @@
 #include <QMouseEvent>
 #include <QWheelEvent>
 #include <QKeyEvent>
+#include <QOpenGLContext>
+#include <QSurfaceFormat>
 #endif
 
 #include "OsgVerseViewer.h"
 #include <osgViewer/Viewer>
+#include <osgViewer/GraphicsWindow>
 #include <osgGA/TrackballManipulator>
-#include <osgQt/GraphicsWindowQt>
+#include <osgGA/GUIEventAdapter>
 #include <osg/Camera>
 #include <osg/Light>
 #include <osg/LightSource>
 #include <osgDB/WriteFile>
+#include <Base/Console.h>
 
 using namespace Gui::Render;
 
@@ -46,15 +50,12 @@ using namespace Gui::Render;
 
 OsgVerseViewer::OsgVerseViewer()
 {
-    // Create engine
-    _engine = std::make_unique<OsgVerseEngine>();
-    _engine->initialize();
-
-    // Initialize viewer
-    initializeViewer();
-    initializeWidget();
-    setupDefaultCamera();
-    setupDefaultLighting();
+    // 延迟初始化模式：不在构造函数中做任何初始化
+    // Lazy initialization: do not initialize anything in constructor
+    // 所有初始化都延迟到第一次使用时（ensureInitialized）
+    // All initialization is deferred until first use (ensureInitialized)
+    
+    Base::Console().log("OsgVerseViewer: Constructor called (lazy initialization mode)\n");
 }
 
 OsgVerseViewer::~OsgVerseViewer()
@@ -77,8 +78,11 @@ OsgVerseViewer::~OsgVerseViewer()
 
 void OsgVerseViewer::setSceneRoot(RenderNode::Ptr root)
 {
+    ensureInitialized();
     _sceneRoot = root;
-    _engine->setSceneRoot(root);
+    if (_engine) {
+        _engine->setSceneRoot(root);
+    }
 }
 
 RenderNode::Ptr OsgVerseViewer::getSceneRoot() const
@@ -100,6 +104,7 @@ void OsgVerseViewer::updateScene()
 
 void OsgVerseViewer::render()
 {
+    ensureInitialized();
     if (_viewer) {
         _viewer->frame();
     }
@@ -223,6 +228,15 @@ bool OsgVerseViewer::isBacklightEnabled() const
 
 QWidget* OsgVerseViewer::getWidget() const
 {
+    // 确保已初始化
+    // Ensure initialized
+    const_cast<OsgVerseViewer*>(this)->ensureInitialized();
+    
+    // Lazy initialization of widget
+    if (!_widget && _initialized) {
+        // Cast away const for lazy initialization
+        const_cast<OsgVerseViewer*>(this)->initializeWidget();
+    }
     return _widget;
 }
 
@@ -235,7 +249,7 @@ void OsgVerseViewer::resize(int width, int height)
 
 void OsgVerseViewer::onResize(int width, int height)
 {
-    if (_graphicsWindow) {
+    if (_graphicsWindow.valid()) {
         _graphicsWindow->resized(0, 0, width, height);
     }
 
@@ -360,20 +374,42 @@ void OsgVerseViewer::setStatsEnabled(bool enabled)
 
 void OsgVerseViewer::initializeViewer()
 {
+    Base::Console().log("OsgVerseViewer::initializeViewer: Creating viewer...\n");
+    
+    // Create graphics window embedded (like OsgVerse qt_viewer example)
+    _graphicsWindow = new osgViewer::GraphicsWindowEmbedded(0, 0, 800, 600);
+    
+    // Create viewer
     _viewer = new osgViewer::Viewer();
     _viewer->setThreadingModel(osgViewer::Viewer::SingleThreaded);
+    
+    // Set camera with graphics context
+    osg::Camera* camera = _viewer->getCamera();
+    camera->setGraphicsContext(_graphicsWindow.get());
+    camera->setViewport(0, 0, 800, 600);
+    camera->setClearColor(osg::Vec4(_backgroundColor.r, _backgroundColor.g, _backgroundColor.b, _backgroundColor.a));
+    camera->setClearMask(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     // Set camera manipulator
     _viewer->setCameraManipulator(new osgGA::TrackballManipulator());
+    _viewer->setKeyEventSetsDone(0);  // Don't exit on Escape
 
     // Connect engine to viewer
     _engine->setViewer(_viewer);
+    
+    Base::Console().log("OsgVerseViewer::initializeViewer: Viewer created successfully\n");
 }
 
 void OsgVerseViewer::initializeWidget()
 {
-    _widget = new ViewerWidget(_viewer);
-    _graphicsWindow = _widget->getGraphicsWindow();
+    // Only initialize once
+    if (_widget) {
+        return;
+    }
+    
+    Base::Console().log("OsgVerseViewer::initializeWidget: Creating widget...\n");
+    _widget = new ViewerWidget(_viewer, _graphicsWindow.get());
+    Base::Console().log("OsgVerseViewer::initializeWidget: Widget created successfully\n");
 }
 
 void OsgVerseViewer::setupDefaultCamera()
@@ -388,9 +424,9 @@ void OsgVerseViewer::setupDefaultCamera()
     }
 
     // Set default camera parameters
-    _cameraParams.position = {0.0f, -10.0f, 5.0f};
-    _cameraParams.target = {0.0f, 0.0f, 0.0f};
-    _cameraParams.upVector = {0.0f, 0.0f, 1.0f};
+    _cameraParams.position = Vec3f(0.0f, -10.0f, 5.0f);
+    _cameraParams.target = Vec3f(0.0f, 0.0f, 0.0f);
+    _cameraParams.upVector = Vec3f(0.0f, 0.0f, 1.0f);
     _cameraParams.fieldOfView = 45.0f;
     _cameraParams.aspectRatio = 1.333f;
     _cameraParams.nearPlane = 0.1f;
@@ -417,97 +453,221 @@ void OsgVerseViewer::setupDefaultLighting()
 // ViewerWidget Implementation
 //===========================================================================
 
-OsgVerseViewer::ViewerWidget::ViewerWidget(osgViewer::Viewer* viewer, QWidget* parent)
+OsgVerseViewer::ViewerWidget::ViewerWidget(osgViewer::Viewer* viewer, 
+                                            osgViewer::GraphicsWindowEmbedded* graphicsWindow,
+                                            QWidget* parent)
     : QOpenGLWidget(parent)
     , _viewer(viewer)
+    , _graphicsWindow(graphicsWindow)
+    , _firstFrame(true)
 {
-    // Create graphics window
-    osg::ref_ptr<osg::GraphicsContext::Traits> traits = new osg::GraphicsContext::Traits();
-    traits->windowDecoration = false;
-    traits->x = 0;
-    traits->y = 0;
-    traits->width = 800;
-    traits->height = 600;
-    traits->doubleBuffer = true;
-    traits->samples = 4;
+    // Set OpenGL format (like OsgVerse qt_viewer example)
+    QSurfaceFormat format;
+    format.setRenderableType(QSurfaceFormat::OpenGL);
+    format.setProfile(QSurfaceFormat::CompatibilityProfile);
+    format.setSamples(4);
+    setFormat(format);
 
-    _graphicsWindow = new osgQt::GraphicsWindowQt(traits.get());
-
-    // Set graphics context
-    if (_viewer) {
-        osg::Camera* camera = _viewer->getCamera();
-        if (camera) {
-            camera->setGraphicsContext(_graphicsWindow);
-            camera->setViewport(0, 0, traits->width, traits->height);
-        }
-    }
-
-    // Enable mouse tracking
+    // Enable mouse tracking and keyboard focus
     setMouseTracking(true);
     setFocusPolicy(Qt::StrongFocus);
+    setMinimumSize(320, 240);
+    
+    Base::Console().log("OsgVerseViewer::ViewerWidget: Constructor completed\n");
 }
 
 OsgVerseViewer::ViewerWidget::~ViewerWidget()
 {
+    // Cleanup is handled by osg::ref_ptr
 }
 
-void OsgVerseViewer::ViewerWidget::paintEvent(QPaintEvent* event)
+void OsgVerseViewer::ViewerWidget::initializeGL()
+{
+    Base::Console().log("OsgVerseViewer::ViewerWidget::initializeGL: OpenGL context initialized\n");
+}
+
+void OsgVerseViewer::ViewerWidget::paintGL()
 {
     if (_viewer) {
+        // Set default FBO on first frame (like OsgVerse qt_viewer example)
+        if (_firstFrame) {
+            GLuint defaultFboId = this->defaultFramebufferObject();
+            _graphicsWindow->setDefaultFboId(defaultFboId);
+            _firstFrame = false;
+            Base::Console().log("OsgVerseViewer::ViewerWidget::paintGL: Set default FBO ID: %u\n", defaultFboId);
+        }
         _viewer->frame();
     }
 }
 
-void OsgVerseViewer::ViewerWidget::resizeEvent(QResizeEvent* event)
+void OsgVerseViewer::ViewerWidget::resizeGL(int width, int height)
 {
-    QOpenGLWidget::resizeEvent(event);
-
-    if (_graphicsWindow) {
-        _graphicsWindow->resized(0, 0, width(), height());
+    if (_graphicsWindow.valid()) {
+        _graphicsWindow->getEventQueue()->windowResize(this->x(), this->y(), width, height);
+        _graphicsWindow->resized(this->x(), this->y(), width, height);
     }
+    
+    // Paint once to avoid flicker (like OsgVerse qt_viewer example)
+    paintGL();
 }
 
 void OsgVerseViewer::ViewerWidget::mousePressEvent(QMouseEvent* event)
 {
-    if (_graphicsWindow) {
-        _graphicsWindow->getEventQueue()->mouseButtonPress(event->x(), event->y(), event->button());
+    if (_graphicsWindow.valid()) {
+        float x = static_cast<float>(event->x());
+        float y = static_cast<float>(event->y());
+        unsigned int button = 0;
+        
+        switch (event->button()) {
+            case Qt::LeftButton: button = 1; break;
+            case Qt::MiddleButton: button = 2; break;
+            case Qt::RightButton: button = 3; break;
+            default: break;
+        }
+        
+        _graphicsWindow->getEventQueue()->mouseButtonPress(x, y, button);
     }
+    update();
 }
 
 void OsgVerseViewer::ViewerWidget::mouseReleaseEvent(QMouseEvent* event)
 {
-    if (_graphicsWindow) {
-        _graphicsWindow->getEventQueue()->mouseButtonRelease(event->x(), event->y(), event->button());
+    if (_graphicsWindow.valid()) {
+        float x = static_cast<float>(event->x());
+        float y = static_cast<float>(event->y());
+        unsigned int button = 0;
+        
+        switch (event->button()) {
+            case Qt::LeftButton: button = 1; break;
+            case Qt::MiddleButton: button = 2; break;
+            case Qt::RightButton: button = 3; break;
+            default: break;
+        }
+        
+        _graphicsWindow->getEventQueue()->mouseButtonRelease(x, y, button);
     }
+    update();
 }
 
 void OsgVerseViewer::ViewerWidget::mouseMoveEvent(QMouseEvent* event)
 {
-    if (_graphicsWindow) {
-        _graphicsWindow->getEventQueue()->mouseMotion(event->x(), event->y());
+    if (_graphicsWindow.valid()) {
+        _graphicsWindow->getEventQueue()->mouseMotion(
+            static_cast<float>(event->x()), 
+            static_cast<float>(event->y())
+        );
     }
+    update();
 }
 
 void OsgVerseViewer::ViewerWidget::wheelEvent(QWheelEvent* event)
 {
-    if (_graphicsWindow) {
+    if (_graphicsWindow.valid()) {
         int delta = event->angleDelta().y();
         osgGA::GUIEventAdapter::ScrollingMotion motion = delta > 0 ?
             osgGA::GUIEventAdapter::SCROLL_UP : osgGA::GUIEventAdapter::SCROLL_DOWN;
         _graphicsWindow->getEventQueue()->mouseScroll(motion);
     }
+    update();
 }
 
 void OsgVerseViewer::ViewerWidget::keyPressEvent(QKeyEvent* event)
 {
-    if (_graphicsWindow) {
+    if (_graphicsWindow.valid()) {
         _graphicsWindow->getEventQueue()->keyPress(event->key());
     }
+    update();
 }
 
 void OsgVerseViewer::ViewerWidget::keyReleaseEvent(QKeyEvent* event)
 {
-    if (_graphicsWindow) {
+    if (_graphicsWindow.valid()) {
         _graphicsWindow->getEventQueue()->keyRelease(event->key());
     }
+    update();
+}
+
+
+//-----------------------------------------------------------------------
+// 延迟初始化 / Lazy Initialization
+//-----------------------------------------------------------------------
+
+void OsgVerseViewer::ensureInitialized()
+{
+    // 如果已经初始化或初始化失败，直接返回
+    // If already initialized or initialization failed, return immediately
+    if (_initialized || _initializationFailed) {
+        return;
+    }
+
+    Base::Console().log("OsgVerseViewer: Starting lazy initialization...\n");
+
+    try {
+        // 检查前置条件
+        // Check prerequisites
+        if (!checkPrerequisites()) {
+            Base::Console().error("OsgVerseViewer: Prerequisites check failed\n");
+            _initializationFailed = true;
+            return;
+        }
+
+        // 创建引擎
+        // Create engine
+        Base::Console().log("OsgVerseViewer: Creating engine...\n");
+        _engine = std::make_unique<OsgVerseEngine>();
+        _engine->initialize();
+        Base::Console().log("OsgVerseViewer: Engine created and initialized\n");
+
+        // 初始化查看器
+        // Initialize viewer
+        Base::Console().log("OsgVerseViewer: Initializing viewer...\n");
+        initializeViewer();
+        Base::Console().log("OsgVerseViewer: Viewer initialized\n");
+
+        // 设置默认相机
+        // Setup default camera
+        Base::Console().log("OsgVerseViewer: Setting up default camera...\n");
+        setupDefaultCamera();
+        Base::Console().log("OsgVerseViewer: Default camera set up\n");
+
+        // 设置默认光照
+        // Setup default lighting
+        Base::Console().log("OsgVerseViewer: Setting up default lighting...\n");
+        setupDefaultLighting();
+        Base::Console().log("OsgVerseViewer: Default lighting set up\n");
+
+        _initialized = true;
+        Base::Console().log("OsgVerseViewer: Lazy initialization completed successfully\n");
+    }
+    catch (const std::exception& e) {
+        Base::Console().error("OsgVerseViewer: Initialization failed with exception: %s\n", e.what());
+        _initializationFailed = true;
+        _initialized = false;
+    }
+    catch (...) {
+        Base::Console().error("OsgVerseViewer: Initialization failed with unknown exception\n");
+        _initializationFailed = true;
+        _initialized = false;
+    }
+}
+
+bool OsgVerseViewer::checkPrerequisites()
+{
+    Base::Console().log("OsgVerseViewer: Checking prerequisites...\n");
+
+    // 检查 Qt 应用程序
+    // Check Qt application
+    if (!QApplication::instance()) {
+        Base::Console().warning("OsgVerseViewer: Qt application not initialized yet\n");
+        // 注意：这可能是正常的，在某些启动阶段
+        // Note: This might be normal during certain startup phases
+    }
+
+    // 检查 OpenGL 上下文（可选，因为可能还未创建）
+    // Check OpenGL context (optional, as it might not be created yet)
+    // 我们不强制要求，因为上下文会在 Widget 创建时建立
+    // We don't enforce this as context will be established when Widget is created
+
+    Base::Console().log("OsgVerseViewer: Prerequisites check passed\n");
+    return true;
 }

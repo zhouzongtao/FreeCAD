@@ -2,7 +2,16 @@
 # OsgVerse 后端 CMake 配置
 
 # 检测 OpenSceneGraph / Detect OpenSceneGraph
-find_package(OpenSceneGraph QUIET COMPONENTS osgDB osgUtil osgViewer osgGA)
+find_package(OpenSceneGraph QUIET COMPONENTS osgDB osgUtil osgViewer osgGA osgQt)
+
+# 如果没有找到 osgQt，尝试单独查找 / If osgQt not found, try to find it separately
+if(NOT OSGQT_FOUND)
+    find_package(osgQt5 QUIET)
+    if(osgQt5_FOUND)
+        set(OSGQT_LIBRARIES osgQt5::osgQt5)
+        set(OSGQT_FOUND TRUE)
+    endif()
+endif()
 
 # 检测 OsgVerse / Detect OsgVerse
 find_path(OSGVERSE_INCLUDE_DIR
@@ -43,15 +52,18 @@ if(BUILD_WITH_OSGVERSE)
         OsgVerseMaterial.h
         OsgVerseGeometry.h
         OsgVerseViewer.h
+        OsgVerseGraphicsWindow.h
     )
 
     # 收集源文件 / Collect source files
     set(OSGVERSE_BACKEND_SOURCES
+        PreCompiled.cpp
         OsgVerseNode.cpp
         OsgVerseEngine.cpp
         OsgVerseMaterial.cpp
         OsgVerseGeometry.cpp
         OsgVerseViewer.cpp
+        OsgVerseGraphicsWindow.cpp
     )
 
     # 添加到 FreeCADGui 库 / Add to FreeCADGui library
@@ -70,6 +82,14 @@ if(BUILD_WITH_OSGVERSE)
     target_link_libraries(FreeCADGui PRIVATE
         ${OPENSCENEGRAPH_LIBRARIES}
     )
+    
+    # 如果找到 osgQt，添加链接 / If osgQt found, add link
+    if(OSGQT_FOUND)
+        target_link_libraries(FreeCADGui PRIVATE ${OSGQT_LIBRARIES})
+        message(STATUS "osgQt found and linked")
+    else()
+        message(WARNING "osgQt not found - OsgVerseViewer may have compilation issues")
+    endif()
 
     # 定义宏 / Define macros
     target_compile_definitions(FreeCADGui PRIVATE

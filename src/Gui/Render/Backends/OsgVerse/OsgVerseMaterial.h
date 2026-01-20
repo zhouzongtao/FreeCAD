@@ -293,7 +293,7 @@ public:
     /**
      * @brief 克隆材质 / Clone material
      */
-    std::unique_ptr<OsgVerseMaterial> clone() const;
+    RenderNode::Ptr clone() const override;
 
     /**
      * @brief 重置为默认值 / Reset to default values

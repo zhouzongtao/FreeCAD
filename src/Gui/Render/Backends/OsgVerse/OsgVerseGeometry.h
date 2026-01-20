@@ -263,7 +263,7 @@ public:
     /**
      * @brief 克隆几何体 / Clone geometry
      */
-    std::unique_ptr<OsgVerseGeometry> clone() const;
+    RenderNode::Ptr clone() const override;
 
     /**
      * @brief 清除所有数据 / Clear all data

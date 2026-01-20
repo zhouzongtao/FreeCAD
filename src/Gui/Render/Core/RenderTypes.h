@@ -148,6 +148,50 @@ struct Quaternion {
     bool operator!=(const Quaternion& other) const {
         return !(*this == other);
     }
+
+    /**
+     * @brief 转换为轴角表示 / Convert to axis-angle representation
+     * @param axis 旋转轴 / Rotation axis
+     * @param angle 旋转角度（弧度）/ Rotation angle in radians
+     */
+    void getValue(Vec3f& axis, float& angle) const {
+        angle = 2.0f * std::acos(std::clamp(w, -1.0f, 1.0f));
+        float s = std::sqrt(1.0f - w * w);
+        if (s < 0.001f) {
+            // 接近零旋转，任意轴 / Near zero rotation, arbitrary axis
+            axis = Vec3f(1.0f, 0.0f, 0.0f);
+        } else {
+            axis = Vec3f(x / s, y / s, z / s);
+        }
+    }
+
+    /**
+     * @brief 获取四元数分量 / Get quaternion components
+     * @param x_ X 分量 / X component
+     * @param y_ Y 分量 / Y component
+     * @param z_ Z 分量 / Z component
+     * @param w_ W 分量 / W component
+     */
+    void getValue(double& x_, double& y_, double& z_, double& w_) const {
+        x_ = static_cast<double>(x);
+        y_ = static_cast<double>(y);
+        z_ = static_cast<double>(z);
+        w_ = static_cast<double>(w);
+    }
+
+    /**
+     * @brief 从轴角设置四元数 / Set quaternion from axis-angle
+     * @param axis 旋转轴（应该是单位向量）/ Rotation axis (should be normalized)
+     * @param angle 旋转角度（弧度）/ Rotation angle in radians
+     */
+    void setValue(const Vec3f& axis, float angle) {
+        float halfAngle = angle * 0.5f;
+        float s = std::sin(halfAngle);
+        x = axis.x * s;
+        y = axis.y * s;
+        z = axis.z * s;
+        w = std::cos(halfAngle);
+    }
 };
 
 /**
@@ -205,11 +249,15 @@ struct Material {
  */
 struct CameraParams {
     Vec3f position{0.0f, 0.0f, 10.0f};        ///< 相机位置 / Camera position
+    Vec3f target{0.0f, 0.0f, 0.0f};           ///< 目标点 / Target point
     Vec3f direction{0.0f, 0.0f, -1.0f};       ///< 观察方向 / View direction
     Vec3f up{0.0f, 1.0f, 0.0f};               ///< 上方向 / Up direction
+    Vec3f upVector{0.0f, 1.0f, 0.0f};         ///< 上向量（别名）/ Up vector (alias)
     float fieldOfView{45.0f};                  ///< 视野角度 / Field of view (degrees)
     float nearDistance{0.1f};                  ///< 近裁剪面 / Near clipping distance
+    float nearPlane{0.1f};                     ///< 近裁剪面（别名）/ Near plane (alias)
     float farDistance{1000.0f};                ///< 远裁剪面 / Far clipping distance
+    float farPlane{1000.0f};                   ///< 远裁剪面（别名）/ Far plane (alias)
     float aspectRatio{1.0f};                   ///< 宽高比 / Aspect ratio
     bool orthographic{false};                  ///< 是否正交投影 / Orthographic projection
     float height{10.0f};                       ///< 正交投影高度 / Orthographic height

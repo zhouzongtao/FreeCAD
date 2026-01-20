@@ -24,8 +24,20 @@
 #include <Base/Console.h>
 #include <mutex>
 
+// 前向声明 OsgVerse 注册函数
+// Forward declaration of OsgVerse registration function
+namespace Gui {
+namespace Render {
+    void registerOsgVerseEngine();
+}
+}
+
 namespace Gui {
 namespace Core {
+
+// 前向声明 Python 绑定初始化函数
+// Forward declaration of Python binding initialization function
+void initRenderManagerPy();
 
 // 引入 Render 命名空间作为别名 / Import Render namespace as alias
 
@@ -68,6 +80,31 @@ bool RenderManager::initialize()
     }
 
     Base::Console().log("RenderManager::initialize: Initializing render manager\n");
+
+    // 手动注册 OsgVerse 引擎（避免静态初始化问题）
+    // Manually register OsgVerse engine (avoid static initialization issues)
+#ifdef BUILD_WITH_OSGVERSE
+    Base::Console().log("RenderManager::initialize: BUILD_WITH_OSGVERSE is defined\n");
+    Base::Console().log("RenderManager::initialize: Registering OsgVerse engine...\n");
+    try {
+        Render::registerOsgVerseEngine();
+        Base::Console().log("RenderManager::initialize: OsgVerse engine registered successfully\n");
+        
+        // Verify registration
+        auto& factory = Render::RenderEngineFactory::instance();
+        bool isRegistered = factory.isEngineRegistered(Render::BackendType::OsgVerse);
+        Base::Console().log("RenderManager::initialize: OsgVerse registration verified: %s\n", 
+                            isRegistered ? "YES" : "NO");
+    }
+    catch (const std::exception& e) {
+        Base::Console().error("RenderManager::initialize: Failed to register OsgVerse: %s\n", e.what());
+    }
+    catch (...) {
+        Base::Console().error("RenderManager::initialize: Failed to register OsgVerse: unknown exception\n");
+    }
+#else
+    Base::Console().warning("RenderManager::initialize: BUILD_WITH_OSGVERSE is NOT defined - OsgVerse will not be available\n");
+#endif
 
     // 注册默认引擎（如果尚未注册）
     // Register default engines (if not already registered)

@@ -83,7 +83,7 @@ std::vector<Vec3f> OsgVerseGeometry::getVertices() const
     std::vector<Vec3f> vertices(vertexArray->size());
     for (size_t i = 0; i < vertexArray->size(); ++i) {
         const auto& v = (*vertexArray)[i];
-        vertices[i] = {v.x(), v.y(), v.z()};
+        vertices[i] = Vec3f(v.x(), v.y(), v.z());
     }
     return vertices;
 }
@@ -129,7 +129,7 @@ std::vector<Vec3f> OsgVerseGeometry::getNormals() const
     std::vector<Vec3f> normals(normalArray->size());
     for (size_t i = 0; i < normalArray->size(); ++i) {
         const auto& n = (*normalArray)[i];
-        normals[i] = {n.x(), n.y(), n.z()};
+        normals[i] = Vec3f(n.x(), n.y(), n.z());
     }
     return normals;
 }
@@ -171,7 +171,7 @@ std::vector<Vec2f> OsgVerseGeometry::getTexCoords(unsigned int unit) const
     std::vector<Vec2f> texCoords(texCoordArray->size());
     for (size_t i = 0; i < texCoordArray->size(); ++i) {
         const auto& tc = (*texCoordArray)[i];
-        texCoords[i] = {tc.x(), tc.y()};
+        texCoords[i] = Vec2f(tc.x(), tc.y());
     }
     return texCoords;
 }
@@ -215,7 +215,7 @@ std::vector<Color> OsgVerseGeometry::getColors() const
     std::vector<Color> colors(colorArray->size());
     for (size_t i = 0; i < colorArray->size(); ++i) {
         const auto& c = (*colorArray)[i];
-        colors[i] = {c.r(), c.g(), c.b(), c.a()};
+        colors[i] = Color(c.r(), c.g(), c.b(), c.a());
     }
     return colors;
 }
@@ -248,7 +248,7 @@ std::vector<Vec3f> OsgVerseGeometry::getTangents() const
     std::vector<Vec3f> tangents(tangentArray->size());
     for (size_t i = 0; i < tangentArray->size(); ++i) {
         const auto& t = (*tangentArray)[i];
-        tangents[i] = {t.x(), t.y(), t.z()};
+        tangents[i] = Vec3f(t.x(), t.y(), t.z());
     }
     return tangents;
 }
@@ -280,7 +280,7 @@ std::vector<Vec3f> OsgVerseGeometry::getBitangents() const
     std::vector<Vec3f> bitangents(bitangentArray->size());
     for (size_t i = 0; i < bitangentArray->size(); ++i) {
         const auto& b = (*bitangentArray)[i];
-        bitangents[i] = {b.x(), b.y(), b.z()};
+        bitangents[i] = Vec3f(b.x(), b.y(), b.z());
     }
     return bitangents;
 }
@@ -396,8 +396,12 @@ BoundingBox OsgVerseGeometry::computeBoundingBox() const
     const osg::BoundingBox& bb = geom->getBoundingBox();
     
     BoundingBox bbox;
-    bbox.min = {bb.xMin(), bb.yMin(), bb.zMin()};
-    bbox.max = {bb.xMax(), bb.yMax(), bb.zMax()};
+    bbox.MinX = bb.xMin();
+    bbox.MinY = bb.yMin();
+    bbox.MinZ = bb.zMin();
+    bbox.MaxX = bb.xMax();
+    bbox.MaxY = bb.yMax();
+    bbox.MaxZ = bb.zMax();
     return bbox;
 }
 
@@ -500,11 +504,11 @@ osg::Geode* OsgVerseGeometry::createGeode() const
     return geode;
 }
 
-std::unique_ptr<OsgVerseGeometry> OsgVerseGeometry::clone() const
+RenderNode::Ptr OsgVerseGeometry::clone() const
 {
     auto* geom = getOsgGeometry();
     auto* clonedGeom = dynamic_cast<osg::Geometry*>(geom->clone(osg::CopyOp::DEEP_COPY_ALL));
-    return std::make_unique<OsgVerseGeometry>(clonedGeom, true);
+    return std::make_shared<OsgVerseGeometry>(clonedGeom, true);
 }
 
 void OsgVerseGeometry::clear()
@@ -591,14 +595,14 @@ void OsgVerseGeometry::updateGeometry()
 
 std::unique_ptr<OsgVerseGeometry> OsgVerseGeometryBuilder::createCube(float size)
 {
-    auto geom = std::make_unique<OsgVerseGeometry>();
+    auto geom = std::unique_ptr<OsgVerseGeometry>(new OsgVerseGeometry());
     float halfSize = size * 0.5f;
 
     std::vector<Vec3f> vertices = {
-        {-halfSize, -halfSize, -halfSize}, {halfSize, -halfSize, -halfSize},
-        {halfSize, halfSize, -halfSize}, {-halfSize, halfSize, -halfSize},
-        {-halfSize, -halfSize, halfSize}, {halfSize, -halfSize, halfSize},
-        {halfSize, halfSize, halfSize}, {-halfSize, halfSize, halfSize}
+        Vec3f(-halfSize, -halfSize, -halfSize), Vec3f(halfSize, -halfSize, -halfSize),
+        Vec3f(halfSize, halfSize, -halfSize), Vec3f(-halfSize, halfSize, -halfSize),
+        Vec3f(-halfSize, -halfSize, halfSize), Vec3f(halfSize, -halfSize, halfSize),
+        Vec3f(halfSize, halfSize, halfSize), Vec3f(-halfSize, halfSize, halfSize)
     };
 
     std::vector<uint32_t> indices = {
@@ -616,7 +620,7 @@ std::unique_ptr<OsgVerseGeometry> OsgVerseGeometryBuilder::createCube(float size
 
 std::unique_ptr<OsgVerseGeometry> OsgVerseGeometryBuilder::createSphere(float radius, unsigned int segments)
 {
-    auto geom = std::make_unique<OsgVerseGeometry>();
+    auto geom = std::unique_ptr<OsgVerseGeometry>(new OsgVerseGeometry());
     std::vector<Vec3f> vertices;
     std::vector<Vec3f> normals;
     std::vector<Vec2f> texCoords;
@@ -630,8 +634,8 @@ std::unique_ptr<OsgVerseGeometry> OsgVerseGeometryBuilder::createSphere(float ra
 
         for (unsigned int seg = 0; seg <= segments; ++seg) {
             float theta = static_cast<float>(seg) / static_cast<float>(segments) * 2.0f * M_PI;
-            Vec3f normal = {sinPhi * std::cos(theta), sinPhi * std::sin(theta), cosPhi};
-            vertices.push_back({radius * normal.x, radius * normal.y, radius * normal.z});
+            Vec3f normal = Vec3f(sinPhi * std::cos(theta), sinPhi * std::sin(theta), cosPhi);
+            vertices.push_back(Vec3f(radius * normal.x, radius * normal.y, radius * normal.z));
             normals.push_back(normal);
             texCoords.push_back({static_cast<float>(seg) / segments, static_cast<float>(ring) / rings});
         }
@@ -660,7 +664,7 @@ std::unique_ptr<OsgVerseGeometry> OsgVerseGeometryBuilder::createSphere(float ra
 
 std::unique_ptr<OsgVerseGeometry> OsgVerseGeometryBuilder::createCylinder(float radius, float height, unsigned int segments)
 {
-    auto geom = std::make_unique<OsgVerseGeometry>();
+    auto geom = std::unique_ptr<OsgVerseGeometry>(new OsgVerseGeometry());
     std::vector<Vec3f> vertices;
     std::vector<Vec3f> normals;
     std::vector<uint32_t> indices;
@@ -668,10 +672,10 @@ std::unique_ptr<OsgVerseGeometry> OsgVerseGeometryBuilder::createCylinder(float 
 
     for (unsigned int i = 0; i <= segments; ++i) {
         float theta = static_cast<float>(i) / segments * 2.0f * M_PI;
-        Vec3f normal = {std::cos(theta), std::sin(theta), 0.0f};
-        vertices.push_back({radius * normal.x, radius * normal.y, -halfHeight});
+        Vec3f normal = Vec3f(std::cos(theta), std::sin(theta), 0.0f);
+        vertices.push_back(Vec3f(radius * normal.x, radius * normal.y, -halfHeight));
         normals.push_back(normal);
-        vertices.push_back({radius * normal.x, radius * normal.y, halfHeight});
+        vertices.push_back(Vec3f(radius * normal.x, radius * normal.y, halfHeight));
         normals.push_back(normal);
     }
 
@@ -694,15 +698,15 @@ std::unique_ptr<OsgVerseGeometry> OsgVerseGeometryBuilder::createCylinder(float 
 
 std::unique_ptr<OsgVerseGeometry> OsgVerseGeometryBuilder::createCone(float radius, float height, unsigned int segments)
 {
-    auto geom = std::make_unique<OsgVerseGeometry>();
+    auto geom = std::unique_ptr<OsgVerseGeometry>(new OsgVerseGeometry());
     std::vector<Vec3f> vertices;
     std::vector<uint32_t> indices;
     float halfHeight = height * 0.5f;
 
-    vertices.push_back({0.0f, 0.0f, halfHeight});
+    vertices.push_back(Vec3f(0.0f, 0.0f, halfHeight));
     for (unsigned int i = 0; i <= segments; ++i) {
         float theta = static_cast<float>(i) / segments * 2.0f * M_PI;
-        vertices.push_back({radius * std::cos(theta), radius * std::sin(theta), -halfHeight});
+        vertices.push_back(Vec3f(radius * std::cos(theta), radius * std::sin(theta), -halfHeight));
     }
 
     for (unsigned int i = 0; i < segments; ++i) {
@@ -720,7 +724,7 @@ std::unique_ptr<OsgVerseGeometry> OsgVerseGeometryBuilder::createCone(float radi
 
 std::unique_ptr<OsgVerseGeometry> OsgVerseGeometryBuilder::createPlane(float width, float height, unsigned int widthSegments, unsigned int heightSegments)
 {
-    auto geom = std::make_unique<OsgVerseGeometry>();
+    auto geom = std::unique_ptr<OsgVerseGeometry>(new OsgVerseGeometry());
     std::vector<Vec3f> vertices;
     std::vector<Vec3f> normals;
     std::vector<Vec2f> texCoords;
@@ -730,8 +734,8 @@ std::unique_ptr<OsgVerseGeometry> OsgVerseGeometryBuilder::createPlane(float wid
         for (unsigned int x = 0; x <= widthSegments; ++x) {
             float u = static_cast<float>(x) / widthSegments;
             float v = static_cast<float>(y) / heightSegments;
-            vertices.push_back({(u - 0.5f) * width, (v - 0.5f) * height, 0.0f});
-            normals.push_back({0.0f, 0.0f, 1.0f});
+            vertices.push_back(Vec3f((u - 0.5f) * width, (v - 0.5f) * height, 0.0f));
+            normals.push_back(Vec3f(0.0f, 0.0f, 1.0f));
             texCoords.push_back({u, v});
         }
     }
@@ -758,7 +762,7 @@ std::unique_ptr<OsgVerseGeometry> OsgVerseGeometryBuilder::createPlane(float wid
 
 std::unique_ptr<OsgVerseGeometry> OsgVerseGeometryBuilder::createTorus(float majorRadius, float minorRadius, unsigned int majorSegments, unsigned int minorSegments)
 {
-    auto geom = std::make_unique<OsgVerseGeometry>();
+    auto geom = std::unique_ptr<OsgVerseGeometry>(new OsgVerseGeometry());
     std::vector<Vec3f> vertices;
     std::vector<Vec3f> normals;
     std::vector<uint32_t> indices;
@@ -773,12 +777,12 @@ std::unique_ptr<OsgVerseGeometry> OsgVerseGeometryBuilder::createTorus(float maj
             float cosPhi = std::cos(phi);
             float sinPhi = std::sin(phi);
 
-            Vec3f normal = {cosTheta * cosPhi, sinTheta * cosPhi, sinPhi};
-            Vec3f vertex = {
+            Vec3f normal = Vec3f(cosTheta * cosPhi, sinTheta * cosPhi, sinPhi);
+            Vec3f vertex = Vec3f(
                 (majorRadius + minorRadius * cosPhi) * cosTheta,
                 (majorRadius + minorRadius * cosPhi) * sinTheta,
                 minorRadius * sinPhi
-            };
+            );
 
             vertices.push_back(vertex);
             normals.push_back(normal);
@@ -807,7 +811,7 @@ std::unique_ptr<OsgVerseGeometry> OsgVerseGeometryBuilder::createTorus(float maj
 
 std::unique_ptr<OsgVerseGeometry> OsgVerseGeometryBuilder::createFromPointCloud(const std::vector<Vec3f>& points, const std::vector<Color>* colors)
 {
-    auto geom = std::make_unique<OsgVerseGeometry>();
+    auto geom = std::unique_ptr<OsgVerseGeometry>(new OsgVerseGeometry());
     geom->setVertices(points);
     if (colors && !colors->empty()) {
         geom->setColors(*colors);
@@ -823,7 +827,7 @@ std::unique_ptr<OsgVerseGeometry> OsgVerseGeometryBuilder::createFromTriangleMes
     const std::vector<Vec3f>* normals,
     const std::vector<Vec2f>* texCoords)
 {
-    auto geom = std::make_unique<OsgVerseGeometry>();
+    auto geom = std::unique_ptr<OsgVerseGeometry>(new OsgVerseGeometry());
     geom->setVertices(vertices);
     geom->setIndices(indices);
 

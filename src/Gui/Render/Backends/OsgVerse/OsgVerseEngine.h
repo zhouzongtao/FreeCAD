@@ -277,6 +277,20 @@ private:
     bool _initialized{false};
 };
 
+//===========================================================================
+// Manual Registration Function
+//===========================================================================
+
+/**
+ * @brief 手动注册 OsgVerse 引擎到工厂
+ * Manually register OsgVerse engine to factory
+ * 
+ * 此函数应在 RenderManager 初始化时调用，而不是使用静态自动注册
+ * This function should be called during RenderManager initialization
+ * instead of using static auto-registration
+ */
+GuiExport void registerOsgVerseEngine();
+
 } // namespace Render
 } // namespace Gui
 

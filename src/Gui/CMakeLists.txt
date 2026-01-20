@@ -1408,6 +1408,7 @@ SET(FreeCADGui_CPP_SRCS
     StyleParameters/Parser.cpp
     StyleParameters/ParameterManager.cpp
     Core/RenderManager.cpp
+    Core/RenderManagerPy.cpp
 )
 SET(FreeCADGui_SRCS
     Application.h

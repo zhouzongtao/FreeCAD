@@ -153,10 +153,48 @@ static PyObject* resetRenderStats(PyObject* /*self*/, PyObject* args)
 }
 
 //===========================================================================
+// Manual Initialization Function
+//===========================================================================
+
+static PyObject* initializeRenderManager(PyObject* /*self*/, PyObject* args)
+{
+    if (!PyArg_ParseTuple(args, "")) {
+        return nullptr;
+    }
+
+    try {
+        auto& manager = RenderManager::instance();
+        bool result = manager.initialize();
+        if (result) {
+            Py_RETURN_TRUE;
+        }
+        else {
+            Py_RETURN_FALSE;
+        }
+    }
+    catch (const std::exception& e) {
+        PyErr_SetString(PyExc_RuntimeError, e.what());
+        return nullptr;
+    }
+}
+
+//===========================================================================
 // 方法表 / Method Table
 //===========================================================================
 
-static PyMethodDef RenderManager_methods[] = {
+// Export the methods array so it can be used from FreeCADGuiPy.cpp
+PyMethodDef RenderManager_methods[] = {
+    {"initializeRenderManager", initializeRenderManager, METH_VARARGS,
+     "initializeRenderManager() -> bool\n"
+     "Manually initialize the RenderManager.\n"
+     "This registers all available render backends including OsgVerse.\n"
+     "Returns True if successful.\n"
+     "\n"
+     "Example:\n"
+     "  import FreeCADGui\n"
+     "  FreeCADGui.initializeRenderManager()\n"
+     "  print(FreeCADGui.isRenderBackendAvailable(2))  # Check OsgVerse\n"},
+
     {"switchRenderBackend", switchRenderBackend, METH_VARARGS,
      "switchRenderBackend(backendType) -> bool\n"
      "Switch to a different render backend.\n"
@@ -213,11 +251,57 @@ PyDoc_STRVAR(module_doc,
 
 void initRenderManagerPy()
 {
-    // 将方法添加到 FreeCADGui 模块
-    // Add methods to FreeCADGui module
-    Base::Interpreter().addMethod(RenderManager_methods);
+    Base::Console().log("initRenderManagerPy: START\n");
     
-    Base::Console().log("RenderManager Python bindings initialized\n");
+    // 获取模块字典
+    // Get module dict
+    PyObject* modules = PyImport_GetModuleDict();
+    if (!modules) {
+        Base::Console().error("initRenderManagerPy: Failed to get module dict\n");
+        return;
+    }
+    
+    PyObject* module = PyDict_GetItemString(modules, "FreeCADGui");
+    if (!module) {
+        Base::Console().error("initRenderManagerPy: FreeCADGui module not found\n");
+        return;
+    }
+    
+    // 直接添加到模块字典
+    // Add directly to module dictionary
+    PyObject* dict = PyModule_GetDict(module);
+    if (!dict) {
+        Base::Console().error("initRenderManagerPy: Failed to get module dictionary\n");
+        return;
+    }
+    
+    Base::Console().log("initRenderManagerPy: Adding functions to FreeCADGui module dictionary...\n");
+    
+    // 逐个添加函数
+    // Add functions one by one
+    for (PyMethodDef* method = RenderManager_methods; method->ml_name != nullptr; ++method) {
+        Base::Console().log("initRenderManagerPy: Adding function '%s'...\n", method->ml_name);
+        
+        PyObject* func = PyCFunction_New(method, nullptr);
+        if (!func) {
+            Base::Console().error("initRenderManagerPy: Failed to create function '%s'\n", method->ml_name);
+            PyErr_Print();
+            continue;
+        }
+        
+        int result = PyDict_SetItemString(dict, method->ml_name, func);
+        Py_DECREF(func);  // PyDict_SetItemString increments refcount, so we can decref
+        
+        if (result < 0) {
+            Base::Console().error("initRenderManagerPy: Failed to add function '%s' to dictionary\n", method->ml_name);
+            PyErr_Print();
+        }
+        else {
+            Base::Console().log("initRenderManagerPy: Successfully added '%s'\n", method->ml_name);
+        }
+    }
+    
+    Base::Console().log("initRenderManagerPy: COMPLETE\n");
 }
 
 } // namespace Core

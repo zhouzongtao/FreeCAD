@@ -422,8 +422,14 @@ void OsgVerseTransform::setScale(const Vec3f& scale)
         return;
     }
 
-    osg::Matrix matrix = transform->getMatrix();
-    matrix.setScale(osg::Vec3d(scale.x, scale.y, scale.z));
+    // OSG doesn't have setScale(), need to rebuild matrix
+    osg::Matrix oldMatrix = transform->getMatrix();
+    osg::Vec3d trans = oldMatrix.getTrans();
+    osg::Quat rot = oldMatrix.getRotate();
+    
+    osg::Matrix matrix = osg::Matrixd::scale(scale.x, scale.y, scale.z) *
+                         osg::Matrixd::rotate(rot) *
+                         osg::Matrixd::translate(trans);
     transform->setMatrix(matrix);
 }
 

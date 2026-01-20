@@ -99,6 +99,7 @@ target_compile_definitions(FreeCADGui PRIVATE
 # OsgVerse 依赖 / OsgVerse dependencies
 if(BUILD_WITH_OSGVERSE)
     target_compile_definitions(FreeCADGui PRIVATE
+        BUILD_WITH_OSGVERSE
         RENDER_HAS_OSGVERSE_BACKEND
     )
     # TODO: 添加 OsgVerse 库链接

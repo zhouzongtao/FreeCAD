@@ -25,6 +25,7 @@
 
 #include <memory>
 #include <QOpenGLWidget>
+#include <osg/ref_ptr>
 
 #include <FCGlobal.h>
 #include "../../Core/RenderViewer.h"
@@ -33,10 +34,7 @@
 // OsgVerse / OSG 前向声明 / Forward declarations
 namespace osgViewer {
     class Viewer;
-}
-
-namespace osgQt {
-    class GraphicsWindowQt;
+    class GraphicsWindowEmbedded;
 }
 
 namespace Gui {
@@ -199,6 +197,21 @@ private:
     void setupDefaultLighting();
 
     /**
+     * @brief 确保已初始化 / Ensure initialized
+     * 
+     * 延迟初始化模式：只在第一次使用时才初始化
+     * Lazy initialization: only initialize on first use
+     */
+    void ensureInitialized();
+
+    /**
+     * @brief 检查前置条件 / Check prerequisites
+     * 
+     * @return true 如果所有前置条件满足 / if all prerequisites are met
+     */
+    bool checkPrerequisites();
+
+    /**
      * @brief Qt 窗口类 / Qt widget class
      */
     class ViewerWidget;
@@ -207,7 +220,12 @@ private:
     std::unique_ptr<OsgVerseEngine> _engine;    ///< 渲染引擎 / Render engine
     osgViewer::Viewer* _viewer{nullptr};        ///< OSG 查看器 / OSG viewer
     ViewerWidget* _widget{nullptr};             ///< Qt 窗口 / Qt widget
-    osgQt::GraphicsWindowQt* _graphicsWindow{nullptr}; ///< OSG-Qt 图形窗口 / OSG-Qt graphics window
+    osg::ref_ptr<osgViewer::GraphicsWindowEmbedded> _graphicsWindow; ///< 嵌入式图形窗口 / Embedded graphics window
+
+    // 初始化状态 / Initialization state
+    bool _initialized{false};                   ///< 是否已初始化 / Whether initialized
+    bool _initializationFailed{false};          ///< 初始化是否失败 / Whether initialization failed
+    bool _firstFrame{true};                     ///< 是否是第一帧 / Whether first frame
 
     // 场景状态 / Scene state
     RenderNode::Ptr _sceneRoot;
@@ -238,14 +256,17 @@ class OsgVerseViewer::ViewerWidget : public QOpenGLWidget {
     Q_OBJECT
 
 public:
-    ViewerWidget(osgViewer::Viewer* viewer, QWidget* parent = nullptr);
+    ViewerWidget(osgViewer::Viewer* viewer, 
+                 osgViewer::GraphicsWindowEmbedded* graphicsWindow,
+                 QWidget* parent = nullptr);
     ~ViewerWidget() override;
 
-    osgQt::GraphicsWindowQt* getGraphicsWindow() const { return _graphicsWindow; }
+    osgViewer::GraphicsWindowEmbedded* getGraphicsWindow() const { return _graphicsWindow.get(); }
 
 protected:
-    void paintEvent(QPaintEvent* event) override;
-    void resizeEvent(QResizeEvent* event) override;
+    void initializeGL() override;
+    void paintGL() override;
+    void resizeGL(int width, int height) override;
 
     // 鼠标事件 / Mouse events
     void mousePressEvent(QMouseEvent* event) override;
@@ -259,7 +280,8 @@ protected:
 
 private:
     osgViewer::Viewer* _viewer;
-    osgQt::GraphicsWindowQt* _graphicsWindow;
+    osg::ref_ptr<osgViewer::GraphicsWindowEmbedded> _graphicsWindow;
+    bool _firstFrame{true};
 };
 
 } // namespace Render

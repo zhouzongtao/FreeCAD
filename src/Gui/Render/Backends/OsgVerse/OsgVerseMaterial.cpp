@@ -101,7 +101,7 @@ float OsgVerseMaterial::getRoughness() const
 
 void OsgVerseMaterial::setEmissive(const Color& color)
 {
- ive = color;
+    _emissive = color;
 
     auto uniform = new osg::Uniform("emissive",
         osg::Vec4f(color.r, color.g, color.b, color.a));
@@ -169,7 +169,7 @@ bool OsgVerseMaterial::setTexture(TextureType type, const std::string& filename)
     // 加载图像 / Load image
     osg::ref_ptr<osg::Image> image = osgDB::readImageFile(filename);
     if (!image) {
-        Base::Console().Warning("OsgVerseMaterial: Failed to load texture: %s\n",
+        Base::Console().warning("OsgVerseMaterial: Failed to load texture: %s\n",
                                 filename.c_str());
         return false;
     }
@@ -261,17 +261,17 @@ osg::Texture2D* OsgVerseMaterial::getTexture(TextureType type) const
 void OsgVerseMaterial::setFromCoin3DMaterial(const Material& coinMaterial)
 {
     // 转换环境光 / Convert ambient
-    setAmbientColor(coinMaterial.ambient);
+    setAmbientColor(coinMaterial.ambientColor);
 
     // 转换漫反射（作为基础颜色）/ Convert diffuse (as base color)
-    setDiffuseColor(coinMaterial.diffuse);
-    setBaseColor(coinMaterial.diffuse);
+    setDiffuseColor(coinMaterial.diffuseColor);
+    setBaseColor(coinMaterial.diffuseColor);
 
     // 转换镜面反射 / Convert specular
-    setSpecularColor(coinMaterial.specular);
+    setSpecularColor(coinMaterial.specularColor);
 
     // 转换自发光 / Convert emissive
-    setEmissive(coinMaterial.emissive);
+    setEmissive(coinMaterial.emissiveColor);
 
     // 转换光泽度到粗糙度 / Convert shininess to roughness
     setShininess(coinMaterial.shininess);
@@ -280,9 +280,9 @@ void OsgVerseMaterial::setFromCoin3DMaterial(const Material& coinMaterial)
     setOpacity(1.0f - coinMaterial.transparency);
 
     // 根据镜面反射强度估算金属度 / Estimate metallic from specular intensity
-    float specularIntensity = (coinMaterial.specular.r +
-                               coinMaterial.specular.g +
-                               coinMaterial.specular.b) / 3.0f;
+    float specularIntensity = (coinMaterial.specularColor.r +
+                               coinMaterial.specularColor.g +
+                               coinMaterial.specularColor.b) / 3.0f;
     setMetallic(specularIntensity);
 }
 
@@ -558,9 +558,9 @@ void OsgVerseMaterial::applyToNode(osg::Node* node)
     }
 }
 
-std::unique_ptr<OsgVerseMaterial> OsgVerseMaterial::clone() const
+RenderNode::Ptr OsgVerseMaterial::clone() const
 {
-    auto cloned = std::make_unique<OsgVerseMaterial>();
+    auto cloned = std::make_shared<OsgVerseMaterial>();
 
     // 复制 PBR 参数 / Copy PBR parameters
     cloned->setBaseColor(_baseColor);

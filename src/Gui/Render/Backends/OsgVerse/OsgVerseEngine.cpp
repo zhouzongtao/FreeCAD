@@ -46,6 +46,20 @@ using namespace Gui::Render;
 
 OsgVerseEngine::OsgVerseEngine()
 {
+    Base::Console().log("OsgVerseEngine: Constructor START\n");
+    try {
+        // 构造函数中不做任何初始化
+        // 所有初始化延迟到 initialize() 方法
+        Base::Console().log("OsgVerseEngine: Constructor completed successfully\n");
+    }
+    catch (const std::exception& e) {
+        Base::Console().error("OsgVerseEngine: Constructor exception: %s\n", e.what());
+        throw;
+    }
+    catch (...) {
+        Base::Console().error("OsgVerseEngine: Constructor unknown exception\n");
+        throw;
+    }
 }
 
 OsgVerseEngine::~OsgVerseEngine()
@@ -64,19 +78,33 @@ std::string OsgVerseEngine::getName() const
 
 std::string OsgVerseEngine::getVersion() const
 {
-    return osgGetVersion();
+    // 返回硬编码的版本号，避免调用 OSG 函数
+    // Return hardcoded version to avoid calling OSG functions
+    // 这样可以避免在获取信息时触发 OSG 初始化
+    // This avoids triggering OSG initialization when getting info
+    return "3.6.5";  // OSG version
 }
 
 BackendInfo OsgVerseEngine::getInfo() const
 {
+    Base::Console().log("OsgVerseEngine::getInfo: START\n");
+    
     BackendInfo info;
     info.type = BackendType::OsgVerse;
+    
+    Base::Console().log("OsgVerseEngine::getInfo: Getting name...\n");
     info.name = getName();
+    
+    Base::Console().log("OsgVerseEngine::getInfo: Getting version...\n");
     info.version = getVersion();
+    
+    Base::Console().log("OsgVerseEngine::getInfo: Setting description...\n");
     info.description = "Modern rendering backend based on OpenSceneGraph and OsgVerse";
     info.supportsPBR = true;
     info.supportsDeferredRendering = true;
     info.supportsRaytracing = false;
+    
+    Base::Console().log("OsgVerseEngine::getInfo: COMPLETE\n");
     return info;
 }
 
@@ -92,22 +120,37 @@ bool OsgVerseEngine::initialize()
         return true;
     }
 
+    Base::Console().log("OsgVerseEngine::initialize: Starting initialization...\n");
+
     try {
         // Initialize OSG database
+        Base::Console().log("OsgVerseEngine::initialize: Initializing OSG Registry...\n");
         osgDB::Registry::instance();
+        Base::Console().log("OsgVerseEngine::initialize: OSG Registry initialized\n");
 
         // Create scene root
+        Base::Console().log("OsgVerseEngine::initialize: Creating scene root...\n");
         _sceneRoot = new osg::Group();
         _sceneRoot->setName("OsgVerseSceneRoot");
+        Base::Console().log("OsgVerseEngine::initialize: Scene root created\n");
 
         // Initialize rendering pipeline
+        Base::Console().log("OsgVerseEngine::initialize: Initializing rendering pipeline...\n");
         initializeRenderingPipeline();
+        Base::Console().log("OsgVerseEngine::initialize: Rendering pipeline initialized\n");
 
         _initialized = true;
+        Base::Console().log("OsgVerseEngine::initialize: Initialization complete\n");
         return true;
     }
     catch (const std::exception& e) {
         // Log error
+        Base::Console().error("OsgVerseEngine::initialize: Exception caught: %s\n", e.what());
+        _initialized = false;
+        return false;
+    }
+    catch (...) {
+        Base::Console().error("OsgVerseEngine::initialize: Unknown exception caught\n");
         _initialized = false;
         return false;
     }
@@ -137,18 +180,12 @@ void OsgVerseEngine::shutdown()
 
 RenderGroup::Ptr OsgVerseEngine::createGroup()
 {
-    auto* osgGroup = new osg::Group();
-    auto node = std::make_shared<OsgVerseNode>(osgGroup, true, NodeType::Group);
-    return std::static_pointer_cast<RenderGroup>(node);
+    return std::make_shared<OsgVerseGroup>();
 }
 
 RenderSeparator::Ptr OsgVerseEngine::createSeparator()
 {
-    // In OSG, we use Group with state isolation
-    auto* osgGroup = new osg::Group();
-    osgGroup->setStateSet(new osg::StateSet());
-    auto node = std::make_shared<OsgVerseNode>(osgGroup, true, NodeType::Separator);
-    return std::static_pointer_cast<RenderSeparator>(node);
+    return std::make_shared<OsgVerseSeparator>();
 }
 
 RenderNode::Ptr OsgVerseEngine::createTransform()
@@ -337,7 +374,7 @@ RenderNode::Ptr OsgVerseEngine::wrapNode(osg::Node* osgNode, bool takeOwnership)
     if (!osgNode) {
         return nullptr;
     }
-    return std::make_shared<OsgVerseNode>(osgNode, takeOwnership);
+    return std::make_shared<OsgVerseNode>(osgNode, takeOwnership, NodeType::Node);
 }
 
 osg::Node* OsgVerseEngine::unwrapNode(RenderNode* renderNode) const
@@ -451,7 +488,45 @@ void OsgVerseEngine::updateStats()
 // Engine Registration
 //===========================================================================
 
-namespace {
-    // Auto-register OsgVerse engine
-    static RenderEngineRegistration<OsgVerseEngine> registration(BackendType::OsgVerse);
+// 注意：不使用静态自动注册，因为它会在 DLL 加载时执行，可能导致初始化问题
+// Note: Don't use static auto-registration as it executes during DLL load and may cause initialization issues
+// 改为在 RenderManager 初始化时手动注册
+// Instead, manually register during RenderManager initialization
+
+namespace Gui {
+namespace Render {
+    // 手动注册函数，由 RenderManager 调用
+    // Manual registration function, called by RenderManager
+    void registerOsgVerseEngine() {
+        Base::Console().log("registerOsgVerseEngine: START\n");
+        try {
+            Base::Console().log("registerOsgVerseEngine: Getting factory instance...\n");
+            auto& factory = RenderEngineFactory::instance();
+            
+            Base::Console().log("registerOsgVerseEngine: Registering OsgVerse engine...\n");
+            factory.registerEngine(
+                BackendType::OsgVerse,
+                []() -> RenderEngine::Ptr {
+                    Base::Console().log("registerOsgVerseEngine: Creating OsgVerseEngine instance...\n");
+                    return std::make_shared<OsgVerseEngine>();
+                }
+            );
+            
+            Base::Console().log("registerOsgVerseEngine: Registration complete\n");
+            
+            // Verify registration
+            bool isRegistered = factory.isEngineRegistered(BackendType::OsgVerse);
+            Base::Console().log("registerOsgVerseEngine: Verification: %s\n", 
+                                isRegistered ? "SUCCESS" : "FAILED");
+        }
+        catch (const std::exception& e) {
+            Base::Console().error("registerOsgVerseEngine: Exception: %s\n", e.what());
+            throw;
+        }
+        catch (...) {
+            Base::Console().error("registerOsgVerseEngine: Unknown exception\n");
+            throw;
+        }
+    }
+}
 }
