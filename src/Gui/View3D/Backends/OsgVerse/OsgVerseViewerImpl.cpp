@@ -59,18 +59,24 @@ OsgVerseViewerImpl::ViewerWidget::ViewerWidget(osgViewer::Viewer* viewer, QWidge
 {
     Base::Console().log("OsgVerseViewerImpl::ViewerWidget: Creating widget\n");
     
-    // 设置 OpenGL 格式
+    // 设置 OpenGL 格式 - 使用兼容性配置
     QSurfaceFormat format;
     format.setDepthBufferSize(24);
     format.setStencilBufferSize(8);
     format.setSamples(4);  // 4x MSAA
-    format.setVersion(3, 3);
-    format.setProfile(QSurfaceFormat::CoreProfile);
+    format.setVersion(2, 1);  // 降低到 OpenGL 2.1 以提高兼容性
+    format.setProfile(QSurfaceFormat::CompatibilityProfile);  // 使用兼容性配置
+    format.setSwapBehavior(QSurfaceFormat::DoubleBuffer);
     setFormat(format);
+    
+    Base::Console().log("OsgVerseViewerImpl::ViewerWidget: OpenGL format set (v2.1, Compatibility)\n");
     
     // 设置焦点策略
     setFocusPolicy(Qt::StrongFocus);
     setMouseTracking(true);
+    
+    // 设置更新策略 - 确保持续更新
+    setUpdateBehavior(QOpenGLWidget::PartialUpdate);
 }
 
 OsgVerseViewerImpl::ViewerWidget::~ViewerWidget()
@@ -80,12 +86,14 @@ OsgVerseViewerImpl::ViewerWidget::~ViewerWidget()
 
 void OsgVerseViewerImpl::ViewerWidget::initializeGL()
 {
-    Base::Console().log("OsgVerseViewerImpl::ViewerWidget: Initializing OpenGL\n");
+    Base::Console().log("OsgVerseViewerImpl::ViewerWidget: ===== initializeGL CALLED =====\n");
     
     if (!_viewer) {
-        Base::Console().warning("OsgVerseViewerImpl::ViewerWidget: Viewer is null, skipping initialization\n");
+        Base::Console().log("OsgVerseViewerImpl::ViewerWidget: ERROR - Viewer is null!\n");
         return;
     }
+    
+    Base::Console().log("OsgVerseViewerImpl::ViewerWidget: Creating GraphicsWindow...\n");
     
     // 创建 GraphicsWindow::Traits
     osg::ref_ptr<osg::GraphicsContext::Traits> traits = new osg::GraphicsContext::Traits();
@@ -98,20 +106,78 @@ void OsgVerseViewerImpl::ViewerWidget::initializeGL()
     traits->sharedContext = nullptr;
     traits->vsync = true;
     
+    Base::Console().log("OsgVerseViewerImpl::ViewerWidget: Traits: %dx%d\n", traits->width, traits->height);
+    
     // 创建 GraphicsWindowEmbedded
     _graphicsWindow = new osgViewer::GraphicsWindowEmbedded(traits.get());
+    Base::Console().log("OsgVerseViewerImpl::ViewerWidget: GraphicsWindowEmbedded created\n");
     
     // 设置 viewer 的 graphics context
     _viewer->getCamera()->setGraphicsContext(_graphicsWindow.get());
+    Base::Console().log("OsgVerseViewerImpl::ViewerWidget: Graphics context set\n");
     
     // 设置视口
     _viewer->getCamera()->setViewport(new osg::Viewport(0, 0, width(), height()));
+    Base::Console().log("OsgVerseViewerImpl::ViewerWidget: Viewport set\n");
     
-    Base::Console().log("OsgVerseViewerImpl::ViewerWidget: OpenGL initialized\n");
+    // 重要：初始化 viewer（这会设置渲染状态）
+    Base::Console().log("OsgVerseViewerImpl::ViewerWidget: Checking if viewer is realized...\n");
+    if (!_viewer->isRealized()) {
+        Base::Console().log("OsgVerseViewerImpl::ViewerWidget: Calling realize()...\n");
+        _viewer->realize();
+        Base::Console().log("OsgVerseViewerImpl::ViewerWidget: Viewer realized!\n");
+    }
+    else {
+        Base::Console().log("OsgVerseViewerImpl::ViewerWidget: Viewer already realized\n");
+    }
+    
+    Base::Console().log("OsgVerseViewerImpl::ViewerWidget: ===== initializeGL COMPLETE =====\n");
 }
 
 void OsgVerseViewerImpl::ViewerWidget::paintGL()
 {
+    static int frameCount = 0;
+    
+    // 如果 GraphicsWindow 还没有创建，先初始化
+    if (!_graphicsWindow && _viewer) {
+        Base::Console().log("OsgVerseViewerImpl::ViewerWidget: Initializing GraphicsWindow in paintGL...\n");
+        
+        // 创建 GraphicsWindow::Traits
+        osg::ref_ptr<osg::GraphicsContext::Traits> traits = new osg::GraphicsContext::Traits();
+        traits->x = 0;
+        traits->y = 0;
+        traits->width = width();
+        traits->height = height();
+        traits->windowDecoration = false;
+        traits->doubleBuffer = true;
+        traits->sharedContext = nullptr;
+        traits->vsync = true;
+        
+        Base::Console().log("OsgVerseViewerImpl::ViewerWidget: Creating GraphicsWindow %dx%d\n",
+                           traits->width, traits->height);
+        
+        // 创建 GraphicsWindowEmbedded
+        _graphicsWindow = new osgViewer::GraphicsWindowEmbedded(traits.get());
+        
+        // 设置 viewer 的 graphics context
+        _viewer->getCamera()->setGraphicsContext(_graphicsWindow.get());
+        
+        // 设置视口 - 使用当前 widget 的实际大小
+        _viewer->getCamera()->setViewport(new osg::Viewport(0, 0, width(), height()));
+        
+        // 更新投影矩阵
+        double aspectRatio = static_cast<double>(width()) / static_cast<double>(height());
+        _viewer->getCamera()->setProjectionMatrixAsPerspective(45.0, aspectRatio, 0.01, 10000.0);
+        
+        // 初始化 viewer
+        if (!_viewer->isRealized()) {
+            _viewer->realize();
+            Base::Console().log("OsgVerseViewerImpl::ViewerWidget: Viewer realized\n");
+        }
+        
+        Base::Console().log("OsgVerseViewerImpl::ViewerWidget: GraphicsWindow initialized\n");
+    }
+    
     if (_viewer && _graphicsWindow) {
         // 渲染一帧
         _viewer->frame();
@@ -131,7 +197,7 @@ void OsgVerseViewerImpl::ViewerWidget::resizeGL(int width, int height)
         
         // 更新投影矩阵
         double aspectRatio = static_cast<double>(width) / static_cast<double>(height);
-        _viewer->getCamera()->setProjectionMatrixAsPerspective(45.0, aspectRatio, 0.1, 1000.0);
+        _viewer->getCamera()->setProjectionMatrixAsPerspective(45.0, aspectRatio, 0.01, 10000.0);
     }
 }
 
@@ -191,7 +257,15 @@ OsgVerseViewerImpl::OsgVerseViewerImpl(QWidget* parent, const QOpenGLWidget* sha
     // 创建 ViewProvider 容器节点
     _vpContainerNode = new osg::Group();
     _vpContainerNode->setName("ViewProviders");
+    
+    // 确保容器节点的渲染状态正确
+    osg::StateSet* vpStateSet = _vpContainerNode->getOrCreateStateSet();
+    vpStateSet->setMode(GL_LIGHTING, osg::StateAttribute::ON);
+    vpStateSet->setMode(GL_DEPTH_TEST, osg::StateAttribute::ON);
+    
     _sceneRoot->addChild(_vpContainerNode.get());
+    
+    Base::Console().log("OsgVerseViewerImpl: ViewProvider container created\n");
     
     // 设置场景数据
     _viewer->setSceneData(_sceneRoot.get());
@@ -358,7 +432,9 @@ void OsgVerseViewerImpl::viewAll()
     osg::BoundingBox bb = cbv.getBoundingBox();
     
     if (!bb.valid()) {
-        Base::Console().warning("OsgVerseViewerImpl: Scene bounding box is invalid\n");
+        // 场景为空或边界框无效，使用默认相机位置
+        Base::Console().log("OsgVerseViewerImpl: Scene is empty, using default camera position\n");
+        resetCamera();
         return;
     }
     
@@ -366,18 +442,24 @@ void OsgVerseViewerImpl::viewAll()
     osg::BoundingSphere bs;
     bs.expandBy(bb);
     
-    // 设置相机位置
+    // 设置相机位置 - 增加距离以避免裁剪
     osg::Vec3d center = bs.center();
     double radius = bs.radius();
     double distance = radius / std::tan(osg::DegreesToRadians(45.0 / 2.0));
     
-    osg::Vec3d eye = center + osg::Vec3d(0.0, -distance * 1.5, radius * 0.5);
+    // 增加距离系数从 1.5 到 2.5，确保整个对象可见
+    osg::Vec3d eye = center + osg::Vec3d(0.0, -distance * 2.5, radius * 0.8);
     osg::Vec3d up(0.0, 0.0, 1.0);
     
     _viewer->getCamera()->setViewMatrixAsLookAt(eye, center, up);
     
     Base::Console().log("OsgVerseViewerImpl: View all - center(%.2f, %.2f, %.2f) radius=%.2f\n",
                         center.x(), center.y(), center.z(), radius);
+    Base::Console().log("OsgVerseViewerImpl: Camera eye(%.2f, %.2f, %.2f) distance=%.2f\n",
+                        eye.x(), eye.y(), eye.z(), distance * 2.5);
+    
+    // 强制更新
+    updateScene();
 }
 
 void OsgVerseViewerImpl::resetCamera()
@@ -386,8 +468,8 @@ void OsgVerseViewerImpl::resetCamera()
         return;
     }
     
-    // 重置到默认相机位置
-    osg::Vec3d eye(0.0, -10.0, 5.0);
+    // 重置到默认相机位置 - 更远的距离
+    osg::Vec3d eye(0.0, -20.0, 10.0);
     osg::Vec3d center(0.0, 0.0, 0.0);
     osg::Vec3d up(0.0, 0.0, 1.0);
     
@@ -576,8 +658,8 @@ void OsgVerseViewerImpl::setupDefaultCamera()
     
     osg::Camera* camera = _viewer->getCamera();
     
-    // 设置默认视图矩阵
-    osg::Vec3d eye(0.0, -10.0, 5.0);
+    // 设置默认视图矩阵 - 相机位置更远，避免裁剪
+    osg::Vec3d eye(0.0, -20.0, 10.0);  // 从 -10, 5 改为 -20, 10
     osg::Vec3d center(0.0, 0.0, 0.0);
     osg::Vec3d up(0.0, 0.0, 1.0);
     camera->setViewMatrixAsLookAt(eye, center, up);
@@ -587,7 +669,7 @@ void OsgVerseViewerImpl::setupDefaultCamera()
     if (_widget) {
         aspectRatio = static_cast<double>(_widget->width()) / static_cast<double>(_widget->height());
     }
-    camera->setProjectionMatrixAsPerspective(45.0, aspectRatio, 0.1, 1000.0);
+    camera->setProjectionMatrixAsPerspective(45.0, aspectRatio, 0.01, 10000.0);  // 近裁剪面从 0.1 改为 0.01
     
     // 设置清除掩码
     camera->setClearMask(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -615,8 +697,10 @@ void OsgVerseViewerImpl::setupDefaultLighting()
     // 添加到场景根节点
     _sceneRoot->addChild(lightSource.get());
     
-    // 启用光照
-    _sceneRoot->getOrCreateStateSet()->setMode(GL_LIGHTING, osg::StateAttribute::ON);
+    // 启用光照和深度测试
+    osg::StateSet* stateSet = _sceneRoot->getOrCreateStateSet();
+    stateSet->setMode(GL_LIGHTING, osg::StateAttribute::ON);
+    stateSet->setMode(GL_DEPTH_TEST, osg::StateAttribute::ON);
     
     Base::Console().log("OsgVerseViewerImpl: Default lighting setup complete\n");
 }
@@ -647,24 +731,35 @@ void OsgVerseViewerImpl::addViewProvider(ViewProvider* vp)
     osg::ref_ptr<osg::Group> vpNode = new osg::Group();
     vpNode->setName(objName);
     
-    // 添加简单的占位符几何体（一个小立方体）
+    // 添加简单的占位符几何体（一个球体）
     osg::ref_ptr<osg::Geode> geode = new osg::Geode();
-    osg::ref_ptr<osg::Box> box = new osg::Box(osg::Vec3(0, 0, 0), 1.0f);
-    osg::ref_ptr<osg::ShapeDrawable> drawable = new osg::ShapeDrawable(box.get());
+    // 使用非常大的球体（半径 5.0），确保能看到
+    osg::ref_ptr<osg::Sphere> sphere = new osg::Sphere(osg::Vec3(0, 0, 0), 5.0f);
+    osg::ref_ptr<osg::ShapeDrawable> drawable = new osg::ShapeDrawable(sphere.get());
     
-    // 设置颜色（使用简单的默认颜色）
+    // 设置颜色（使用非常明亮的红色，最大亮度）
+    drawable->setColor(osg::Vec4(1.0f, 0.0f, 0.0f, 1.0f));  // 纯红色
+    
     osg::ref_ptr<osg::Material> material = new osg::Material();
-    material->setDiffuse(osg::Material::FRONT_AND_BACK, osg::Vec4(0.7f, 0.7f, 0.7f, 1.0f));
-    material->setAmbient(osg::Material::FRONT_AND_BACK, osg::Vec4(0.3f, 0.3f, 0.3f, 1.0f));
+    material->setDiffuse(osg::Material::FRONT_AND_BACK, osg::Vec4(1.0f, 0.0f, 0.0f, 1.0f));  // 纯红色
+    material->setAmbient(osg::Material::FRONT_AND_BACK, osg::Vec4(0.5f, 0.0f, 0.0f, 1.0f));
     material->setSpecular(osg::Material::FRONT_AND_BACK, osg::Vec4(1.0f, 1.0f, 1.0f, 1.0f));
     material->setShininess(osg::Material::FRONT_AND_BACK, 64.0f);
+    material->setEmission(osg::Material::FRONT_AND_BACK, osg::Vec4(0.2f, 0.0f, 0.0f, 1.0f));  // 添加自发光
     
     osg::StateSet* stateSet = geode->getOrCreateStateSet();
     stateSet->setAttribute(material.get());
     stateSet->setMode(GL_LIGHTING, osg::StateAttribute::ON);
     
     geode->addDrawable(drawable.get());
+    
+    // 确保边界框被正确计算
+    geode->dirtyBound();
+    geode->computeBound();
+    
     vpNode->addChild(geode.get());
+    
+    Base::Console().log("OsgVerseViewerImpl: Created LARGE RED sphere with radius 5.0 at origin\n");
     
     // 保存映射关系
     _vpNodeMap[vp] = vpNode;
@@ -672,6 +767,18 @@ void OsgVerseViewerImpl::addViewProvider(ViewProvider* vp)
     // 添加到场景
     if (_vpContainerNode) {
         _vpContainerNode->addChild(vpNode.get());
+        
+        // 强制更新边界框
+        _vpContainerNode->dirtyBound();
+        _sceneRoot->dirtyBound();
+        
+        Base::Console().log("OsgVerseViewerImpl: Added node to container (total children: %d)\n", 
+                           _vpContainerNode->getNumChildren());
+        Base::Console().log("OsgVerseViewerImpl: Scene root has %d children\n",
+                           _sceneRoot->getNumChildren());
+    }
+    else {
+        Base::Console().log("OsgVerseViewerImpl: WARNING - _vpContainerNode is null!\n");
     }
     
     updateScene();

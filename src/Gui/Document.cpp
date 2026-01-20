@@ -71,6 +71,7 @@
 #include "View3DInventor.h"
 #include "View3DOsgVerse.h"
 #include "View3DInventorViewer.h"
+#include "View3D/Backends/OsgVerse/OsgVerseViewerImpl.h"
 #include "ViewProviderDocumentObject.h"
 #include "ViewProviderDocumentObjectGroup.h"
 #include "WaitCursor.h"
@@ -830,6 +831,13 @@ void Document::setAnnotationViewProvider(const char* name, ViewProvider* pcProvi
         if (activeView) {
             activeView->getViewer()->addViewProvider(pcProvider);
         }
+        else {
+            // Also check for View3DOsgVerse
+            auto osgVerseView = dynamic_cast<View3DOsgVerse*>(*vIt);
+            if (osgVerseView) {
+                osgVerseView->getViewer()->addViewProvider(pcProvider);
+            }
+        }
     }
 }
 
@@ -1042,6 +1050,13 @@ void Document::slotNewObject(const App::DocumentObject& Obj)
             auto activeView = dynamic_cast<View3DInventor*>(*vIt);
             if (activeView) {
                 activeView->getViewer()->addViewProvider(pcProvider);
+            }
+            else {
+                // Also check for View3DOsgVerse
+                auto osgVerseView = dynamic_cast<View3DOsgVerse*>(*vIt);
+                if (osgVerseView) {
+                    osgVerseView->getViewer()->addViewProvider(pcProvider);
+                }
             }
         }
 
@@ -2329,6 +2344,26 @@ MDIView* Document::createView(const Base::Type& typeId, CreateViewMode mode)
 
         auto view3D = new View3DOsgVerse(this, getMainWindow(), shareWidget);
 
+        // Attach the viewproviders (same as View3DInventor)
+        std::map<const App::DocumentObject*, ViewProviderDocumentObject*>::const_iterator It1;
+        std::vector<App::DocumentObject*> child_vps;
+        for (It1 = d->_ViewProviderMap.begin(); It1 != d->_ViewProviderMap.end(); ++It1) {
+            view3D->getViewer()->addViewProvider(It1->second);
+            std::vector<App::DocumentObject*> children = It1->second->claimChildren3D();
+            child_vps.insert(child_vps.end(), children.begin(), children.end());
+        }
+        std::map<std::string, ViewProvider*>::const_iterator It2;
+        for (It2 = d->_ViewProviderMapAnnotation.begin(); It2 != d->_ViewProviderMapAnnotation.end();
+             ++It2) {
+            view3D->getViewer()->addViewProvider(It2->second);
+            std::vector<App::DocumentObject*> children = It2->second->claimChildren3D();
+            child_vps.insert(child_vps.end(), children.begin(), children.end());
+        }
+
+        for (App::DocumentObject* obj : child_vps) {
+            view3D->getViewer()->removeViewProvider(getViewProvider(obj));
+        }
+
         // When cloning the view, don't increment the window counter
         if (mode != CreateViewMode::Clone) {
             const char* name = getDocument()->Label.getValue();
@@ -3077,6 +3112,13 @@ void Document::handleChildren3D(ViewProvider* viewProvider, bool deleting)
                     auto activeView = dynamic_cast<View3DInventor*>(view);
                     if (activeView && !activeView->getViewer()->hasViewProvider(vpd)) {
                         activeView->getViewer()->addViewProvider(vpd);
+                    }
+                    else {
+                        // Also check for View3DOsgVerse
+                        auto osgVerseView = dynamic_cast<View3DOsgVerse*>(view);
+                        if (osgVerseView && !osgVerseView->getViewer()->hasViewProvider(vpd)) {
+                            osgVerseView->getViewer()->addViewProvider(vpd);
+                        }
                     }
                 }
             }
