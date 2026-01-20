@@ -33,6 +33,11 @@
 
 #include "Base/Vector3D.h"
 
+// View3D Factory and Interfaces
+#include <Gui/View3D/ViewerFactory.h>
+#include <Gui/View3D/IViewer3D.h>
+#include <Gui/View3D/Backends/Coin/CoinViewer.h>
+
 class QPrinter;
 class QOpenGLWidget;
 class QStackedWidget;

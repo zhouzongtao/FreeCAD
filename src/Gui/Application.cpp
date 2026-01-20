@@ -104,6 +104,8 @@
 #include "View3DPy.h"
 #include "View3DViewerPy.h"
 #include "View3DInventor.h"
+#include "View3D/ViewerFactory.h"
+#include "View3D/Backends/Coin/CoinViewer.h"
 #include "ViewProviderAnnotation.h"
 #include "ViewProviderDocumentObject.h"
 #include "ViewProviderDocumentObjectGroup.h"
@@ -543,6 +545,34 @@ Application::Application(bool GUIenabled)
         }
         catch (...) {
             Base::Console().error("Application: Failed to initialize RenderManager: unknown exception\n");
+        }
+
+        // Register viewer backends with ViewerFactory
+        // This must be done after RenderManager initialization
+        Base::Console().log("Application: Registering viewer backends...\n");
+        try {
+            // Register Coin3D viewer
+            View3D::ViewerFactory::registerCreator(
+                Render::BackendType::Coin3D,
+                [](QWidget* parent, const QOpenGLWidget* shareWidget) -> std::unique_ptr<View3D::IViewer3D> {
+                    return std::make_unique<View3D::Coin::CoinViewer>(parent, shareWidget);
+                }
+            );
+            Base::Console().log("Application: Coin3D viewer registered\n");
+            
+            // TODO: Register OsgVerse viewer when implemented
+            // View3D::ViewerFactory::registerCreator(
+            //     Render::BackendType::OsgVerse,
+            //     [](QWidget* parent, const QOpenGLWidget* shareWidget) {
+            //         return std::make_unique<View3D::OsgVerse::OsgVerseViewer>(parent, shareWidget);
+            //     }
+            // );
+        }
+        catch (const std::exception& e) {
+            Base::Console().error("Application: Failed to register viewer backends: %s\n", e.what());
+        }
+        catch (...) {
+            Base::Console().error("Application: Failed to register viewer backends: unknown exception\n");
         }
 
         // if this returns a valid pointer then the 'FreeCADGui' Python module was loaded,

@@ -15,6 +15,7 @@ add_subdirectory(Stylesheets)
 add_subdirectory(PreferencePacks)
 add_subdirectory(PreferencePackTemplates)
 add_subdirectory(Render)
+add_subdirectory(View3D)
 
 if(BUILD_WITH_CONDA)
     add_definitions(-DFC_CONDA)
