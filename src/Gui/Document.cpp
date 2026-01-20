@@ -57,6 +57,7 @@
 #include "Document.h"
 #include "DocumentPy.h"
 #include "Application.h"
+#include "Core/RenderManager.h"
 #include "Command.h"
 #include "Control.h"
 #include "FileDialog.h"
@@ -66,7 +67,9 @@
 #include "Selection.h"
 #include "Thumbnail.h"
 #include "Tree.h"
+#include "View3DBase.h"
 #include "View3DInventor.h"
+#include "View3DOsgVerse.h"
 #include "View3DInventorViewer.h"
 #include "ViewProviderDocumentObject.h"
 #include "ViewProviderDocumentObjectGroup.h"
@@ -2204,12 +2207,38 @@ void Document::addRootObjectsToGroup(
 
 MDIView* Document::createView(const Base::Type& typeId, CreateViewMode mode)
 {
+    Base::Console().log("Document::createView called with typeId: %s\n", 
+                       typeId.getName());
+    
     if (!typeId.isDerivedFrom(MDIView::getClassTypeId())) {
+        Base::Console().warning("Document::createView: typeId is not derived from MDIView\n");
         return nullptr;
     }
 
     std::list<MDIView*> theViews = this->getMDIViewsOfType(typeId);
+    
+    // Check if requesting View3DBase (abstract base) - select concrete implementation based on backend
+    if (typeId == View3DBase::getClassTypeId()) {
+        Base::Console().log("Document::createView: Detected View3DBase request\n");
+        // Get current render backend from RenderManager
+        auto& renderMgr = Gui::Core::RenderManager::instance();
+        auto backend = renderMgr.getCurrentBackend();
+        
+        Base::Console().log("Document::createView: Selecting View3D implementation for backend %d\n", 
+                           static_cast<int>(backend));
+        
+        // Select concrete view type based on backend
+        if (backend == Gui::Render::BackendType::OsgVerse) {
+            return createView(View3DOsgVerse::getClassTypeId(), mode);
+        }
+        else {
+            // Default to Coin3D
+            return createView(View3DInventor::getClassTypeId(), mode);
+        }
+    }
+    
     if (typeId == View3DInventor::getClassTypeId()) {
+        Base::Console().log("Document::createView: Creating View3DInventor\n");
 
         QOpenGLWidget* shareWidget = nullptr;
         // VBO rendering doesn't work correctly when we don't share the OpenGL widgets
@@ -2277,8 +2306,43 @@ MDIView* Document::createView(const Base::Type& typeId, CreateViewMode mode)
         }
 
         view3D->getViewer()->redraw();
+        
+        Base::Console().log("Document::createView: View3DInventor created successfully, returning %p\n", 
+                           static_cast<void*>(view3D));
         return view3D;
     }
+    else if (typeId == View3DOsgVerse::getClassTypeId()) {
+        Base::Console().log("Document::createView: Creating View3DOsgVerse\n");
+
+        QOpenGLWidget* shareWidget = nullptr;
+        // TODO: Share OpenGL context if there are existing views
+        // This requires OsgVerseViewerImpl to be fully implemented
+
+        auto view3D = new View3DOsgVerse(this, getMainWindow(), shareWidget);
+
+        // When cloning the view, don't increment the window counter
+        if (mode != CreateViewMode::Clone) {
+            const char* name = getDocument()->Label.getValue();
+            QString title
+                = QStringLiteral("%1 : %2[*]").arg(QString::fromUtf8(name)).arg(d->_iWinCount++);
+
+            view3D->setWindowTitle(title);
+        }
+
+        view3D->setWindowModified(this->isModified());
+        view3D->resize(400, 300);
+
+        // When cloning the view, don't add the view to the main window
+        if (mode != CreateViewMode::Clone) {
+            getMainWindow()->addWindow(view3D);
+        }
+
+        Base::Console().log("Document::createView: View3DOsgVerse created successfully\n");
+        return view3D;
+    }
+    
+    Base::Console().warning("Document::createView: No matching view type found for %s, returning nullptr\n",
+                           typeId.getName());
     return nullptr;
 }
 
@@ -2598,7 +2662,7 @@ MDIView* Document::getActiveView() const
         // hidden page has view but not in the list. By right, the view will
         // self delete, but not the case for TechDraw, especially during
         // document restore.
-        if (windows.contains(*rit) || (*rit)->isDerivedFrom<View3DInventor>()) {
+        if (windows.contains(*rit) || (*rit)->isDerivedFrom<View3DBase>()) {
             return *rit;
         }
     }

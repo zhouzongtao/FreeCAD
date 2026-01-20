@@ -718,7 +718,17 @@ void StdCmdNew::activated(int iMsg)
     QString cmd;
     cmd = QStringLiteral("App.newDocument()");
     runCommand(Command::Doc, cmd.toUtf8());
-    doCommand(Command::Gui, "Gui.activeDocument().activeView().viewDefaultOrientation()");
+    
+    // Check if view exists before calling viewDefaultOrientation
+    doCommand(Command::Gui, 
+        "try:\n"
+        "    view = Gui.activeDocument().activeView()\n"
+        "    if view:\n"
+        "        view.viewDefaultOrientation()\n"
+        "    else:\n"
+        "        print('Warning: No active view available for viewDefaultOrientation')\n"
+        "except Exception as e:\n"
+        "    print(f'Error calling viewDefaultOrientation: {e}')\n");
 
     ParameterGrp::handle hViewGrp = App::GetApplication().GetParameterGroupByPath(
         "User parameter:BaseApp/Preferences/View"

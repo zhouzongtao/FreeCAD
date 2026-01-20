@@ -103,9 +103,14 @@
 #include "UiLoader.h"
 #include "View3DPy.h"
 #include "View3DViewerPy.h"
+#include "View3DBase.h"
 #include "View3DInventor.h"
+#include "View3DOsgVerse.h"
 #include "View3D/ViewerFactory.h"
 #include "View3D/Backends/Coin/CoinViewer.h"
+#ifdef BUILD_WITH_OSGVERSE
+#include "View3D/Backends/OsgVerse/OsgVerseViewerImpl.h"
+#endif
 #include "ViewProviderAnnotation.h"
 #include "ViewProviderDocumentObject.h"
 #include "ViewProviderDocumentObjectGroup.h"
@@ -560,13 +565,16 @@ Application::Application(bool GUIenabled)
             );
             Base::Console().log("Application: Coin3D viewer registered\n");
             
-            // TODO: Register OsgVerse viewer when implemented
-            // View3D::ViewerFactory::registerCreator(
-            //     Render::BackendType::OsgVerse,
-            //     [](QWidget* parent, const QOpenGLWidget* shareWidget) {
-            //         return std::make_unique<View3D::OsgVerse::OsgVerseViewer>(parent, shareWidget);
-            //     }
-            // );
+#ifdef BUILD_WITH_OSGVERSE
+            // Register OsgVerse viewer (Phase 1 - Placeholder)
+            View3D::ViewerFactory::registerCreator(
+                Render::BackendType::OsgVerse,
+                [](QWidget* parent, const QOpenGLWidget* shareWidget) -> std::unique_ptr<View3D::IViewer3D> {
+                    return std::make_unique<View3D::OsgVerse::OsgVerseViewerImpl>(parent, shareWidget);
+                }
+            );
+            Base::Console().log("Application: OsgVerse viewer registered (Phase 1 - Placeholder)\n");
+#endif
         }
         catch (const std::exception& e) {
             Base::Console().error("Application: Failed to register viewer backends: %s\n", e.what());
@@ -2405,7 +2413,9 @@ void Application::initTypes()
     // views
     Gui::BaseView                               ::init();
     Gui::MDIView                                ::init();
+    Gui::View3DBase                             ::init();
     Gui::View3DInventor                         ::init();
+    Gui::View3DOsgVerse                         ::init();
     Gui::AbstractSplitView                      ::init();
     Gui::SplitView3DInventor                    ::init();
     Gui::TextDocumentEditorView                 ::init();

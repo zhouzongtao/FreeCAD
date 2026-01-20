@@ -89,7 +89,7 @@ void GLOverlayWidget::paintEvent(QPaintEvent*)
 
 /* TRANSLATOR Gui::View3DInventor */
 
-TYPESYSTEM_SOURCE_ABSTRACT(Gui::View3DInventor, Gui::MDIView)
+TYPESYSTEM_SOURCE_ABSTRACT(Gui::View3DInventor, Gui::View3DBase)
 
 View3DInventor::View3DInventor(
     Gui::Document* pcDocument,
@@ -97,9 +97,11 @@ View3DInventor::View3DInventor(
     const QOpenGLWidget* sharewidget,
     Qt::WindowFlags wflags
 )
-    : MDIView(pcDocument, parent, wflags)
+    : View3DBase(pcDocument, parent, wflags)
     , _viewerPy(nullptr)
 {
+    Base::Console().log("View3DInventor: Constructor called\n");
+    
     stack = new QStackedWidget(this);
     // important for highlighting
     setMouseTracking(true);
@@ -189,6 +191,8 @@ View3DInventor::View3DInventor(
     connect(stopSpinTimer, &QTimer::timeout, this, &View3DInventor::stopAnimating);
 
     setWindowIcon(Gui::BitmapFactory().pixmap("Document"));
+    
+    Base::Console().log("View3DInventor: Constructor completed successfully\n");
 }
 
 View3DInventor::~View3DInventor()
@@ -989,6 +993,13 @@ void View3DInventor::customEvent(QEvent* e)
             _viewer->setNavigationType(se->style());
         }
     }
+}
+
+View3D::IViewer3D* View3DInventor::getViewerInterface()
+{
+    // View3DInventor uses View3DInventorViewer which doesn't implement IViewer3D
+    // This is intentional - View3DInventor is Coin3D-specific and doesn't need abstraction
+    return nullptr;
 }
 
 
