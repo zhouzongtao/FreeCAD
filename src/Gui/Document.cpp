@@ -2239,6 +2239,15 @@ MDIView* Document::createView(const Base::Type& typeId, CreateViewMode mode)
     
     if (typeId == View3DInventor::getClassTypeId()) {
         Base::Console().log("Document::createView: Creating View3DInventor\n");
+        
+        // Check if we should use OsgVerse instead
+        auto& renderMgr = Gui::Core::RenderManager::instance();
+        auto backend = renderMgr.getCurrentBackend();
+        
+        if (backend == Gui::Render::BackendType::OsgVerse) {
+            Base::Console().log("Document::createView: Backend is OsgVerse, redirecting to View3DOsgVerse\n");
+            return createView(View3DOsgVerse::getClassTypeId(), mode);
+        }
 
         QOpenGLWidget* shareWidget = nullptr;
         // VBO rendering doesn't work correctly when we don't share the OpenGL widgets

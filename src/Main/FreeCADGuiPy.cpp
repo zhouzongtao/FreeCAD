@@ -48,6 +48,14 @@
 #include <Base/PyObjectBase.h>
 #include <Gui/Application.h>
 #include <Gui/BitmapFactory.h>
+#include <Gui/Core/RenderManager.h>
+
+// Forward declaration of RenderManager Python binding functions
+namespace Gui {
+namespace Core {
+    extern PyMethodDef RenderManager_methods[];
+}
+}
 #include <Gui/MainWindow.h>
 #include <Gui/StartupProcess.h>
 #include <Gui/SoFCDB.h>
@@ -348,6 +356,21 @@ PyMOD_INIT_FUNC(FreeCADGui)
         if (Base::Type::fromName("Gui::BaseView").isBad()) {
             Gui::Application::initApplication();
         }
+        
+        // Initialize RenderManager before creating the module
+        // This ensures RenderManager is ready when Python bindings are added
+        Base::Console().log("FreeCADGuiPy: Initializing RenderManager...\n");
+        try {
+            Gui::Core::RenderManager::instance().initialize();
+            Base::Console().log("FreeCADGuiPy: RenderManager initialized successfully\n");
+        }
+        catch (const std::exception& e) {
+            Base::Console().error("FreeCADGuiPy: Failed to initialize RenderManager: %s\n", e.what());
+        }
+        catch (...) {
+            Base::Console().error("FreeCADGuiPy: Failed to initialize RenderManager: unknown exception\n");
+        }
+        
         static struct PyModuleDef FreeCADGuiModuleDef = {
             PyModuleDef_HEAD_INIT,
             "FreeCADGui",
@@ -360,6 +383,26 @@ PyMOD_INIT_FUNC(FreeCADGui)
             nullptr
         };
         PyObject* module = PyModule_Create(&FreeCADGuiModuleDef);
+        
+        // Add RenderManager methods to the module
+        // This must be done after module creation
+        Base::Console().log("FreeCADGuiPy: Adding RenderManager methods to module...\n");
+        PyObject* dict = PyModule_GetDict(module);
+        if (dict) {
+            for (PyMethodDef* method = Gui::Core::RenderManager_methods; method->ml_name != nullptr; ++method) {
+                PyObject* func = PyCFunction_New(method, nullptr);
+                if (func) {
+                    PyDict_SetItemString(dict, method->ml_name, func);
+                    Py_DECREF(func);
+                    Base::Console().log("FreeCADGuiPy: Added method '%s'\n", method->ml_name);
+                }
+            }
+            Base::Console().log("FreeCADGuiPy: RenderManager methods added successfully\n");
+        }
+        else {
+            Base::Console().error("FreeCADGuiPy: Failed to get module dictionary\n");
+        }
+        
         return module;
     }
     catch (const Base::Exception& e) {

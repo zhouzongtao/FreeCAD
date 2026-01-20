@@ -108,15 +108,9 @@ View3DOsgVerse* View3DOsgVerse::clone()
 
 PyObject* View3DOsgVerse::getPyObject()
 {
-    // TODO: Implement Python wrapper for OsgVerse view
-    if (!_viewerPy) {
-        Base::Console().warning("View3DOsgVerse::getPyObject() not yet implemented\n");
-        Py_INCREF(Py_None);
-        return Py_None;
-    }
-
-    Py_INCREF(_viewerPy);
-    return _viewerPy;
+    // 暂时使用基类的 Python 对象
+    // TODO: 创建专门的 View3DOsgVersePy 类
+    return View3DBase::getPyObject();
 }
 
 void View3DOsgVerse::onRename(Gui::Document* /*pDoc*/)
@@ -169,9 +163,11 @@ void View3DOsgVerse::print(QPrinter* /*printer*/)
     Base::Console().warning("View3DOsgVerse::print(QPrinter*) not yet implemented\n");
 }
 
-bool View3DOsgVerse::containsViewProvider(const ViewProvider* /*vp*/) const
+bool View3DOsgVerse::containsViewProvider(const ViewProvider* vp) const
 {
-    // TODO: Implement view provider containment check
+    if (_viewer) {
+        return _viewer->hasViewProvider(const_cast<ViewProvider*>(vp));
+    }
     return false;
 }
 

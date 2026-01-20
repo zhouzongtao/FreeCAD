@@ -26,17 +26,18 @@ target_include_directories(FreeCADGui PRIVATE
 
 # 如果启用 OsgVerse，添加 OsgVerse 后端
 if(BUILD_WITH_OSGVERSE)
-    # OsgVerse 后端将在第二步实现
-    # set(View3D_OsgVerse_SRCS
-    #     Backends/OsgVerse/OsgVerseViewerImpl.h
-    #     Backends/OsgVerse/OsgVerseViewerImpl.cpp
-    # )
-    # 
-    # target_sources(FreeCADGui PRIVATE
-    #     ${View3D_OsgVerse_SRCS}
-    # )
+    set(View3D_OsgVerse_SRCS
+        Backends/OsgVerse/PreCompiled.h
+        Backends/OsgVerse/PreCompiled.cpp
+        Backends/OsgVerse/OsgVerseViewerImpl.h
+        Backends/OsgVerse/OsgVerseViewerImpl.cpp
+    )
     
-    message(STATUS "View3D: OsgVerse backend will be implemented in Step 2")
+    target_sources(FreeCADGui PRIVATE
+        ${View3D_OsgVerse_SRCS}
+    )
+    
+    message(STATUS "View3D: OsgVerse backend enabled (Phase 1 - Placeholder)")
 endif()
 
 # 安装头文件（如果需要）
