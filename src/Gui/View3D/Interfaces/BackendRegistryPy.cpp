@@ -12,6 +12,16 @@ using namespace Gui;
 
 namespace Gui {
 
+// Destructor for viewer capsule - ensures proper cleanup
+static void viewer_capsule_destructor(PyObject* capsule) {
+    IViewer3D* viewer = static_cast<IViewer3D*>(
+        PyCapsule_GetPointer(capsule, "IViewer3D")
+    );
+    if (viewer) {
+        delete viewer;
+    }
+}
+
 // Python wrapper for BackendRegistry
 class BackendRegistryPy {
 public:
@@ -104,182 +114,12 @@ public:
         }
     }
     
-    // Helper: Extract IViewer3D* from capsule
-    static IViewer3D* extractViewer(PyObject* self)
-    {
-        PyObject* capsule = PyObject_GetAttrString(self, "_viewer_ptr");
-        if (!capsule) {
-            PyErr_SetString(PyExc_RuntimeError, "Viewer object has no _viewer_ptr");
-            return nullptr;
-        }
+    // Helper function to get or create the viewer wrapper class (cached)
+    static PyObject* getViewerWrapperClass() {
+        static PyObject* wrapper_class = nullptr;
         
-        IViewer3D* viewer = static_cast<IViewer3D*>(PyCapsule_GetPointer(capsule, "IViewer3D"));
-        Py_DECREF(capsule);
-        
-        if (!viewer) {
-            PyErr_SetString(PyExc_RuntimeError, "Invalid viewer pointer");
-            return nullptr;
-        }
-        
-        return viewer;
-    }
-    
-    // Viewer method: getBackendName()
-    static PyObject* viewer_getBackendName(PyObject* self, PyObject* /*args*/)
-    {
-        PyObject* name_obj = PyObject_GetAttrString(self, "_backend_name");
-        if (!name_obj) {
-            PyErr_SetString(PyExc_RuntimeError, "Viewer has no _backend_name");
-            return nullptr;
-        }
-        return name_obj;
-    }
-    
-    // Viewer method: getWidget()
-    static PyObject* viewer_getWidget(PyObject* self, PyObject* /*args*/)
-    {
-        IViewer3D* viewer = extractViewer(self);
-        if (!viewer) {
-            return nullptr;
-        }
-        
-        QWidget* widget = viewer->getWidget();
-        if (!widget) {
-            Py_RETURN_NONE;
-        }
-        
-        // Wrap QWidget* for Python (simplified - returns pointer as int)
-        return PyLong_FromVoidPtr(widget);
-    }
-    
-    // Viewer method: render()
-    static PyObject* viewer_render(PyObject* self, PyObject* /*args*/)
-    {
-        IViewer3D* viewer = extractViewer(self);
-        if (!viewer) {
-            return nullptr;
-        }
-        
-        viewer->render();
-        Py_RETURN_NONE;
-    }
-    
-    // Viewer method: viewAll()
-    static PyObject* viewer_viewAll(PyObject* self, PyObject* /*args*/)
-    {
-        IViewer3D* viewer = extractViewer(self);
-        if (!viewer) {
-            return nullptr;
-        }
-        
-        viewer->viewAll();
-        Py_RETURN_NONE;
-    }
-    
-    // Viewer method: setBackgroundColor(QColor)
-    static PyObject* viewer_setBackgroundColor(PyObject* self, PyObject* args)
-    {
-        IViewer3D* viewer = extractViewer(self);
-        if (!viewer) {
-            return nullptr;
-        }
-        
-        PyObject* color_obj;
-        if (!PyArg_ParseTuple(args, "O", &color_obj)) {
-            return nullptr;
-        }
-        
-        // Extract RGB from PySide6.QtGui.QColor
-        PyObject* red_obj = PyObject_CallMethod(color_obj, "red", nullptr);
-        PyObject* green_obj = PyObject_CallMethod(color_obj, "green", nullptr);
-        PyObject* blue_obj = PyObject_CallMethod(color_obj, "blue", nullptr);
-        
-        if (!red_obj || !green_obj || !blue_obj) {
-            Py_XDECREF(red_obj);
-            Py_XDECREF(green_obj);
-            Py_XDECREF(blue_obj);
-            PyErr_SetString(PyExc_TypeError, "Expected QColor object");
-            return nullptr;
-        }
-        
-        int r = PyLong_AsLong(red_obj);
-        int g = PyLong_AsLong(green_obj);
-        int b = PyLong_AsLong(blue_obj);
-        
-        Py_DECREF(red_obj);
-        Py_DECREF(green_obj);
-        Py_DECREF(blue_obj);
-        
-        QColor color(r, g, b);
-        viewer->setBackgroundColor(color);
-        
-        Py_RETURN_NONE;
-    }
-    
-    // Viewer method: clearScene()
-    static PyObject* viewer_clearScene(PyObject* self, PyObject* /*args*/)
-    {
-        IViewer3D* viewer = extractViewer(self);
-        if (!viewer) {
-            return nullptr;
-        }
-        
-        viewer->clearScene();
-        Py_RETURN_NONE;
-    }
-    
-    // Viewer method: getVersion()
-    static PyObject* viewer_getVersion(PyObject* self, PyObject* /*args*/)
-    {
-        IViewer3D* viewer = extractViewer(self);
-        if (!viewer) {
-            return nullptr;
-        }
-        
-        std::string version = viewer->getVersion();
-        return PyUnicode_FromString(version.c_str());
-    }
-    
-    static PyObject* createViewer(PyObject* /*self*/, PyObject* args)
-    {
-        const char* name;
-        if (!PyArg_ParseTuple(args, "s", &name)) {
-            return nullptr;
-        }
-        
-        try {
-            IViewer3D* viewer = BackendRegistry::instance().createViewer(name);
-            
-            if (!viewer) {
-                Py_RETURN_NONE;
-            }
-            
-            // Wrap IViewer3D* as a PyCapsule
-            PyObject* capsule = PyCapsule_New(viewer, "IViewer3D", nullptr);
-            if (!capsule) {
-                delete viewer;
-                return nullptr;
-            }
-            
-            // Create a dict to hold viewer data
-            PyObject* viewer_dict = PyDict_New();
-            if (!viewer_dict) {
-                Py_DECREF(capsule);
-                delete viewer;
-                return nullptr;
-            }
-            
-            // Store the capsule
-            PyDict_SetItemString(viewer_dict, "_viewer_ptr", capsule);
-            Py_DECREF(capsule);
-            
-            // Store backend name
-            std::string backend_name = viewer->getBackendName();
-            PyObject* name_obj = PyUnicode_FromString(backend_name.c_str());
-            PyDict_SetItemString(viewer_dict, "_backend_name", name_obj);
-            Py_DECREF(name_obj);
-            
-            // Create wrapper class in Python
+        if (!wrapper_class) {
+            // Create wrapper class in Python (only once)
             const char* wrapper_code = 
                 "class Viewer3DWrapper:\n"
                 "    def __init__(self, data):\n"
@@ -320,11 +160,58 @@ public:
             
             PyRun_String(wrapper_code, Py_file_input, global_dict, global_dict);
             
-            PyObject* wrapper_class = PyDict_GetItemString(global_dict, "_viewer_wrapper");
-            if (!wrapper_class) {
-                Base::Console().error("BackendRegistry: Failed to create wrapper class\n");
-                Py_DECREF(viewer_dict);
+            wrapper_class = PyDict_GetItemString(global_dict, "_viewer_wrapper");
+            if (wrapper_class) {
+                Py_INCREF(wrapper_class);  // Keep permanent reference
+            }
+        }
+        
+        return wrapper_class;
+    }
+    
+    static PyObject* createViewer(PyObject* /*self*/, PyObject* args)
+    {
+        const char* name;
+        if (!PyArg_ParseTuple(args, "s", &name)) {
+            return nullptr;
+        }
+        
+        try {
+            IViewer3D* viewer = BackendRegistry::instance().createViewer(name);
+            
+            if (!viewer) {
+                Py_RETURN_NONE;
+            }
+            
+            // Wrap IViewer3D* as a PyCapsule with destructor
+            PyObject* capsule = PyCapsule_New(viewer, "IViewer3D", viewer_capsule_destructor);
+            if (!capsule) {
                 delete viewer;
+                return nullptr;
+            }
+            
+            // Create a dict to hold viewer data
+            PyObject* viewer_dict = PyDict_New();
+            if (!viewer_dict) {
+                Py_DECREF(capsule);
+                return nullptr;
+            }
+            
+            // Store the capsule
+            PyDict_SetItemString(viewer_dict, "_viewer_ptr", capsule);
+            Py_DECREF(capsule);
+            
+            // Store backend name
+            std::string backend_name = viewer->getBackendName();
+            PyObject* name_obj = PyUnicode_FromString(backend_name.c_str());
+            PyDict_SetItemString(viewer_dict, "_backend_name", name_obj);
+            Py_DECREF(name_obj);
+            
+            // Get cached wrapper class
+            PyObject* wrapper_class = getViewerWrapperClass();
+            if (!wrapper_class) {
+                Base::Console().error("BackendRegistry: Failed to get wrapper class\n");
+                Py_DECREF(viewer_dict);
                 return nullptr;
             }
             
@@ -334,11 +221,9 @@ public:
             
             if (!viewer_obj) {
                 Base::Console().error("BackendRegistry: Failed to create wrapper instance\n");
-                delete viewer;
                 return nullptr;
             }
             
-            Base::Console().message("BackendRegistry.createViewer: Created Python wrapper\n");
             return viewer_obj;
         }
         catch (const std::exception& e) {
@@ -429,10 +314,38 @@ public:
                 Py_RETURN_NONE;
             }
             
-            // TODO: Wrap IViewer3D in Python object
-            // For now, just return a placeholder
-            Base::Console().warning("BackendRegistry.createDefaultViewer: Python wrapper not yet implemented\n");
-            Py_RETURN_NONE;
+            // Use same wrapping logic as createViewer
+            PyObject* capsule = PyCapsule_New(viewer, "IViewer3D", viewer_capsule_destructor);
+            if (!capsule) {
+                delete viewer;
+                return nullptr;
+            }
+            
+            PyObject* viewer_dict = PyDict_New();
+            if (!viewer_dict) {
+                Py_DECREF(capsule);
+                return nullptr;
+            }
+            
+            PyDict_SetItemString(viewer_dict, "_viewer_ptr", capsule);
+            Py_DECREF(capsule);
+            
+            std::string backend_name = viewer->getBackendName();
+            PyObject* name_obj = PyUnicode_FromString(backend_name.c_str());
+            PyDict_SetItemString(viewer_dict, "_backend_name", name_obj);
+            Py_DECREF(name_obj);
+            
+            PyObject* wrapper_class = getViewerWrapperClass();
+            if (!wrapper_class) {
+                Base::Console().error("BackendRegistry: Failed to get wrapper class\n");
+                Py_DECREF(viewer_dict);
+                return nullptr;
+            }
+            
+            PyObject* viewer_obj = PyObject_CallFunction(wrapper_class, "O", viewer_dict);
+            Py_DECREF(viewer_dict);
+            
+            return viewer_obj;
         }
         catch (const std::exception& e) {
             PyErr_SetString(PyExc_RuntimeError, e.what());
@@ -465,8 +378,6 @@ static PyMethodDef BackendRegistry_methods[] = {
 // Module initialization
 void initBackendRegistryPython()
 {
-    Base::Console().message("BackendRegistry: Initializing Python bindings\n");
-    
     try {
         // Get FreeCADGui module
         PyObject* gui_module = PyImport_ImportModule("FreeCADGui");
@@ -516,8 +427,6 @@ void initBackendRegistryPython()
         PyObject_SetAttrString(gui_module, "BackendRegistry", backend_registry);
         Py_DECREF(backend_registry);
         Py_DECREF(gui_module);
-        
-        Base::Console().message("BackendRegistry: Python bindings initialized successfully\n");
     }
     catch (const std::exception& e) {
         Base::Console().error("BackendRegistry: Exception during initialization: %s\n", e.what());

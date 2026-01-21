@@ -20,11 +20,7 @@ using namespace OsgVerseGui;
 OsgVerseWidget::OsgVerseWidget(QWidget* parent)
     : QOpenGLWidget(parent)
 {
-    Base::Console().message("OsgVerseWidget: Constructor START\n");
-    
     try {
-        Base::Console().message("OsgVerseWidget: Setting OpenGL format...\n");
-        
         // Set OpenGL format
         QSurfaceFormat format;
         format.setDepthBufferSize(24);
@@ -34,21 +30,15 @@ OsgVerseWidget::OsgVerseWidget(QWidget* parent)
         format.setProfile(QSurfaceFormat::CoreProfile);
         setFormat(format);
         
-        Base::Console().message("OsgVerseWidget: OpenGL format set\n");
-        
         // Enable mouse tracking for hover events
         setMouseTracking(true);
         
         // Enable keyboard focus
         setFocusPolicy(Qt::StrongFocus);
         
-        Base::Console().message("OsgVerseWidget: Creating OSG viewer...\n");
-        
         // Create OSG viewer immediately (not in initializeGL)
         // This allows getViewer() to work before the widget is shown
         _viewer = new osgViewer::Viewer();
-        
-        Base::Console().message("OsgVerseWidget: OSG viewer created\n");
         
         // Create graphics window traits
         osg::ref_ptr<osg::GraphicsContext::Traits> traits = new osg::GraphicsContext::Traits;
@@ -60,12 +50,8 @@ OsgVerseWidget::OsgVerseWidget(QWidget* parent)
         traits->doubleBuffer = true;
         traits->sharedContext = nullptr;
         
-        Base::Console().message("OsgVerseWidget: Creating graphics window...\n");
-        
         // Create embedded graphics window
         _graphicsWindow = new osgViewer::GraphicsWindowEmbedded(traits.get());
-        
-        Base::Console().message("OsgVerseWidget: Graphics window created\n");
         
         // Set up camera
         osg::Camera* camera = _viewer->getCamera();
@@ -74,17 +60,11 @@ OsgVerseWidget::OsgVerseWidget(QWidget* parent)
         camera->setProjectionMatrixAsPerspective(30.0, 640.0/480.0, 1.0, 1000.0);
         camera->setClearColor(osg::Vec4(0.2, 0.2, 0.3, 1.0));
         
-        Base::Console().message("OsgVerseWidget: Camera configured\n");
-        
         // Set threading model
         _viewer->setThreadingModel(osgViewer::Viewer::SingleThreaded);
         
-        Base::Console().message("OsgVerseWidget: Threading model set\n");
-        
         // DON'T call realize() here - it needs OpenGL context
         // Will be called in initializeGL()
-        
-        Base::Console().message("OsgVerseWidget: Constructor END - SUCCESS\n");
     }
     catch (const std::exception& e) {
         Base::Console().error("OsgVerseWidget: Exception in constructor: %s\n", e.what());
@@ -102,25 +82,18 @@ OsgVerseWidget::OsgVerseWidget(QWidget* parent)
 
 OsgVerseWidget::~OsgVerseWidget()
 {
-    Base::Console().message("OsgVerseWidget: Destroying widget\n");
-    
     // Cleanup is handled by osg::ref_ptr
     _viewer = nullptr;
     _graphicsWindow = nullptr;
-    
-    Base::Console().message("OsgVerseWidget: Widget destroyed\n");
 }
 
 void OsgVerseWidget::initializeGL()
 {
-    Base::Console().message("OsgVerseWidget: Initializing OpenGL\n");
-    
     // Viewer is already created in constructor
     // Now realize it (needs OpenGL context)
     if (_viewer.valid() && !_viewer->isRealized()) {
         try {
             _viewer->realize();
-            Base::Console().message("OsgVerseWidget: Viewer realized\n");
         }
         catch (const std::exception& e) {
             Base::Console().error("OsgVerseWidget: Failed to realize viewer: %s\n", e.what());
@@ -140,14 +113,10 @@ void OsgVerseWidget::initializeGL()
         double aspectRatio = static_cast<double>(width()) / static_cast<double>(height());
         camera->setProjectionMatrixAsPerspective(30.0, aspectRatio, 1.0, 1000.0);
     }
-    
-    Base::Console().message("OsgVerseWidget: OpenGL initialized\n");
 }
 
 void OsgVerseWidget::resizeGL(int width, int height)
 {
-    Base::Console().message("OsgVerseWidget: Resizing to %dx%d\n", width, height);
-    
     // Notify graphics window of resize
     if (_graphicsWindow.valid()) {
         _graphicsWindow->resized(0, 0, width, height);

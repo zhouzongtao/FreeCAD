@@ -26,39 +26,24 @@ OsgVerseViewer::OsgVerseViewer(QWidget* parent)
     , _sceneRoot(nullptr)
     , _navigationStyle("Trackball")
 {
-    Base::Console().message("OsgVerseViewer: Constructor START\n");
-    
     try {
-        Base::Console().message("OsgVerseViewer: Creating OsgVerseWidget...\n");
-        
         // Create Qt OpenGL widget
         _widget = new OsgVerseWidget(parent);
-        
-        Base::Console().message("OsgVerseViewer: OsgVerseWidget created\n");
         
         // Get OSG viewer from widget
         osgViewer::Viewer* viewer = _widget->getViewer();
         
-        if (viewer) {
-            Base::Console().message("OsgVerseViewer: Got viewer from widget (valid)\n");
-        } else {
-            Base::Console().warning("OsgVerseViewer: Got viewer from widget (NULL!)\n");
+        if (!viewer) {
+            Base::Console().warning("OsgVerseViewer: Failed to get viewer from widget\n");
         }
         
         // Create scene root
         _sceneRoot = new osg::Group();
         
-        Base::Console().message("OsgVerseViewer: Scene root created\n");
-        
         // Set scene data
         if (viewer) {
             viewer->setSceneData(_sceneRoot.get());
-            Base::Console().message("OsgVerseViewer: Scene data set\n");
-        } else {
-            Base::Console().warning("OsgVerseViewer: Viewer is null!\n");
         }
-        
-        Base::Console().message("OsgVerseViewer: Constructor END - SUCCESS\n");
     }
     catch (const std::exception& e) {
         Base::Console().error("OsgVerseViewer: Exception in constructor: %s\n", e.what());
@@ -72,8 +57,6 @@ OsgVerseViewer::OsgVerseViewer(QWidget* parent)
 
 OsgVerseViewer::~OsgVerseViewer()
 {
-    Base::Console().message("OsgVerseViewer: Destroying viewer\n");
-    
     // Clean up view provider nodes
     _vpNodes.clear();
     
@@ -85,8 +68,6 @@ OsgVerseViewer::~OsgVerseViewer()
         delete _widget;
         _widget = nullptr;
     }
-    
-    Base::Console().message("OsgVerseViewer: Viewer destroyed\n");
 }
 
 std::string OsgVerseViewer::getBackendName() const
@@ -102,17 +83,13 @@ QWidget* OsgVerseViewer::getWidget()
 void OsgVerseViewer::addViewProvider(Gui::ViewProvider* vp)
 {
     if (!vp) {
-        Base::Console().warning("OsgVerseViewer: Cannot add null ViewProvider\n");
         return;
     }
-    
-    Base::Console().message("OsgVerseViewer: Adding ViewProvider\n");
     
     // Create scene node for this ViewProvider
     osg::ref_ptr<osg::Node> node = createNodeForViewProvider(vp);
     
     if (!node) {
-        Base::Console().warning("OsgVerseViewer: Failed to create node, using placeholder\n");
         node = createPlaceholderSphere();
     }
     
@@ -131,11 +108,8 @@ void OsgVerseViewer::removeViewProvider(Gui::ViewProvider* vp)
     
     auto it = _vpNodes.find(vp);
     if (it != _vpNodes.end()) {
-        Base::Console().message("OsgVerseViewer: Removing ViewProvider\n");
-        
         _sceneRoot->removeChild(it->second.get());
         _vpNodes.erase(it);
-        
         render();
     }
 }
@@ -148,8 +122,6 @@ void OsgVerseViewer::updateViewProvider(Gui::ViewProvider* vp)
     
     auto it = _vpNodes.find(vp);
     if (it != _vpNodes.end()) {
-        Base::Console().message("OsgVerseViewer: Updating ViewProvider\n");
-        
         // Remove old node
         _sceneRoot->removeChild(it->second.get());
         
@@ -169,8 +141,6 @@ void OsgVerseViewer::updateViewProvider(Gui::ViewProvider* vp)
 
 void OsgVerseViewer::clearScene()
 {
-    Base::Console().message("OsgVerseViewer: Clearing scene\n");
-    
     // Remove all view provider nodes
     for (auto& pair : _vpNodes) {
         _sceneRoot->removeChild(pair.second.get());
@@ -206,7 +176,6 @@ void OsgVerseViewer::setBackgroundColor(const QColor& color)
 
 void OsgVerseViewer::setAntiAliasing(bool enable)
 {
-    Base::Console().message("OsgVerseViewer: Anti-aliasing %s\n", enable ? "enabled" : "disabled");
     // TODO: Implement anti-aliasing control
 }
 
@@ -225,7 +194,6 @@ void OsgVerseViewer::setCamera(const float position[3],
                                const float up[3])
 {
     // TODO: Implement camera control
-    Base::Console().message("OsgVerseViewer: Setting camera\n");
 }
 
 void OsgVerseViewer::getCamera(float position[3], 
@@ -243,20 +211,17 @@ std::vector<App::DocumentObject*> OsgVerseViewer::getSelection() const
 
 void OsgVerseViewer::setSelection(const std::vector<App::DocumentObject*>& objects)
 {
-    Base::Console().message("OsgVerseViewer: Setting selection (%zu objects)\n", objects.size());
     // TODO: Implement selection
 }
 
 void OsgVerseViewer::clearSelection()
 {
-    Base::Console().message("OsgVerseViewer: Clearing selection\n");
     // TODO: Implement selection clearing
 }
 
 void OsgVerseViewer::setNavigationStyle(const std::string& style)
 {
     _navigationStyle = style;
-    Base::Console().message("OsgVerseViewer: Navigation style set to '%s'\n", style.c_str());
     // TODO: Actually change the navigation style
 }
 
@@ -296,27 +261,21 @@ osg::ref_ptr<osg::Node> OsgVerseViewer::createNodeForViewProvider(Gui::ViewProvi
     // Check if this is a ViewProviderDocumentObject
     auto* vpDoc = dynamic_cast<Gui::ViewProviderDocumentObject*>(vp);
     if (!vpDoc) {
-        Base::Console().message("OsgVerseViewer: ViewProvider is not a ViewProviderDocumentObject\n");
         return nullptr;
     }
     
     App::DocumentObject* obj = vpDoc->getObject();
     if (!obj) {
-        Base::Console().warning("OsgVerseViewer: ViewProvider has no object\n");
         return nullptr;
     }
     
     // Check if this is a Part::Feature
     if (!obj->isDerivedFrom(Part::Feature::getClassTypeId())) {
-        Base::Console().message("OsgVerseViewer: Object is not a Part::Feature\n");
         return nullptr;
     }
     
-    // ✅ KEY ADVANTAGE: We can directly call Part::Feature::getTopoShape()
-    // because OsgVerseGui links the Part module!
+    // Extract TopoDS_Shape and convert to OSG geometry
     try {
-        Base::Console().message("OsgVerseViewer: Extracting TopoDS_Shape from Part::Feature\n");
-        
         Part::TopoShape topoShape = Part::Feature::getTopoShape(
             obj,
             Part::ShapeOption::ResolveLink | Part::ShapeOption::Transform
@@ -325,11 +284,8 @@ osg::ref_ptr<osg::Node> OsgVerseViewer::createNodeForViewProvider(Gui::ViewProvi
         const TopoDS_Shape& shape = topoShape.getShape();
         
         if (shape.IsNull()) {
-            Base::Console().warning("OsgVerseViewer: Shape is null\n");
             return nullptr;
         }
-        
-        Base::Console().message("OsgVerseViewer: Converting TopoDS_Shape to OSG geometry\n");
         
         // Convert using GeometryConverter
         GeometryConverter::ConversionOptions options;
@@ -344,9 +300,6 @@ osg::ref_ptr<osg::Node> OsgVerseViewer::createNodeForViewProvider(Gui::ViewProvi
             Base::Console().error("OsgVerseViewer: GeometryConverter failed\n");
             return nullptr;
         }
-        
-        Base::Console().message("OsgVerseViewer: Conversion successful - %d vertices, %d triangles\n",
-                               stats.vertexCount, stats.triangleCount);
         
         // Apply material
         applyMaterial(geode.get(), QColor(200, 200, 200));
@@ -369,8 +322,6 @@ osg::ref_ptr<osg::Node> OsgVerseViewer::createNodeForViewProvider(Gui::ViewProvi
 
 osg::ref_ptr<osg::Node> OsgVerseViewer::createPlaceholderSphere()
 {
-    Base::Console().message("OsgVerseViewer: Creating placeholder sphere\n");
-    
     osg::ref_ptr<osg::Geode> geode = new osg::Geode();
     
     // Create a red sphere
