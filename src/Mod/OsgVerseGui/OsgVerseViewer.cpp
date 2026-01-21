@@ -3,6 +3,7 @@
 #include "PreCompiled.h"
 
 #include "OsgVerseViewer.h"
+#include "OsgVerseWidget.h"
 #include "GeometryConverter.h"
 #include <Base/Console.h>
 #include <Gui/ViewProvider.h>
@@ -21,25 +22,52 @@
 using namespace OsgVerseGui;
 
 OsgVerseViewer::OsgVerseViewer(QWidget* parent)
-    : _viewer(nullptr)
+    : _widget(nullptr)
     , _sceneRoot(nullptr)
     , _navigationStyle("Trackball")
-    , _widget(nullptr)
 {
-    Base::Console().message("OsgVerseViewer: Creating viewer\n");
+    Base::Console().message("OsgVerseViewer: Constructor START\n");
     
-    // Create scene root
-    _sceneRoot = new osg::Group();
-    
-    // Create OSG viewer
-    _viewer = new osgViewer::Viewer();
-    _viewer->setSceneData(_sceneRoot.get());
-    
-    // TODO: Create Qt widget for embedding
-    // For now, we'll need to integrate with Qt properly
-    _widget = parent;
-    
-    Base::Console().message("OsgVerseViewer: Viewer created successfully\n");
+    try {
+        Base::Console().message("OsgVerseViewer: Creating OsgVerseWidget...\n");
+        
+        // Create Qt OpenGL widget
+        _widget = new OsgVerseWidget(parent);
+        
+        Base::Console().message("OsgVerseViewer: OsgVerseWidget created\n");
+        
+        // Get OSG viewer from widget
+        osgViewer::Viewer* viewer = _widget->getViewer();
+        
+        if (viewer) {
+            Base::Console().message("OsgVerseViewer: Got viewer from widget (valid)\n");
+        } else {
+            Base::Console().warning("OsgVerseViewer: Got viewer from widget (NULL!)\n");
+        }
+        
+        // Create scene root
+        _sceneRoot = new osg::Group();
+        
+        Base::Console().message("OsgVerseViewer: Scene root created\n");
+        
+        // Set scene data
+        if (viewer) {
+            viewer->setSceneData(_sceneRoot.get());
+            Base::Console().message("OsgVerseViewer: Scene data set\n");
+        } else {
+            Base::Console().warning("OsgVerseViewer: Viewer is null!\n");
+        }
+        
+        Base::Console().message("OsgVerseViewer: Constructor END - SUCCESS\n");
+    }
+    catch (const std::exception& e) {
+        Base::Console().error("OsgVerseViewer: Exception in constructor: %s\n", e.what());
+        throw;
+    }
+    catch (...) {
+        Base::Console().error("OsgVerseViewer: Unknown exception in constructor\n");
+        throw;
+    }
 }
 
 OsgVerseViewer::~OsgVerseViewer()
@@ -52,10 +80,10 @@ OsgVerseViewer::~OsgVerseViewer()
     // Clean up scene
     _sceneRoot = nullptr;
     
-    // Delete viewer
-    if (_viewer) {
-        delete _viewer;
-        _viewer = nullptr;
+    // Delete widget (which will delete the viewer)
+    if (_widget) {
+        delete _widget;
+        _widget = nullptr;
     }
     
     Base::Console().message("OsgVerseViewer: Viewer destroyed\n");
@@ -154,22 +182,25 @@ void OsgVerseViewer::clearScene()
 
 void OsgVerseViewer::render()
 {
-    if (_viewer) {
-        _viewer->frame();
+    if (_widget) {
+        _widget->update(); // Triggers paintGL()
     }
 }
 
 void OsgVerseViewer::setBackgroundColor(const QColor& color)
 {
-    if (_viewer) {
-        osg::Vec4 bgColor(
-            color.redF(),
-            color.greenF(),
-            color.blueF(),
-            1.0f
-        );
-        _viewer->getCamera()->setClearColor(bgColor);
-        render();
+    if (_widget) {
+        osgViewer::Viewer* viewer = _widget->getViewer();
+        if (viewer) {
+            osg::Vec4 bgColor(
+                color.redF(),
+                color.greenF(),
+                color.blueF(),
+                1.0f
+            );
+            viewer->getCamera()->setClearColor(bgColor);
+            render();
+        }
     }
 }
 
@@ -181,8 +212,11 @@ void OsgVerseViewer::setAntiAliasing(bool enable)
 
 void OsgVerseViewer::viewAll()
 {
-    if (_viewer) {
-        _viewer->home();
+    if (_widget) {
+        osgViewer::Viewer* viewer = _widget->getViewer();
+        if (viewer) {
+            viewer->home();
+        }
     }
 }
 

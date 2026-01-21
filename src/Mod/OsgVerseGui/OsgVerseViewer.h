@@ -16,6 +16,10 @@ namespace osgViewer {
 class QWidget;
 
 namespace OsgVerseGui {
+    class OsgVerseWidget;
+}
+
+namespace OsgVerseGui {
 
 /**
  * @brief OsgVerse implementation of IViewer3D
@@ -94,11 +98,10 @@ private:
     void applyMaterial(osg::Node* node, const QColor& color);
 
 private:
-    osgViewer::Viewer* _viewer;                           ///< OSG viewer
+    OsgVerseWidget* _widget;                              ///< Qt OpenGL widget
     osg::ref_ptr<osg::Group> _sceneRoot;                  ///< Scene root node
     std::map<Gui::ViewProvider*, osg::ref_ptr<osg::Node>> _vpNodes; ///< ViewProvider to node mapping
     std::string _navigationStyle;                         ///< Current navigation style
-    QWidget* _widget;                                     ///< Qt widget for embedding
 };
 
 } // namespace OsgVerseGui

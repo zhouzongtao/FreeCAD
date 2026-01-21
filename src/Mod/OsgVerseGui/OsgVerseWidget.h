@@ -1,0 +1,62 @@
+// SPDX-License-Identifier: LGPL-2.1-or-later
+
+#ifndef OSGVERSEGUI_WIDGET_H
+#define OSGVERSEGUI_WIDGET_H
+
+#include "OsgVerseGuiExport.h"
+#include <QOpenGLWidget>
+#include <osg/ref_ptr>
+
+// Forward declarations
+namespace osgViewer {
+    class Viewer;
+    class GraphicsWindowEmbedded;
+}
+
+namespace OsgVerseGui {
+
+/**
+ * @brief Qt OpenGL widget that embeds an OSG viewer
+ * 
+ * This widget provides the Qt/OpenGL integration for the OsgVerse rendering engine.
+ * It creates an OSG viewer and manages the OpenGL context, event loop integration,
+ * and rendering.
+ * 
+ * Phase 1: Basic widget creation and rendering
+ * Phase 2: Event handling (mouse, keyboard)
+ */
+class OsgVerseGuiExport OsgVerseWidget : public QOpenGLWidget {
+    Q_OBJECT
+
+public:
+    explicit OsgVerseWidget(QWidget* parent = nullptr);
+    ~OsgVerseWidget() override;
+    
+    /**
+     * @brief Get the OSG viewer instance
+     * @return Pointer to the OSG viewer
+     */
+    osgViewer::Viewer* getViewer() const { return _viewer.get(); }
+    
+protected:
+    // Qt OpenGL lifecycle
+    void initializeGL() override;
+    void resizeGL(int width, int height) override;
+    void paintGL() override;
+    
+    // Event handling (Phase 2 - stub implementations for now)
+    void mousePressEvent(QMouseEvent* event) override;
+    void mouseMoveEvent(QMouseEvent* event) override;
+    void mouseReleaseEvent(QMouseEvent* event) override;
+    void wheelEvent(QWheelEvent* event) override;
+    void keyPressEvent(QKeyEvent* event) override;
+    void keyReleaseEvent(QKeyEvent* event) override;
+
+private:
+    osg::ref_ptr<osgViewer::Viewer> _viewer;
+    osg::ref_ptr<osgViewer::GraphicsWindowEmbedded> _graphicsWindow;
+};
+
+} // namespace OsgVerseGui
+
+#endif // OSGVERSEGUI_WIDGET_H

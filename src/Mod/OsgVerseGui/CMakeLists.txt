@@ -11,6 +11,8 @@ set(OsgVerseGui_SRCS
     OsgVerseBackendFactory.cpp
     OsgVerseViewer.h
     OsgVerseViewer.cpp
+    OsgVerseWidget.h
+    OsgVerseWidget.cpp
     GeometryConverter.h
     GeometryConverter.cpp
 )
@@ -51,6 +53,7 @@ set(OsgVerseGui_LIBS
     Part  # Can link Part module!
     ${OPENSCENEGRAPH_LIBRARIES}
     ${OCC_LIBRARIES}
+    Qt::OpenGLWidgets  # Required for QOpenGLWidget
 )
 
 # Link libraries
