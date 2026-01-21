@@ -98,6 +98,7 @@
 #include "StartupProcess.h"
 #include "TaskView/TaskView.h"
 #include "TaskView/TaskDialogPython.h"
+#include "View3D/Interfaces/BackendRegistry.h"
 #include "TransactionObject.h"
 #include "TextDocumentEditorView.h"
 #include "UiLoader.h"
@@ -698,6 +699,9 @@ Application::Application(bool GUIenabled)
         Base::Interpreter().addType(&LinkViewPy::Type, module, "LinkView");
         Base::Interpreter().addType(&AxisOriginPy::Type, module, "AxisOrigin");
         Base::Interpreter().addType(&CommandPy::Type, module, "Command");
+        
+        // Initialize BackendRegistry Python bindings (Phase 1 - Backend Modularization)
+        initBackendRegistryPython();
         Base::Interpreter().addType(&DocumentPy::Type, module, "Document");
         Base::Interpreter().addType(&ViewProviderPy::Type, module, "ViewProvider");
         Base::Interpreter().addType(&ViewProviderDocumentObjectPy::Type,

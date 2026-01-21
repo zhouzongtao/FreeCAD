@@ -1,0 +1,246 @@
+CMake is re-running because E:/Repository/FreeCAD/FreeCAD/build/src/Gui/Render/CMakeFiles/generate.stamp is out-of-date.
+  the file 'E:/Repository/FreeCAD/FreeCAD/src/Gui/Render/CMakeLists.txt'
+  is newer than 'E:/Repository/FreeCAD/FreeCAD/build/src/Gui/Render/CMakeFiles/generate.stamp.depend'
+  result='-1'
+-- Selecting Windows SDK version 10.0.26100.0 to target Windows 10.0.26200.
+-- Compiler: MSVC, version: 19.44.35222.0
+-- prefix: C:/Program Files/FreeCAD
+-- bindir: bin
+-- datadir: data
+-- docdir: doc
+-- includedir: include
+-- libdir: lib
+-- cmake: 4.1.1
+-- Found libpack env variable: E:/Repository/FreeCAD/LibPack-1.1.0-v3.1.1.3-Release
+-- LibPack: read version file and got 3.1.1.3
+-- Using Qt6 directory from LibPack in E:/Repository/FreeCAD/LibPack-1.1.0-v3.1.1.3-Release/lib/cmake/Qt6
+-- Compiling with Qt 6
+Found LibPack 3.1.1.3
+-- Found Python3: E:/Repository/FreeCAD/LibPack-1.1.0-v3.1.1.3-Release/bin/python.exe (found version "3.12.10") found components: Interpreter Development Development.Module Development.Embed
+-- Found LibPack 3 Qt 6.8.3
+-- Found pybind11: E:/Repository/FreeCAD/LibPack-1.1.0-v3.1.1.3-Release/include (found version "2.13.6")
+-- Found LibPack 3 pybind11 2.13.6
+-- Found LibPack 3 XercesC 3.2.5
+-- Found LibPack 3 e57format 
+-- Found LibPack 3 yaml-cpp 0.8.0
+-- Found LibPack 3 Coin 4.0.3
+-- Found LibPack 3 Freetype 2.13.3 library from 
+-- PyCXX found:
+--   Headers:  E:/Repository/FreeCAD/FreeCAD/src/3rdParty/PyCXX
+--   Sources:  E:/Repository/FreeCAD/FreeCAD/src/3rdParty/PyCXX/CXX
+--   Version:  7.1.11
+-- find_package() was used to locate fmt version 11.0.2
+-- PyCXX found:
+--   Headers:  E:/Repository/FreeCAD/FreeCAD/src/3rdParty/PyCXX
+--   Sources:  E:/Repository/FreeCAD/FreeCAD/src/3rdParty/PyCXX/CXX
+--   Version:  7.1.11
+-- Found OpenCASCADE version: 7.8.1
+--   OpenCASCADE include directory: E:/Repository/FreeCAD/LibPack-1.1.0-v3.1.1.3-Release/inc
+--   OpenCASCADE shared libraries directory: E:/Repository/FreeCAD/LibPack-1.1.0-v3.1.1.3-Release/lib
+-- VTK components: CommonCore;CommonDataModel;FiltersVerdict;IOXML;FiltersCore;FiltersGeneral;IOLegacy;FiltersExtraction;FiltersSources;FiltersGeometry;WrappingPythonCore;hdf5;RenderingCore;InteractionStyle;RenderingFreeType;RenderingOpenGL2
+-- Found Python3: E:/Repository/FreeCAD/LibPack-1.1.0-v3.1.1.3-Release/bin/python.exe (found suitable version "3.12.10", minimum required is "3.12") found components: Interpreter Development.Module Development.Embed
+-- VTK python wrapper: available
+-- Check for medfile (libmed and libmedc) ...
+-- Found Netgen: E:/Repository/FreeCAD/LibPack-1.1.0-v3.1.1.3-Release/cmake
+-- Found NETGEN version 6.2, calculated: 396132
+-- Could NOT find WrapVulkanHeaders (missing: Vulkan_INCLUDE_DIR) 
+-- Could NOT find WrapVulkanHeaders (missing: Vulkan_INCLUDE_DIR) 
+-- Set up to compile with Qt 6.8.3
+-- Checking Pivy version by importing it in a Python program...
+-- Found Pivy 0.6.9
+-- Checking Pivy Coin3D version by importing it in a Python program...
+-- Found Pivy Coin3D SIM Coin 4.0.3
+-- Found pip-installed Shiboken6 in E:/Repository/FreeCAD/LibPack-1.1.0-v3.1.1.3-Release/bin/Lib/site-packages/shiboken6
+-- Found pip-installed shiboken6_generator in E:/Repository/FreeCAD/LibPack-1.1.0-v3.1.1.3-Release/bin/Lib/site-packages/shiboken6_generator
+--   --> with includes in E:/Repository/FreeCAD/LibPack-1.1.0-v3.1.1.3-Release/bin/Lib/site-packages/shiboken6_generator/include
+-- Found pip-installed PySide6 in E:/Repository/FreeCAD/LibPack-1.1.0-v3.1.1.3-Release/bin/Lib/site-packages/PySide6
+--   --> with includes in E:/Repository/FreeCAD/LibPack-1.1.0-v3.1.1.3-Release/bin/Lib/site-packages/PySide6/include
+-- Found PYSIDE6 tools: E:/Repository/FreeCAD/LibPack-1.1.0-v3.1.1.3-Release/bin/uic.exe, E:/Repository/FreeCAD/LibPack-1.1.0-v3.1.1.3-Release/bin/rcc.exe
+-- PySide 6.8.3 Python module found at E:\Repository\FreeCAD\LibPack-1.1.0-v3.1.1.3-Release\bin\Lib\site-packages\PySide6.
+
+-- Found Matplotlib: E:/Repository/FreeCAD/LibPack-1.1.0-v3.1.1.3-Release/bin/Lib/site-packages/matplotlib (found version "3.9.2")
+-- Platform is 64-bit, set -D_OCC64
+-- [OndselSolver] Building static library
+-- Skia directory: E:/Repository/skia
+-- Skia build directory: E:/Repository/skia/out/msvc.x64.release.md
+-- Skia library: E:/Repository/skia/out/msvc.x64.release.md/skia.lib
+-- OpenGL found: opengl32;glu32
+-- Could NOT find OpenMP_C: Found unsuitable version "2.0", but required is at least "4.0" (found -openmp)
+-- Could NOT find OpenMP_CXX: Found unsuitable version "2.0", but required is at least "4.0" (found -openmp)
+-- Could NOT find OpenMP (missing: OpenMP_C_FOUND OpenMP_CXX_FOUND) (Required is at least version "4.0")
+-- area module (for Path Workbench) will be installed to: lib
+-- Performing Test _flag_found
+-- Performing Test _flag_found - Failed
+-- Performing Test _flag_found
+-- Performing Test _flag_found - Failed
+-- Note: Doxygen docs will look better with graphviz's dot installed.
+-- OpenSceneGraph not found - OsgVerse backend disabled
+-- OsgVerse not found - OsgVerse backend disabled
+-- OsgVerse backend disabled
+-- =======================================
+-- Created install commands for INSTALL target.
+
+-- Found Python3: E:/Repository/FreeCAD/LibPack-1.1.0-v3.1.1.3-Release/bin/python.exe (found version "3.12.10") found components: Interpreter
+
+   ==============
+     System
+   ==============
+
+-- bindir:                      bin
+-- BLAS:                        -undefined-
+-- ccache:                      not enabled
+-- CMAKE_VERSION:               4.1.1
+-- Compiler:                    C:/Program Files/Microsoft Visual Studio/2022/Enterprise/VC/Tools/MSVC/14.44.35207/bin/Hostx64/x64/cl.exe (19.44.35222.0)
+-- datadir:                     data
+-- docdir:                      doc
+-- includedir:                  include
+-- libdir:                      lib
+-- prefix:                      C:/Program Files/FreeCAD
+-- Python:                      3.12.10 [E:/Repository/FreeCAD/LibPack-1.1.0-v3.1.1.3-Release/bin/python.exe] Suffix: []
+
+   ==============
+     Config
+   ==============
+
+-- BUILD_ADDONMGR:              ON
+-- BUILD_ASSEMBLY:              ON
+-- BUILD_BIM:                   ON
+-- BUILD_CAM:                   ON
+-- BUILD_CLOUD:                 OFF 
+-- BUILD_DRAFT:                 ON
+-- BUILD_DRAWING:               ON
+-- BUILD_FEM:                   ON
+-- BUILD_GUI:                   ON
+-- BUILD_HELP:                  ON
+-- BUILD_IDF:                   ON
+-- BUILD_IMPORT:                ON
+-- BUILD_INSPECTION:            ON
+-- BUILD_JTREADER:              OFF 
+-- BUILD_MATERIAL:              ON
+-- BUILD_MATERIAL_EXTERNAL:     OFF 
+-- BUILD_MEASURE:               ON
+-- BUILD_MESH:                  ON
+-- BUILD_MESH_PART:             ON
+-- BUILD_OPENSCAD:              ON
+-- BUILD_PART:                  ON
+-- BUILD_PART_DESIGN:           ON
+-- BUILD_PLOT:                  ON
+-- BUILD_POINTS:                ON
+-- BUILD_REVERSEENGINEERING:    ON
+-- BUILD_ROBOT:                 ON
+-- BUILD_SANDBOX:               OFF 
+-- BUILD_SHOW:                  ON
+-- BUILD_SKETCHER:              ON
+-- BUILD_SMESH:                 ON
+-- BUILD_SPREADSHEET:           ON
+-- BUILD_START:                 ON
+-- BUILD_SURFACE:               ON
+-- BUILD_TECHDRAW:              ON
+-- BUILD_TEST:                  ON
+-- BUILD_TUX:                   ON
+-- BUILD_VR:                    OFF 
+-- BUILD_WEB:                   ON
+-- CMAKE_BUILD_TYPE:            -undefined-
+-- CMAKE_CXX_FLAGS:             /DWIN32 /D_WINDOWS /EHsc /MP
+-- CMAKE_CXX_STANDARD:          20
+-- CMAKE_INSTALL_PREFIX:        C:/Program Files/FreeCAD
+-- CMAKE_PREFIX_PATH:           E:/Repository/FreeCAD/LibPack-1.1.0-v3.1.1.3-Release
+-- ENABLE_DEVELOPER_TESTS:      ON
+-- FREECAD_CREATE_MAC_APP:      -undefined-
+-- FREECAD_LIBPACK_USE:         ON
+-- FREECAD_QT_VERSION:          6
+-- FREECAD_USE_EXTERNAL_KDL:    OFF 
+-- FREECAD_USE_EXTERNAL_SMESH:  OFF 
+-- FREECAD_USE_FREETYPE:        ON
+-- FREECAD_USE_PYSIDE:          ON
+-- FREECAD_USE_SHIBOKEN:        ON
+-- Python3_EXECUTABLE:          E:/Repository/FreeCAD/LibPack-1.1.0-v3.1.1.3-Release/bin/python.exe
+-- PYTHON_LIBRARY:              -undefined-
+-- USE_CUDA:                    -undefined-
+-- USE_OPENCV:                  -undefined-
+
+   ==============
+     Libraries
+   ==============
+
+-- 3Dconnexion:                 Building with 3Dconnexion NavLib support
+-- Boost:                       1.87.0
+-- Coin3D:                      4.0.3 [optimized;Coin4;debug;Coin4d] [E:/Repository/FreeCAD/LibPack-1.1.0-v3.1.1.3-Release/include]
+-- Coin3D_DOC:                  not found
+-- DesignerPlugin:              not built (BUILD_DESIGNER_PLUGIN is OFF)
+-- Doxygen:                     1.14.0 Language: English
+-- Eigen3:                      3.4.0
+-- fmt:                         11.0.2
+-- Freetype:                    2.13.3
+-- HDF5:                        1.12.3
+-- ICU:                         74.2
+-- Matplotlib:                  3.9.2 PathDirs: E:/Repository/FreeCAD/LibPack-1.1.0-v3.1.1.3-Release/bin/Lib/site-packages/matplotlib
+-- MEDFile:                     5.0.0 [E:/Repository/FreeCAD/LibPack-1.1.0-v3.1.1.3-Release/lib/medC.lib;E:/Repository/FreeCAD/LibPack-1.1.0-v3.1.1.3-Release/lib/med.lib] [E:/Repository/FreeCAD/LibPack-1.1.0-v3.1.1.3-Release/include]
+-- NETGEN:                      6.2.2404 (6.2.2404) [-DNO_PARALLEL_THREADS;-DOCCGEOMETRY;-DNETGEN_VERSION=396132] [] [E:/Repository/FreeCAD/LibPack-1.1.0-v3.1.1.3-Release/include/include;E:/Repository/FreeCAD/LibPack-1.1.0-v3.1.1.3-Release/include] [nglib] [E:/Repository/FreeCAD/LibPack-1.1.0-v3.1.1.3-Release/include/include;E:/Repository/FreeCAD/LibPack-1.1.0-v3.1.1.3-Release/include]
+-- OCC:                         7.8.1 [E:/Repository/FreeCAD/LibPack-1.1.0-v3.1.1.3-Release/lib] [E:/Repository/FreeCAD/LibPack-1.1.0-v3.1.1.3-Release/inc]
+-- OCC_Libs:                    [TKFillet;TKMesh;TKernel;TKG2d;TKG3d;TKMath;TKShHealing;TKXSBase;TKBool;TKBO;TKBRep;TKTopAlgo;TKGeomAlgo;TKGeomBase;TKOffset;TKPrim;TKHLR;TKFeat;TKDESTEP;TKDEIGES;TKDEGLTF;TKDESTL]
+-- OpenGL_Lib:                  [opengl32]
+-- OpenGLU_Incl:                []
+-- OpenGLU_Lib:                 [glu32]
+-- pivy:                        0.6.9
+-- pybind11:                    2.13.6
+-- PYCXX:                       7.1.11 Incl: E:/Repository/FreeCAD/FreeCAD/src/3rdParty/PyCXX Src:E:/Repository/FreeCAD/FreeCAD/src/3rdParty/PyCXX/CXX
+-- PySide:                      6.8.3 [E:/Repository/FreeCAD/LibPack-1.1.0-v3.1.1.3-Release/bin/Lib/site-packages/PySide6/include]
+-- PySideTools:                 v: 6  uic: [E:/Repository/FreeCAD/LibPack-1.1.0-v3.1.1.3-Release/bin/uic.exe]  rcc: [E:/Repository/FreeCAD/LibPack-1.1.0-v3.1.1.3-Release/bin/rcc.exe]
+-- QtConcurrent:                6.8.3
+-- QtCore:                      6.8.3
+-- QtNetwork:                   6.8.3
+-- QtOpenGL:                    6.8.3
+-- QtOpenGLWidgets:             6.8.3
+-- QtPrintSupport:              6.8.3
+-- QtSvg:                       6.8.3
+-- QtTest:                      6.8.3
+-- QtUiTools:                   6.8.3
+-- QtWidgets:                   6.8.3
+-- QtXml:                       6.8.3
+-- Rift:                        not enabled (BUILD_VR)
+-- Shiboken:                    6.8.3 [E:/Repository/FreeCAD/LibPack-1.1.0-v3.1.1.3-Release/bin/Lib/site-packages/shiboken6_generator/include]
+-- SMESH:                       7.7.1.0 build internal
+-- SWIG:                        4.4.0
+-- Vtk:                         9.4.2
+-- XercesC:                     3.2.5 [E:/Repository/FreeCAD/LibPack-1.1.0-v3.1.1.3-Release/lib/xerces-c_3.lib] [E:/Repository/FreeCAD/LibPack-1.1.0-v3.1.1.3-Release/include]
+-- yaml-cpp:                    0.8.0
+-- ZLIB:                        1.3.1
+
+=================================================
+Now run 'cmake --build E:/Repository/FreeCAD/FreeCAD/build' to build FreeCAD
+=================================================
+
+-- Configuring done (29.6s)
+-- Generating done (74.0s)
+-- Build files have been written to: E:/Repository/FreeCAD/FreeCAD/build
+适用于 .NET Framework MSBuild 版本 17.14.23+b0019275e
+
+  1>Checking Build System
+  Generating version_file
+  Automatic MOC and UIC for target libfastsignals
+  git
+  E:/Repository/FreeCAD/FreeCAD/build/src/Build/Version.h.out written
+  libfastsignals.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\src\3rdParty\FastSignals\libfastsignals\Release\libfastsignals.lib
+  Automatic MOC and UIC for target FreeCADBase
+  Generating qrc_Base_translation.cpp
+  qrc_Base_translation.cpp
+     Creating library E:/Repository/FreeCAD/FreeCAD/build/src/Base/Release/FreeCADBase.lib and object E:/Repository/FreeCAD/FreeCAD/build/src/Base/Release/FreeCADBase.exp
+  FreeCADBase.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\bin\FreeCADBase.dll
+  'pwsh.exe' 不是内部或外部命令，也不是可运行的程序
+  或批处理文件。
+  Automatic MOC and UIC for target FreeCADApp
+  Generating qrc_App_translation.cpp
+  qrc_App_translation.cpp
+  Application.cpp
+     Creating library E:/Repository/FreeCAD/FreeCAD/build/src/App/Release/FreeCADApp.lib and object E:/Repository/FreeCAD/FreeCAD/build/src/App/Release/FreeCADApp.exp
+  FreeCADApp.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\bin\FreeCADApp.dll
+  'pwsh.exe' 不是内部或外部命令，也不是可运行的程序
+  或批处理文件。
+  Automatic MOC and UIC for target FreeCADGui
+  Generating qrc_FreeCAD_translation.cpp
+  qrc_FreeCAD_translation.cpp
+     Creating library E:/Repository/FreeCAD/FreeCAD/build/src/Gui/Release/FreeCADGui.lib and object E:/Repository/FreeCAD/FreeCAD/build/src/Gui/Release/FreeCADGui.exp
+  FreeCADGui.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\bin\FreeCADGui.dll
+  'pwsh.exe' 不是内部或外部命令，也不是可运行的程序
+  或批处理文件。

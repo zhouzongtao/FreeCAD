@@ -23,10 +23,18 @@
 #include "PreCompiled.h"
 
 #include "OsgVerseViewerImpl.h"
+#include "GeometryConverter.h"
 #include <Base/Console.h>
 #include <Gui/ViewProvider.h>
 #include <Gui/ViewProviderDocumentObject.h>
 #include <App/DocumentObject.h>
+
+// Part 模块头文件（只用于类型声明，不调用需要链接的函数）
+// 前向声明，避免包含完整头文件
+namespace Part {
+    class PropertyPartShape;
+}
+
 #include <osg/Version>
 #include <osg/Camera>
 #include <osg/Light>
@@ -751,6 +759,70 @@ void OsgVerseViewerImpl::setupDefaultLighting()
     OSGVERSE_LOG_DEBUG("Default lighting setup complete");
 }
 
+void OsgVerseViewerImpl::applyMaterial(osg::Geode* geode, ViewProvider* vp)
+{
+    if (!geode || !vp) {
+        return;
+    }
+    
+    // 获取颜色（默认使用灰色）
+    Base::Color color(0.8f, 0.8f, 0.8f);
+    float transparency = 0.0f;
+    
+    // 尝试从 ViewProvider 获取颜色属性
+    try {
+        // 大多数 ViewProvider 都有 ShapeColor 属性
+        App::Property* colorProp = vp->getPropertyByName("ShapeColor");
+        if (colorProp && colorProp->isDerivedFrom(App::PropertyColor::getClassTypeId())) {
+            color = static_cast<App::PropertyColor*>(colorProp)->getValue();
+        }
+        
+        // 获取透明度
+        App::Property* transProp = vp->getPropertyByName("Transparency");
+        if (transProp && transProp->isDerivedFrom(App::PropertyInteger::getClassTypeId())) {
+            int transInt = static_cast<App::PropertyInteger*>(transProp)->getValue();
+            transparency = transInt / 100.0f;  // 转换为 0.0-1.0
+        }
+    }
+    catch (...) {
+        // 如果获取属性失败，使用默认值
+        OSGVERSE_LOG_DEBUG("Failed to get color properties, using defaults");
+    }
+    
+    // 创建材质
+    osg::ref_ptr<osg::Material> material = new osg::Material();
+    
+    // 设置漫反射颜色
+    material->setDiffuse(osg::Material::FRONT_AND_BACK,
+                        osg::Vec4(color.r, color.g, color.b, 1.0f - transparency));
+    
+    // 设置环境光（稍暗一些）
+    material->setAmbient(osg::Material::FRONT_AND_BACK,
+                        osg::Vec4(color.r * 0.5f, color.g * 0.5f, color.b * 0.5f, 1.0f));
+    
+    // 设置高光（白色）
+    material->setSpecular(osg::Material::FRONT_AND_BACK,
+                         osg::Vec4(1.0f, 1.0f, 1.0f, 1.0f));
+    
+    // 设置光泽度
+    material->setShininess(osg::Material::FRONT_AND_BACK, 64.0f);
+    
+    // 应用材质到 StateSet
+    osg::StateSet* stateSet = geode->getOrCreateStateSet();
+    stateSet->setAttribute(material.get());
+    stateSet->setMode(GL_LIGHTING, osg::StateAttribute::ON);
+    
+    // 处理透明度
+    if (transparency > 0.0f) {
+        stateSet->setMode(GL_BLEND, osg::StateAttribute::ON);
+        stateSet->setRenderingHint(osg::StateSet::TRANSPARENT_BIN);
+        OSGVERSE_LOG_DEBUG("Applied transparency: %.2f", transparency);
+    }
+    
+    OSGVERSE_LOG_DEBUG("Applied material: color(%.2f, %.2f, %.2f), transparency=%.2f",
+                      color.r, color.g, color.b, transparency);
+}
+
 
 //-----------------------------------------------------------------------
 // ViewProvider 管理
@@ -773,34 +845,67 @@ void OsgVerseViewerImpl::addViewProvider(ViewProvider* vp)
     
     _viewProviders.push_back(vp);
     
-    // 创建占位符节点（Phase 1: 简单的几何体表示）
+    // 创建节点
     osg::ref_ptr<osg::Group> vpNode = new osg::Group();
     vpNode->setName(objName);
     
-    // 添加占位符球体
-    osg::ref_ptr<osg::Geode> geode = new osg::Geode();
-    osg::ref_ptr<osg::Sphere> sphere = new osg::Sphere(
-        osg::Vec3(0, 0, 0), 
-        PLACEHOLDER_SPHERE_RADIUS
-    );
-    osg::ref_ptr<osg::ShapeDrawable> drawable = new osg::ShapeDrawable(sphere.get());
+    // Phase 2: 尝试转换真实几何体
+    osg::ref_ptr<osg::Geode> geode = nullptr;
+    bool useRealGeometry = false;
     
-    // 设置颜色
-    drawable->setColor(PLACEHOLDER_SPHERE_COLOR);
+    // 检查是否有 Shape 属性（Part 对象）
+    if (vpDoc && vpDoc->getObject()) {
+        auto* obj = vpDoc->getObject();
+        
+        // 方案 A (改进版)：通过属性名称和类型名称检查
+        App::Property* shapeProp = obj->getPropertyByName("Shape");
+        if (shapeProp) {
+            const char* typeName = shapeProp->getTypeId().getName();
+            OSGVERSE_LOG_DEBUG("Found Shape property for %s, type: %s", objName, typeName);
+            
+            // 检查是否是 PropertyPartShape
+            if (std::string(typeName) == "Part::PropertyPartShape") {
+                try {
+                    // 方法：通过 Property 的通用接口访问
+                    // PropertyPartShape 继承自 PropertyComplexGeoData
+                    // 我们可以尝试通过基类接口访问
+                    
+                    // 暂时使用占位符，等待更安全的实现
+                    OSGVERSE_LOG_INFO("Found Part::PropertyPartShape for %s, but safe extraction not yet implemented", objName);
+                    OSGVERSE_LOG_INFO("Using placeholder sphere for now");
+                }
+                catch (const std::exception& e) {
+                    OSGVERSE_LOG_ERROR("Exception while extracting Shape: %s", e.what());
+                }
+                catch (...) {
+                    OSGVERSE_LOG_ERROR("Unknown exception while extracting Shape");
+                }
+            }
+            else {
+                OSGVERSE_LOG_DEBUG("Property type %s is not Part::PropertyPartShape", typeName);
+            }
+        }
+        else {
+            OSGVERSE_LOG_DEBUG("No Shape property found for %s", objName);
+        }
+    }
     
-    // 设置材质
-    osg::ref_ptr<osg::Material> material = new osg::Material();
-    material->setDiffuse(osg::Material::FRONT_AND_BACK, PLACEHOLDER_SPHERE_COLOR);
-    material->setAmbient(osg::Material::FRONT_AND_BACK, MATERIAL_AMBIENT);
-    material->setSpecular(osg::Material::FRONT_AND_BACK, MATERIAL_SPECULAR);
-    material->setShininess(osg::Material::FRONT_AND_BACK, MATERIAL_SHININESS);
-    material->setEmission(osg::Material::FRONT_AND_BACK, MATERIAL_EMISSION);
+    // 如果转换失败或不是 Part::Feature，使用占位符
+    if (!geode) {
+        OSGVERSE_LOG_DEBUG("Using placeholder sphere for %s", objName);
+        
+        geode = new osg::Geode();
+        osg::ref_ptr<osg::Sphere> sphere = new osg::Sphere(
+            osg::Vec3(0, 0, 0), 
+            PLACEHOLDER_SPHERE_RADIUS
+        );
+        osg::ref_ptr<osg::ShapeDrawable> drawable = new osg::ShapeDrawable(sphere.get());
+        drawable->setColor(PLACEHOLDER_SPHERE_COLOR);
+        geode->addDrawable(drawable.get());
+    }
     
-    osg::StateSet* stateSet = geode->getOrCreateStateSet();
-    stateSet->setAttribute(material.get());
-    stateSet->setMode(GL_LIGHTING, osg::StateAttribute::ON);
-    
-    geode->addDrawable(drawable.get());
+    // 应用材质
+    applyMaterial(geode.get(), vp);
     
     // 确保边界框被正确计算
     geode->dirtyBound();
@@ -828,7 +933,8 @@ void OsgVerseViewerImpl::addViewProvider(ViewProvider* vp)
     
     updateScene();
     
-    OSGVERSE_LOG_DEBUG("ViewProvider added successfully");
+    OSGVERSE_LOG_DEBUG("ViewProvider added successfully (%s geometry)", 
+                      useRealGeometry ? "real" : "placeholder");
 }
 
 void OsgVerseViewerImpl::removeViewProvider(ViewProvider* vp)

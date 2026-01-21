@@ -185,6 +185,16 @@ private:
      */
     void setupDefaultLighting();
     
+    /**
+     * @brief 应用材质到几何体
+     * 
+     * 从 ViewProvider 读取颜色、透明度等属性，并应用到 OSG 几何体。
+     * 
+     * @param geode 要应用材质的 Geode
+     * @param vp ViewProvider（包含材质属性）
+     */
+    void applyMaterial(osg::Geode* geode, ViewProvider* vp);
+    
     // 成员变量
     ViewerWidget* _widget;                          ///< Qt widget
     osg::ref_ptr<osgViewer::Viewer> _viewer;       ///< OSG viewer

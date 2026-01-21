@@ -69,6 +69,24 @@
 #include <Base/Vector3D.h>
 #include <Base/Matrix.h>
 
+// OCCT (OpenCASCADE)
+#include <TopoDS_Shape.hxx>
+#include <TopoDS_Face.hxx>
+#include <TopoDS.hxx>
+#include <TopExp_Explorer.hxx>
+#include <TopLoc_Location.hxx>
+#include <BRepMesh_IncrementalMesh.hxx>
+#include <BRep_Tool.hxx>
+#include <Poly_Triangulation.hxx>
+#include <Poly_Array1OfTriangle.hxx>
+#include <Poly_Triangle.hxx>
+#include <TColgp_Array1OfPnt.hxx>
+#include <gp_Pnt.hxx>
+#include <gp_Vec.hxx>
+#include <gp_Trsf.hxx>
+#include <BRepGProp_Face.hxx>
+#include <Standard_Failure.hxx>
+
 // FreeCAD Gui (forward declarations to avoid circular dependencies)
 namespace Gui {
     class ViewProvider;

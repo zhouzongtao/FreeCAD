@@ -1,0 +1,143 @@
+# -*- coding: utf-8 -*-
+"""
+TestOsgVerseBackend.FCMacro
+
+Phase 4 测试宏：测试 OsgVerse 渲染后端
+
+使用方法：
+1. 启动 FreeCAD
+2. 打开宏编辑器（Macro -> Macros...）
+3. 加载此文件
+4. 点击 Execute 运行
+
+或者直接在 Python 控制台中运行此文件的内容
+"""
+
+import FreeCAD
+import FreeCADGui
+import Part
+
+print("=" * 70)
+print("Phase 4: OsgVerse 后端测试")
+print("=" * 70)
+
+# 步骤 1: 显示 FreeCAD 版本信息
+print("\n步骤 1: FreeCAD 版本信息")
+print("-" * 70)
+version = FreeCAD.Version()
+print(f"FreeCAD 版本: {'.'.join(version[:3])}")
+print(f"构建日期: {version[3]}")
+
+# 步骤 2: 检查渲染后端
+print("\n步骤 2: 检查渲染后端")
+print("-" * 70)
+if hasattr(FreeCADGui, 'getCurrentRenderBackend'):
+    try:
+        backend = FreeCADGui.getCurrentRenderBackend()
+        print(f"✓ 当前渲染后端: {backend}")
+    except Exception as e:
+        print(f"⚠ 无法获取后端信息: {e}")
+else:
+    print("⚠ Python API 未启用")
+    print("  默认后端已在编译时设置为 OsgVerse")
+    print("  如果 FreeCAD 正常启动，说明 OsgVerse 后端已激活")
+
+# 步骤 3: 创建测试文档
+print("\n步骤 3: 创建测试文档")
+print("-" * 70)
+try:
+    # 检查是否已有测试文档
+    if FreeCAD.ActiveDocument and FreeCAD.ActiveDocument.Name == "TestOsgVerse":
+        doc = FreeCAD.ActiveDocument
+        print(f"✓ 使用现有文档: {doc.Name}")
+    else:
+        doc = FreeCAD.newDocument("TestOsgVerse")
+        print(f"✓ 创建新文档: {doc.Name}")
+except Exception as e:
+    print(f"✗ 创建文档失败: {e}")
+    import traceback
+    traceback.print_exc()
+
+# 步骤 4: 创建测试对象
+print("\n步骤 4: 创建测试对象")
+print("-" * 70)
+
+try:
+    # 清除现有对象
+    for obj in doc.Objects:
+        doc.removeObject(obj.Name)
+    
+    # 创建立方体
+    box = doc.addObject("Part::Box", "Box")
+    box.Length = 10
+    box.Width = 10
+    box.Height = 10
+    print(f"✓ 创建立方体: {box.Name}")
+    
+    # 创建圆柱体
+    cylinder = doc.addObject("Part::Cylinder", "Cylinder")
+    cylinder.Radius = 5
+    cylinder.Height = 15
+    cylinder.Placement.Base = FreeCAD.Vector(20, 0, 0)
+    print(f"✓ 创建圆柱体: {cylinder.Name}")
+    
+    # 创建球体
+    sphere = doc.addObject("Part::Sphere", "Sphere")
+    sphere.Radius = 7
+    sphere.Placement.Base = FreeCAD.Vector(-20, 0, 0)
+    print(f"✓ 创建球体: {sphere.Name}")
+    
+    # 刷新文档
+    doc.recompute()
+    print("✓ 文档已刷新")
+    
+except Exception as e:
+    print(f"✗ 创建对象失败: {e}")
+    import traceback
+    traceback.print_exc()
+
+# 步骤 5: 调整视图
+print("\n步骤 5: 调整视图")
+print("-" * 70)
+
+try:
+    FreeCADGui.SendMsgToActiveView("ViewFit")
+    print("✓ 视图已适应所有对象")
+except Exception as e:
+    print(f"⚠ 调整视图失败: {e}")
+
+# 步骤 6: 测试说明
+print("\n" + "=" * 70)
+print("测试说明")
+print("=" * 70)
+print("""
+如果看到三个 3D 对象（立方体、圆柱体、球体）正确渲染，
+说明 OsgVerse 后端工作正常！
+
+请手动测试以下功能：
+
+1. 鼠标交互测试：
+   - 左键拖动：旋转视图
+   - 中键拖动：平移视图
+   - 滚轮：缩放视图
+   - 右键：上下文菜单
+
+2. 视觉质量检查：
+   - 对象是否清晰可见？
+   - 边缘是否平滑？
+   - 颜色是否正确？
+   - 阴影是否正常？
+
+3. 性能检查：
+   - 旋转是否流畅？
+   - 是否有卡顿？
+   - 帧率是否可接受？
+
+4. 控制台日志检查：
+   - 查看控制台是否有 OsgVerse 相关日志
+   - 查找 "OsgVerseEngine" 或 "OsgVerseViewer" 字样
+   - 检查是否有错误或警告
+
+如果一切正常，Phase 4 测试成功！
+""")
+print("=" * 70)

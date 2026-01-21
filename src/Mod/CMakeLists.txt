@@ -14,6 +14,16 @@ if(BUILD_ASSEMBLY)
   add_subdirectory(Assembly)
 endif(BUILD_ASSEMBLY)
 
+# CoinGui - Coin3D Rendering Backend (Phase 2 - Backend Modularization)
+if(BUILD_GUI)
+    add_subdirectory(CoinGui)
+endif(BUILD_GUI)
+
+# OsgVerseGui - OsgVerse Rendering Backend (Phase 3 - Backend Modularization)
+if(BUILD_GUI AND BUILD_WITH_OSGVERSE)
+    add_subdirectory(OsgVerseGui)
+endif(BUILD_GUI AND BUILD_WITH_OSGVERSE)
+
 if(BUILD_CLOUD)
     add_subdirectory(Cloud)
 endif(BUILD_CLOUD)
