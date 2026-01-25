@@ -964,6 +964,7 @@ SET(View3D_CPP_SRCS
     View.cpp
     View3DBase.cpp
     View3DInventor.cpp
+    View3DOsgVerse.cpp
     View3DInventorSelection.cpp
     View3DInventorViewer.cpp
     View3DInventorRiftViewer.cpp
@@ -985,6 +986,7 @@ SET(View3D_SRCS
     View.h
     View3DBase.h
     View3DInventor.h
+    View3DOsgVerse.h
     View3DInventorSelection.h
     View3DInventorViewer.h
     View3DPy.h

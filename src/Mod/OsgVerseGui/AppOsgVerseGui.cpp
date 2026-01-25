@@ -2,10 +2,11 @@
 
 #include "PreCompiled.h"
 
-#include "OsgVerseBackendFactory.h"
+#include "OsgVerseViewer.h"
 #include <Base/Console.h>
 #include <Base/Interpreter.h>
-#include <Gui/View3D/Interfaces/BackendRegistry.h>
+#include <Gui/View3D/ViewerFactory.h>
+#include <Gui/Render/Core/RenderTypes.h>
 
 namespace OsgVerseGui {
 
@@ -21,23 +22,28 @@ void OsgVerseGuiExport initOsgVerseGui()
 {
     Base::Console().message("OsgVerseGui: Initializing module\n");
     
-    // Register the OsgVerse backend
-    auto* factory = new OsgVerseBackendFactory();
-    bool registered = Gui::BackendRegistry::instance().registerBackend(factory);
+    // Note: We no longer register with BackendRegistry (old interface)
+    // OsgVerseViewer now implements the new Gui::View3D::IViewer3D interface
     
-    if (registered) {
-        Base::Console().message("OsgVerseGui: Backend registered successfully\n");
-        
-        // Note: We don't set OsgVerse as default backend
-        // Coin3D remains the default (priority 10 vs 5)
-        // Users can switch to OsgVerse manually
-    }
-    else {
-        Base::Console().error("OsgVerseGui: Failed to register backend\n");
-        delete factory;
-    }
+    // Register with ViewerFactory (for View3DInventor and automatic 3D view creation)
+    Gui::View3D::ViewerFactory::registerCreator(
+        Gui::Render::BackendType::OsgVerse,
+        [](QWidget* parent, const QOpenGLWidget* /*shareWidget*/) -> std::unique_ptr<Gui::View3D::IViewer3D> {
+            Base::Console().message("OsgVerseGui: ViewerFactory creating OsgVerse viewer\n");
+            try {
+                return std::make_unique<OsgVerseViewer>(parent);
+            }
+            catch (const std::exception& e) {
+                Base::Console().error("OsgVerseGui: Failed to create viewer: %s\n", e.what());
+                return nullptr;
+            }
+        }
+    );
+    Base::Console().message("OsgVerseGui: Registered with ViewerFactory\n");
     
-    Base::Console().message("OsgVerseGui: Module initialized\n");
+    Base::Console().message("OsgVerseGui: Module initialized successfully\n");
+    Base::Console().message("OsgVerseGui: OsgVerse backend is now available for 3D views\n");
+    Base::Console().message("OsgVerseGui: Use RenderManager to switch to OsgVerse backend\n");
 }
 
 } // extern "C"

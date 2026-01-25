@@ -9,11 +9,15 @@
 #include <osgViewer/Viewer>
 #include <osgViewer/GraphicsWindow>
 #include <osg/Camera>
+#include <osgGA/TrackballManipulator>
+#include <osgGA/GUIEventAdapter>
 
 // Qt includes
 #include <QMouseEvent>
 #include <QWheelEvent>
 #include <QKeyEvent>
+#include <QFocusEvent>
+#include <QGuiApplication>
 
 using namespace OsgVerseGui;
 
@@ -21,13 +25,14 @@ OsgVerseWidget::OsgVerseWidget(QWidget* parent)
     : QOpenGLWidget(parent)
 {
     try {
-        // Set OpenGL format
+        // Set OpenGL format (降级到 OpenGL 2.1 兼容性模式以支持 OSG)
         QSurfaceFormat format;
         format.setDepthBufferSize(24);
         format.setStencilBufferSize(8);
         format.setSamples(4); // Anti-aliasing
-        format.setVersion(3, 3);
-        format.setProfile(QSurfaceFormat::CoreProfile);
+        format.setVersion(2, 1);  // OpenGL 2.1 (OSG 需要)
+        format.setProfile(QSurfaceFormat::CompatibilityProfile);  // 兼容性模式
+        format.setRenderableType(QSurfaceFormat::OpenGL);
         setFormat(format);
         
         // Enable mouse tracking for hover events
@@ -63,6 +68,12 @@ OsgVerseWidget::OsgVerseWidget(QWidget* parent)
         // Set threading model
         _viewer->setThreadingModel(osgViewer::Viewer::SingleThreaded);
         
+        // Setup camera manipulator (Phase 2)
+        osg::ref_ptr<osgGA::TrackballManipulator> manipulator = new osgGA::TrackballManipulator();
+        manipulator->setAllowThrow(false);  // Disable momentum
+        manipulator->setVerticalAxisFixed(true);  // Keep up vector fixed
+        _viewer->setCameraManipulator(manipulator.get());
+        
         // DON'T call realize() here - it needs OpenGL context
         // Will be called in initializeGL()
     }
@@ -89,48 +100,80 @@ OsgVerseWidget::~OsgVerseWidget()
 
 void OsgVerseWidget::initializeGL()
 {
+    Base::Console().warning("OsgVerseWidget::initializeGL called, widget size: %d x %d\n", 
+                           width(), height());
+    
     // Viewer is already created in constructor
     // Now realize it (needs OpenGL context)
     if (_viewer.valid() && !_viewer->isRealized()) {
         try {
             _viewer->realize();
+            Base::Console().warning("OsgVerseWidget: Viewer realized successfully\n");
         }
         catch (const std::exception& e) {
             Base::Console().error("OsgVerseWidget: Failed to realize viewer: %s\n", e.what());
         }
     }
     
+    // Get actual pixel size (considering high DPI)
+    qreal dpr = devicePixelRatio();
+    int pixelWidth = width() * dpr;
+    int pixelHeight = height() * dpr;
+    
+    Base::Console().warning("OsgVerseWidget: Device pixel ratio: %.2f, pixel size: %d x %d\n",
+                           dpr, pixelWidth, pixelHeight);
+    
     // Update the viewport to match actual widget size
     if (_graphicsWindow.valid()) {
-        _graphicsWindow->resized(0, 0, width(), height());
+        _graphicsWindow->getEventQueue()->windowResize(0, 0, pixelWidth, pixelHeight);
+        _graphicsWindow->resized(0, 0, pixelWidth, pixelHeight);
+        Base::Console().warning("OsgVerseWidget: GraphicsWindow resized to %d x %d\n",
+                               pixelWidth, pixelHeight);
     }
     
     if (_viewer.valid()) {
         osg::Camera* camera = _viewer->getCamera();
-        camera->setViewport(0, 0, width(), height());
+        camera->setViewport(0, 0, pixelWidth, pixelHeight);
         
         // Update projection matrix with actual aspect ratio
-        double aspectRatio = static_cast<double>(width()) / static_cast<double>(height());
+        double aspectRatio = static_cast<double>(pixelWidth) / static_cast<double>(pixelHeight);
         camera->setProjectionMatrixAsPerspective(30.0, aspectRatio, 1.0, 1000.0);
+        
+        Base::Console().warning("OsgVerseWidget: Camera viewport set to %d x %d, aspect: %.2f\n",
+                               pixelWidth, pixelHeight, aspectRatio);
     }
 }
 
 void OsgVerseWidget::resizeGL(int width, int height)
 {
-    // Notify graphics window of resize
+    Base::Console().warning("OsgVerseWidget::resizeGL called: %d x %d\n", width, height);
+    
+    // Get actual pixel size (considering high DPI)
+    qreal dpr = devicePixelRatio();
+    int pixelWidth = width * dpr;
+    int pixelHeight = height * dpr;
+    
+    // Notify graphics window of resize with window resize event
     if (_graphicsWindow.valid()) {
-        _graphicsWindow->resized(0, 0, width, height);
+        _graphicsWindow->getEventQueue()->windowResize(0, 0, pixelWidth, pixelHeight);
+        _graphicsWindow->resized(0, 0, pixelWidth, pixelHeight);
     }
     
     // Update camera viewport and projection
     if (_viewer.valid()) {
         osg::Camera* camera = _viewer->getCamera();
-        camera->setViewport(0, 0, width, height);
+        camera->setViewport(0, 0, pixelWidth, pixelHeight);
         
         // Update projection matrix to maintain aspect ratio
-        double aspectRatio = static_cast<double>(width) / static_cast<double>(height);
+        double aspectRatio = static_cast<double>(pixelWidth) / static_cast<double>(pixelHeight);
         camera->setProjectionMatrixAsPerspective(30.0, aspectRatio, 1.0, 1000.0);
+        
+        Base::Console().warning("OsgVerseWidget: Viewport updated to %d x %d (DPR: %.2f)\n", 
+                               pixelWidth, pixelHeight, dpr);
     }
+    
+    // Force update
+    update();
 }
 
 void OsgVerseWidget::paintGL()
@@ -142,14 +185,60 @@ void OsgVerseWidget::paintGL()
 }
 
 //===========================================================================
-// Event handlers (Phase 2 - stub implementations)
+// Helper methods for event conversion (Phase 2)
+//===========================================================================
+
+int OsgVerseWidget::qtButtonToOsg(Qt::MouseButton button)
+{
+    switch (button) {
+        case Qt::LeftButton:
+            return 1;
+        case Qt::MiddleButton:
+            return 2;
+        case Qt::RightButton:
+            return 3;
+        default:
+            return 0;
+    }
+}
+
+int OsgVerseWidget::qtKeyToOsg(int key)
+{
+    // Most Qt keys map directly to OSG keys
+    // Special keys may need conversion, but for now direct mapping works
+    return key;
+}
+
+unsigned int OsgVerseWidget::getButtonMask()
+{
+    unsigned int mask = 0;
+    Qt::MouseButtons buttons = QGuiApplication::mouseButtons();
+    
+    if (buttons & Qt::LeftButton) {
+        mask |= 1 << 0;  // Left button
+    }
+    if (buttons & Qt::MiddleButton) {
+        mask |= 1 << 1;  // Middle button
+    }
+    if (buttons & Qt::RightButton) {
+        mask |= 1 << 2;  // Right button
+    }
+    
+    return mask;
+}
+
+//===========================================================================
+// Event handlers (Phase 2)
 //===========================================================================
 
 void OsgVerseWidget::mousePressEvent(QMouseEvent* event)
 {
-    // TODO: Phase 2 - Implement mouse press handling
-    // For now, just pass to base class
-    QOpenGLWidget::mousePressEvent(event);
+    if (_graphicsWindow.valid()) {
+        int button = qtButtonToOsg(event->button());
+        _graphicsWindow->getEventQueue()->mouseButtonPress(
+            event->x(), event->y(), button
+        );
+    }
     
     // Trigger repaint
     update();
@@ -157,8 +246,11 @@ void OsgVerseWidget::mousePressEvent(QMouseEvent* event)
 
 void OsgVerseWidget::mouseMoveEvent(QMouseEvent* event)
 {
-    // TODO: Phase 2 - Implement mouse move handling
-    QOpenGLWidget::mouseMoveEvent(event);
+    if (_graphicsWindow.valid()) {
+        _graphicsWindow->getEventQueue()->mouseMotion(
+            event->x(), event->y()
+        );
+    }
     
     // Trigger repaint
     update();
@@ -166,8 +258,12 @@ void OsgVerseWidget::mouseMoveEvent(QMouseEvent* event)
 
 void OsgVerseWidget::mouseReleaseEvent(QMouseEvent* event)
 {
-    // TODO: Phase 2 - Implement mouse release handling
-    QOpenGLWidget::mouseReleaseEvent(event);
+    if (_graphicsWindow.valid()) {
+        int button = qtButtonToOsg(event->button());
+        _graphicsWindow->getEventQueue()->mouseButtonRelease(
+            event->x(), event->y(), button
+        );
+    }
     
     // Trigger repaint
     update();
@@ -175,8 +271,31 @@ void OsgVerseWidget::mouseReleaseEvent(QMouseEvent* event)
 
 void OsgVerseWidget::wheelEvent(QWheelEvent* event)
 {
-    // TODO: Phase 2 - Implement mouse wheel handling (zoom)
-    QOpenGLWidget::wheelEvent(event);
+    if (_graphicsWindow.valid()) {
+        // Determine scroll direction
+        osgGA::GUIEventAdapter::ScrollingMotion motion =
+            event->angleDelta().y() > 0 ?
+            osgGA::GUIEventAdapter::SCROLL_UP :
+            osgGA::GUIEventAdapter::SCROLL_DOWN;
+        
+        _graphicsWindow->getEventQueue()->mouseScroll(motion);
+    }
+    
+    // Accept the event
+    event->accept();
+    
+    // Trigger repaint
+    update();
+}
+
+void OsgVerseWidget::mouseDoubleClickEvent(QMouseEvent* event)
+{
+    if (_graphicsWindow.valid()) {
+        int button = qtButtonToOsg(event->button());
+        _graphicsWindow->getEventQueue()->mouseDoubleButtonPress(
+            event->x(), event->y(), button
+        );
+    }
     
     // Trigger repaint
     update();
@@ -184,8 +303,28 @@ void OsgVerseWidget::wheelEvent(QWheelEvent* event)
 
 void OsgVerseWidget::keyPressEvent(QKeyEvent* event)
 {
-    // TODO: Phase 2 - Implement keyboard handling
-    QOpenGLWidget::keyPressEvent(event);
+    // Handle special keys locally (will be fully implemented in Phase 3)
+    if (event->key() == Qt::Key_V) {
+        // viewAll - placeholder for Phase 3
+        Base::Console().log("OsgVerseWidget: 'V' key pressed (viewAll - Phase 3)\n");
+        event->accept();
+        update();
+        return;
+    }
+    
+    if (event->key() == Qt::Key_Home) {
+        // Reset camera - placeholder for Phase 3
+        Base::Console().log("OsgVerseWidget: 'Home' key pressed (reset camera - Phase 3)\n");
+        event->accept();
+        update();
+        return;
+    }
+    
+    // Forward to OSG event queue
+    if (_graphicsWindow.valid()) {
+        int key = qtKeyToOsg(event->key());
+        _graphicsWindow->getEventQueue()->keyPress(key);
+    }
     
     // Trigger repaint
     update();
@@ -193,9 +332,25 @@ void OsgVerseWidget::keyPressEvent(QKeyEvent* event)
 
 void OsgVerseWidget::keyReleaseEvent(QKeyEvent* event)
 {
-    // TODO: Phase 2 - Implement keyboard handling
-    QOpenGLWidget::keyReleaseEvent(event);
+    // Forward to OSG event queue
+    if (_graphicsWindow.valid()) {
+        int key = qtKeyToOsg(event->key());
+        _graphicsWindow->getEventQueue()->keyRelease(key);
+    }
     
     // Trigger repaint
     update();
+}
+
+void OsgVerseWidget::focusInEvent(QFocusEvent* event)
+{
+    QOpenGLWidget::focusInEvent(event);
+    
+    // Trigger repaint when gaining focus
+    update();
+}
+
+void OsgVerseWidget::focusOutEvent(QFocusEvent* event)
+{
+    QOpenGLWidget::focusOutEvent(event);
 }

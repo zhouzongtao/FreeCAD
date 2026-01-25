@@ -69,6 +69,7 @@
 #include "Tree.h"
 #include "View3DBase.h"
 #include "View3DInventor.h"
+#include "View3DOsgVerse.h"
 #include "View3DInventorViewer.h"
 #include "ViewProviderDocumentObject.h"
 #include "ViewProviderDocumentObjectGroup.h"
@@ -2216,19 +2217,89 @@ MDIView* Document::createView(const Base::Type& typeId, CreateViewMode mode)
 
     std::list<MDIView*> theViews = this->getMDIViewsOfType(typeId);
     
-    // Check if requesting View3DBase (abstract base) - select concrete implementation based on backend
-    if (typeId == View3DBase::getClassTypeId()) {
-        Base::Console().log("Document::createView: Detected View3DBase request\n");
+    // Check if requesting View3DInventor - select implementation based on backend
+    if (typeId == View3DInventor::getClassTypeId()) {
+        Base::Console().log("Document::createView: View3DInventor requested\n");
+        
         // Get current render backend from RenderManager
         auto& renderMgr = Gui::Core::RenderManager::instance();
         auto backend = renderMgr.getCurrentBackend();
         
-        Base::Console().log("Document::createView: Selecting View3D implementation for backend %d\n", 
+        Base::Console().log("Document::createView: Current backend: %d\n", 
                            static_cast<int>(backend));
         
-        // Select concrete view type based on backend
-        // Default to Coin3D (View3DInventor)
-        return createView(View3DInventor::getClassTypeId(), mode);
+        // If OsgVerse backend is active, create View3DOsgVerse instead
+        if (backend == Gui::Render::BackendType::OsgVerse) {
+            Base::Console().log("Document::createView: Creating View3DOsgVerse for OsgVerse backend\n");
+            return createView(View3DOsgVerse::getClassTypeId(), mode);
+        }
+        
+        // Otherwise continue with Coin3D (View3DInventor)
+        Base::Console().log("Document::createView: Creating View3DInventor for Coin3D backend\n");
+    }
+    
+    // Handle View3DOsgVerse creation
+    if (typeId == View3DOsgVerse::getClassTypeId()) {
+        Base::Console().log("Document::createView: Creating View3DOsgVerse\n");
+
+        QOpenGLWidget* shareWidget = nullptr;
+        // Get existing OsgVerse views for sharing
+        std::list<MDIView*> osgVerseViews = this->getMDIViewsOfType(View3DOsgVerse::getClassTypeId());
+        if (!osgVerseViews.empty()) {
+            auto firstView = static_cast<View3DOsgVerse*>(osgVerseViews.front());
+            auto* viewer = firstView->getViewerInterface();
+            if (viewer) {
+                shareWidget = viewer->getGLWidget();
+            }
+        }
+
+        auto view3D = new View3DOsgVerse(this, getMainWindow(), shareWidget);
+        
+        // Attach view providers
+        std::map<const App::DocumentObject*, ViewProviderDocumentObject*>::const_iterator It1;
+        std::vector<App::DocumentObject*> child_vps;
+        
+        auto* viewer = view3D->getViewerInterface();
+        if (viewer) {
+            for (It1 = d->_ViewProviderMap.begin(); It1 != d->_ViewProviderMap.end(); ++It1) {
+                viewer->addViewProvider(It1->second);
+                std::vector<App::DocumentObject*> children = It1->second->claimChildren3D();
+                child_vps.insert(child_vps.end(), children.begin(), children.end());
+            }
+            
+            std::map<std::string, ViewProvider*>::const_iterator It2;
+            for (It2 = d->_ViewProviderMapAnnotation.begin(); 
+                 It2 != d->_ViewProviderMapAnnotation.end(); ++It2) {
+                viewer->addViewProvider(It2->second);
+                std::vector<App::DocumentObject*> children = It2->second->claimChildren3D();
+                child_vps.insert(child_vps.end(), children.begin(), children.end());
+            }
+
+            for (App::DocumentObject* obj : child_vps) {
+                viewer->removeViewProvider(getViewProvider(obj));
+            }
+        }
+
+        // Set window title
+        if (mode != CreateViewMode::Clone) {
+            const char* name = getDocument()->Label.getValue();
+            QString title = QStringLiteral("%1 : %2[*]")
+                .arg(QString::fromUtf8(name))
+                .arg(d->_iWinCount++);
+            view3D->setWindowTitle(title);
+        }
+
+        view3D->setWindowModified(this->isModified());
+        view3D->resize(400, 300);
+
+        // Add to main window
+        if (mode != CreateViewMode::Clone) {
+            getMainWindow()->addWindow(view3D);
+        }
+
+        Base::Console().log("Document::createView: View3DOsgVerse created successfully, returning %p\n", 
+                           static_cast<void*>(view3D));
+        return view3D;
     }
     
     if (typeId == View3DInventor::getClassTypeId()) {

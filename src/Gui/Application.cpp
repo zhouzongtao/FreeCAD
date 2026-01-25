@@ -106,6 +106,7 @@
 #include "View3DViewerPy.h"
 #include "View3DBase.h"
 #include "View3DInventor.h"
+#include "View3DOsgVerse.h"
 #include "View3D/ViewerFactory.h"
 #include "View3D/Backends/Coin/CoinViewer.h"
 #include "ViewProviderAnnotation.h"
@@ -2404,6 +2405,7 @@ void Application::initTypes()
     Gui::MDIView                                ::init();
     Gui::View3DBase                             ::init();
     Gui::View3DInventor                         ::init();
+    Gui::View3DOsgVerse                         ::init();
     Gui::AbstractSplitView                      ::init();
     Gui::SplitView3DInventor                    ::init();
     Gui::TextDocumentEditorView                 ::init();

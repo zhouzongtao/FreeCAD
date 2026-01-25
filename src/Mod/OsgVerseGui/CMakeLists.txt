@@ -7,8 +7,6 @@ set(OsgVerseGui_SRCS
     PreCompiled.h
     PreCompiled.cpp
     AppOsgVerseGui.cpp
-    OsgVerseBackendFactory.h
-    OsgVerseBackendFactory.cpp
     OsgVerseViewer.h
     OsgVerseViewer.cpp
     OsgVerseWidget.h
@@ -73,6 +71,9 @@ SET_BIN_DIR(OsgVerseGui OsgVerseGui /Mod/OsgVerseGui)
 SET_PYTHON_PREFIX_SUFFIX(OsgVerseGui)
 
 INSTALL(TARGETS OsgVerseGui DESTINATION ${CMAKE_INSTALL_LIBDIR})
+
+# Install Python initialization file
+INSTALL(FILES Init.py DESTINATION Mod/OsgVerseGui)
 
 message(STATUS "OsgVerseGui: Module configured")
 message(STATUS "OsgVerseGui: OSG includes = ${OPENSCENEGRAPH_INCLUDE_DIRS}")

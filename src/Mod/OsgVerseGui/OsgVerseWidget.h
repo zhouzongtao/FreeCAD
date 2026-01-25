@@ -44,15 +44,23 @@ protected:
     void resizeGL(int width, int height) override;
     void paintGL() override;
     
-    // Event handling (Phase 2 - stub implementations for now)
+    // Event handling (Phase 2)
     void mousePressEvent(QMouseEvent* event) override;
     void mouseMoveEvent(QMouseEvent* event) override;
     void mouseReleaseEvent(QMouseEvent* event) override;
     void wheelEvent(QWheelEvent* event) override;
+    void mouseDoubleClickEvent(QMouseEvent* event) override;
     void keyPressEvent(QKeyEvent* event) override;
     void keyReleaseEvent(QKeyEvent* event) override;
+    void focusInEvent(QFocusEvent* event) override;
+    void focusOutEvent(QFocusEvent* event) override;
 
 private:
+    // Helper methods for event conversion
+    int qtButtonToOsg(Qt::MouseButton button);
+    int qtKeyToOsg(int key);
+    unsigned int getButtonMask();
+    
     osg::ref_ptr<osgViewer::Viewer> _viewer;
     osg::ref_ptr<osgViewer::GraphicsWindowEmbedded> _graphicsWindow;
 };
