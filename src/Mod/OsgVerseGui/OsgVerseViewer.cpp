@@ -11,6 +11,7 @@
 #include <App/DocumentObject.h>
 #include <App/Property.h>
 #include <App/PropertyStandard.h>
+#include <App/Material.h>
 #include <Gui/Render/Core/RenderTypes.h>
 
 // Part module - we can include this because OsgVerseGui links Part!
@@ -24,6 +25,7 @@
 #include <osg/Camera>
 #include <osg/Light>
 #include <osg/LightSource>
+#include <osg/LightModel>
 
 // OSG picking includes
 #include <osgUtil/LineSegmentIntersector>
@@ -89,20 +91,35 @@ OsgVerseViewer::OsgVerseViewer(QWidget* parent)
         // Set initial background color
         setBackgroundColor(_backgroundColor);
         
-        // Add light source
+        // Add headlight (directional light that follows camera)
         osg::ref_ptr<osg::Light> light = new osg::Light();
         light->setLightNum(0);
-        light->setPosition(osg::Vec4(10.0f, 10.0f, 10.0f, 1.0f));  // Positional light
-        light->setAmbient(osg::Vec4(0.2f, 0.2f, 0.2f, 1.0f));
-        light->setDiffuse(osg::Vec4(0.8f, 0.8f, 0.8f, 1.0f));
-        light->setSpecular(osg::Vec4(1.0f, 1.0f, 1.0f, 1.0f));
-        
+        // Directional light from camera direction (w=0 means directional)
+        light->setPosition(osg::Vec4(0.0f, 0.0f, 1.0f, 0.0f));
+        light->setAmbient(osg::Vec4(0.3f, 0.3f, 0.3f, 1.0f));
+        light->setDiffuse(osg::Vec4(1.0f, 1.0f, 1.0f, 1.0f));
+        light->setSpecular(osg::Vec4(0.5f, 0.5f, 0.5f, 1.0f));
+
         osg::ref_ptr<osg::LightSource> lightSource = new osg::LightSource();
         lightSource->setLight(light.get());
+        lightSource->setLocalStateSetModes(osg::StateAttribute::ON);
+        // Use RELATIVE_RF so light follows camera (headlight mode)
+        lightSource->setReferenceFrame(osg::LightSource::RELATIVE_RF);
         _sceneRoot->addChild(lightSource.get());
-        
-        // Enable lighting
-        _sceneRoot->getOrCreateStateSet()->setMode(GL_LIGHTING, osg::StateAttribute::ON);
+
+        // Enable lighting and GL_LIGHT0
+        osg::StateSet* stateSet = _sceneRoot->getOrCreateStateSet();
+        stateSet->setMode(GL_LIGHTING, osg::StateAttribute::ON);
+        stateSet->setMode(GL_LIGHT0, osg::StateAttribute::ON);
+        // Normalize normals for proper lighting
+        stateSet->setMode(GL_NORMALIZE, osg::StateAttribute::ON);
+
+        // Enable two-sided lighting for better visibility
+        osg::ref_ptr<osg::LightModel> lightModel = new osg::LightModel();
+        lightModel->setTwoSided(true);
+        lightModel->setAmbientIntensity(osg::Vec4(0.2f, 0.2f, 0.2f, 1.0f));
+        lightModel->setLocalViewer(true);
+        stateSet->setAttributeAndModes(lightModel.get(), osg::StateAttribute::ON);
         
         // Set default camera position
         if (viewer) {
@@ -360,23 +377,31 @@ Gui::View3D::PickResult OsgVerseViewer::pick(const QPoint& pos)
 
     // Get viewer
     if (!_widget) {
+        Base::Console().log("OsgVerseViewer::pick: No widget\n");
         return result;
     }
 
     osgViewer::Viewer* viewer = _widget->getViewer();
     if (!viewer) {
+        Base::Console().log("OsgVerseViewer::pick: No viewer\n");
         return result;
     }
 
     osg::Camera* camera = viewer->getCamera();
     if (!camera) {
+        Base::Console().log("OsgVerseViewer::pick: No camera\n");
         return result;
     }
 
+    // Get device pixel ratio for HiDPI support
+    float dpr = _widget->devicePixelRatioF();
+
     // Coordinate conversion: Qt (top-left origin, Y down) -> OSG (bottom-left origin, Y up)
+    // Also apply device pixel ratio for HiDPI displays
     int windowHeight = _widget->height();
-    float x = static_cast<float>(pos.x());
-    float y = static_cast<float>(windowHeight - pos.y());
+    float x = static_cast<float>(pos.x()) * dpr;
+    float y = static_cast<float>(windowHeight - pos.y()) * dpr;
+
 
     // Create line segment intersector
     osg::ref_ptr<osgUtil::LineSegmentIntersector> intersector =
@@ -666,6 +691,8 @@ void OsgVerseViewer::addViewProvider(Gui::ViewProvider* vp)
     _vpNodes[vp] = node;
     _sceneRoot->addChild(node.get());
 
+    // Auto-fit view when first object is added
+    viewAll();
     render();
 }
 
@@ -1094,35 +1121,27 @@ void OsgVerseViewer::resetEditingViewProvider()
 osg::ref_ptr<osg::Node> OsgVerseViewer::createNodeForViewProvider(Gui::ViewProvider* vp)
 {
     if (!vp) {
-        Base::Console().message("createNodeForViewProvider: vp is null\n");
         return nullptr;
     }
 
     // Check if this is a ViewProviderDocumentObject
     auto* vpDoc = dynamic_cast<Gui::ViewProviderDocumentObject*>(vp);
     if (!vpDoc) {
-        Base::Console().message("createNodeForViewProvider: not a ViewProviderDocumentObject\n");
         return nullptr;
     }
 
     App::DocumentObject* obj = vpDoc->getObject();
     if (!obj) {
-        Base::Console().message("createNodeForViewProvider: getObject() returned null\n");
         return nullptr;
     }
 
-    Base::Console().message("createNodeForViewProvider: obj type=%s name=%s\n",
-                           obj->getTypeId().getName(), obj->getNameInDocument());
-
     // Check if this is a Part::Feature
     if (!obj->isDerivedFrom(Part::Feature::getClassTypeId())) {
-        Base::Console().message("createNodeForViewProvider: not a Part::Feature\n");
         return nullptr;
     }
 
     // Extract TopoDS_Shape and convert to OSG geometry
     try {
-        Base::Console().message("createNodeForViewProvider: Getting TopoShape...\n");
         Part::TopoShape topoShape = Part::Feature::getTopoShape(
             obj,
             Part::ShapeOption::ResolveLink | Part::ShapeOption::Transform
@@ -1131,21 +1150,18 @@ osg::ref_ptr<osg::Node> OsgVerseViewer::createNodeForViewProvider(Gui::ViewProvi
         const TopoDS_Shape& shape = topoShape.getShape();
 
         if (shape.IsNull()) {
-            Base::Console().message("createNodeForViewProvider: shape is null\n");
             return nullptr;
         }
 
-        Base::Console().message("createNodeForViewProvider: Shape is valid, converting...\n");
-        
         // Convert using GeometryConverter
         GeometryConverter::ConversionOptions options;
         options.deflection = 0.1;
         options.angle = 0.5;
         options.computeNormals = true;
-        
+
         GeometryConverter::ConversionStats stats;
         osg::ref_ptr<osg::Geode> geode = GeometryConverter::convertShape(shape, options, &stats);
-        
+
         if (!geode) {
             Base::Console().error("OsgVerseViewer: GeometryConverter failed\n");
             return nullptr;
@@ -1155,30 +1171,44 @@ osg::ref_ptr<osg::Node> OsgVerseViewer::createNodeForViewProvider(Gui::ViewProvi
         Base::Color shapeColor(0.8f, 0.8f, 0.8f);  // Default gray
         float transparency = 1.0f;  // 1.0 = fully opaque
 
-        // Try to get ShapeColor property
-        App::Property* colorProp = vp->getPropertyByName("ShapeColor");
-        if (colorProp && colorProp->isDerivedFrom(App::PropertyColor::getClassTypeId())) {
-            App::PropertyColor* propColor = static_cast<App::PropertyColor*>(colorProp);
-            unsigned long packed = propColor->getValue().getPackedValue();
-            // Extract RGB from packed value (format: 0xRRGGBB)
-            float r = static_cast<float>((packed >> 24) & 0xFF) / 255.0f;
-            float g = static_cast<float>((packed >> 16) & 0xFF) / 255.0f;
-            float b = static_cast<float>((packed >> 8) & 0xFF) / 255.0f;
-            shapeColor = Base::Color(r, g, b);
+        // Try to get ShapeAppearance property (FreeCAD 1.0+)
+        // ShapeAppearance is a PropertyMaterialList (tuple of Material objects)
+        App::Property* appearanceProp = vp->getPropertyByName("ShapeAppearance");
+        if (appearanceProp) {
+            // ShapeAppearance is a PropertyMaterialList - get first material
+            if (appearanceProp->isDerivedFrom(App::PropertyMaterialList::getClassTypeId())) {
+                App::PropertyMaterialList* propMatList = static_cast<App::PropertyMaterialList*>(appearanceProp);
+                const std::vector<App::Material>& materials = propMatList->getValues();
+                if (!materials.empty()) {
+                    const App::Material& mat = materials[0];
+                    shapeColor = mat.diffuseColor;
+                    transparency = 1.0f - mat.transparency;
+                }
+            }
+            // Also try PropertyMaterial (single material)
+            else if (appearanceProp->isDerivedFrom(App::PropertyMaterial::getClassTypeId())) {
+                App::PropertyMaterial* propMat = static_cast<App::PropertyMaterial*>(appearanceProp);
+                const App::Material& mat = propMat->getValue();
+                shapeColor = mat.diffuseColor;
+                transparency = 1.0f - mat.transparency;
+            }
         }
 
-        // Try to get Transparency property
-        App::Property* transProp = vp->getPropertyByName("Transparency");
-        if (transProp && transProp->isDerivedFrom(App::PropertyPercent::getClassTypeId())) {
-            App::PropertyPercent* propTrans = static_cast<App::PropertyPercent*>(transProp);
-            // Transparency is typically 0-100, convert to alpha (0=opaque, 100=transparent)
-            int transPercent = propTrans->getValue();
-            transparency = 1.0f - (static_cast<float>(transPercent) / 100.0f);
-        }
-        else if (transProp && transProp->isDerivedFrom(App::PropertyInteger::getClassTypeId())) {
-            App::PropertyInteger* propTrans = static_cast<App::PropertyInteger*>(transProp);
-            int transPercent = propTrans->getValue();
-            transparency = 1.0f - (static_cast<float>(transPercent) / 100.0f);
+        // Fallback: Try legacy ShapeColor property
+        if (!appearanceProp) {
+            App::Property* colorProp = vp->getPropertyByName("ShapeColor");
+            if (colorProp && colorProp->isDerivedFrom(App::PropertyColor::getClassTypeId())) {
+                App::PropertyColor* propColor = static_cast<App::PropertyColor*>(colorProp);
+                shapeColor = propColor->getValue();
+            }
+
+            // Try to get Transparency property
+            App::Property* transProp = vp->getPropertyByName("Transparency");
+            if (transProp && transProp->isDerivedFrom(App::PropertyPercent::getClassTypeId())) {
+                App::PropertyPercent* propTrans = static_cast<App::PropertyPercent*>(transProp);
+                int transPercent = propTrans->getValue();
+                transparency = 1.0f - (static_cast<float>(transPercent) / 100.0f);
+            }
         }
 
         // Apply material with transparency
@@ -1232,34 +1262,53 @@ void OsgVerseViewer::applyMaterialWithTransparency(osg::Node* node, const Base::
     float alpha = std::max(0.0f, std::min(1.0f, transparency));
 
     osg::ref_ptr<osg::StateSet> stateSet = node->getOrCreateStateSet();
+
+    // Enable lighting on this node
+    stateSet->setMode(GL_LIGHTING, osg::StateAttribute::ON);
+    stateSet->setMode(GL_LIGHT0, osg::StateAttribute::ON);
+
+    // Create material for lighting
     osg::ref_ptr<osg::Material> material = new osg::Material();
-
     osg::Vec4 diffuse(color.r, color.g, color.b, alpha);
+    osg::Vec4 ambient(color.r * 0.4f, color.g * 0.4f, color.b * 0.4f, alpha);
     material->setDiffuse(osg::Material::FRONT_AND_BACK, diffuse);
-    material->setAmbient(osg::Material::FRONT_AND_BACK, osg::Vec4(color.r * 0.3f, color.g * 0.3f, color.b * 0.3f, alpha));
-    material->setSpecular(osg::Material::FRONT_AND_BACK, osg::Vec4(0.5f, 0.5f, 0.5f, 1.0f));
-    material->setShininess(osg::Material::FRONT_AND_BACK, 32.0f);
-    material->setTransparency(osg::Material::FRONT_AND_BACK, 1.0f - alpha);
+    material->setAmbient(osg::Material::FRONT_AND_BACK, ambient);
+    material->setSpecular(osg::Material::FRONT_AND_BACK, osg::Vec4(0.3f, 0.3f, 0.3f, 1.0f));
+    material->setShininess(osg::Material::FRONT_AND_BACK, 25.0f);
+    material->setColorMode(osg::Material::OFF);
+    stateSet->setAttributeAndModes(material.get(), osg::StateAttribute::ON | osg::StateAttribute::OVERRIDE);
 
-    stateSet->setAttributeAndModes(material.get(), osg::StateAttribute::ON);
+    // Also set vertex colors as fallback for non-lit rendering modes
+    osg::Geode* geode = dynamic_cast<osg::Geode*>(node);
+    if (geode) {
+        osg::Vec4 vertexColor(color.r, color.g, color.b, alpha);
+        for (unsigned int i = 0; i < geode->getNumDrawables(); ++i) {
+            osg::Geometry* geom = dynamic_cast<osg::Geometry*>(geode->getDrawable(i));
+            if (geom) {
+                osg::ref_ptr<osg::Vec4Array> colors = new osg::Vec4Array();
+                colors->push_back(vertexColor);
+                geom->setColorArray(colors.get(), osg::Array::BIND_OVERALL);
+            }
+            osg::ShapeDrawable* shapeDrawable = dynamic_cast<osg::ShapeDrawable*>(geode->getDrawable(i));
+            if (shapeDrawable) {
+                shapeDrawable->setColor(vertexColor);
+            }
+        }
+    }
 
     // Enable alpha blending for transparent materials
     if (alpha < 1.0f) {
         stateSet->setMode(GL_BLEND, osg::StateAttribute::ON);
         stateSet->setRenderingHint(osg::StateSet::TRANSPARENT_BIN);
 
-        // Use standard alpha blending
         osg::ref_ptr<osg::BlendFunc> blendFunc = new osg::BlendFunc(
             osg::BlendFunc::SRC_ALPHA,
             osg::BlendFunc::ONE_MINUS_SRC_ALPHA
         );
         stateSet->setAttributeAndModes(blendFunc.get(), osg::StateAttribute::ON);
-
-        // Enable depth writing but use depth sorting
         stateSet->setRenderBinDetails(10, "DepthSortedBin");
     }
     else {
-        // Opaque materials
         stateSet->setMode(GL_BLEND, osg::StateAttribute::OFF);
         stateSet->setRenderingHint(osg::StateSet::OPAQUE_BIN);
     }

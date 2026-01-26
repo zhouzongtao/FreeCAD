@@ -1162,14 +1162,17 @@ void Document::slotChangedObject(const App::DocumentObject& Obj, const App::Prop
                 }
             }
 
-            // Update OsgVerse views when shape-related properties change
+            // Update OsgVerse views when shape or appearance properties change
             const char* propName = Prop.getName();
             bool isShapeChange = propName && (strcmp(propName, "Shape") == 0 ||
                                               strstr(propName, "Length") ||
                                               strstr(propName, "Width") ||
                                               strstr(propName, "Height") ||
                                               strstr(propName, "Radius"));
-            if (isShapeChange) {
+            bool isAppearanceChange = propName && (strcmp(propName, "ShapeAppearance") == 0 ||
+                                                   strcmp(propName, "ShapeColor") == 0 ||
+                                                   strcmp(propName, "Transparency") == 0);
+            if (isShapeChange || isAppearanceChange) {
                 for (auto* view : d->baseViews) {
                     auto* osgVerseView = dynamic_cast<View3DOsgVerse*>(view);
                     if (osgVerseView) {

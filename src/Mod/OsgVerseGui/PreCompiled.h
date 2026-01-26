@@ -51,11 +51,16 @@
 #include <Base/Parameter.h>
 
 // FreeCAD App
+#include <App/Document.h>
 #include <App/DocumentObject.h>
 #include <App/Property.h>
 
 // FreeCAD Gui
 #include <Gui/ViewProvider.h>
+#include <Gui/ViewProviderDocumentObject.h>
+#include <Gui/Selection/Selection.h>
+#include <Gui/Application.h>
+#include <Gui/Document.h>
 
 // Part module
 #include <Mod/Part/App/PartFeature.h>

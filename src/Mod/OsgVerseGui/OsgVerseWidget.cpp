@@ -2,9 +2,15 @@
 
 #include "PreCompiled.h"
 
+#ifndef _PreComp_
+#include <App/Document.h>
+#endif
+
 #include "OsgVerseWidget.h"
 #include "OsgVerseViewer.h"
 #include <Base/Console.h>
+#include <Gui/Selection/Selection.h>
+#include <Gui/ViewProviderDocumentObject.h>
 
 // OSG includes
 #include <osgViewer/Viewer>
@@ -244,6 +250,12 @@ void OsgVerseWidget::mousePressEvent(QMouseEvent* event)
         return;
     }
 
+    // Track mouse press for click detection
+    if (event->button() == Qt::LeftButton) {
+        _mousePressPos = event->pos();
+        _mousePressed = true;
+    }
+
     if (_graphicsWindow.valid()) {
         int button = qtButtonToOsg(event->button());
         _graphicsWindow->getEventQueue()->mouseButtonPress(
@@ -284,6 +296,18 @@ void OsgVerseWidget::mouseReleaseEvent(QMouseEvent* event)
         event->accept();
         update();
         return;
+    }
+
+    // Check if this was a click (not a drag) on left button
+    if (event->button() == Qt::LeftButton && _mousePressed) {
+        _mousePressed = false;
+        // Calculate distance from press to release
+        QPoint delta = event->pos() - _mousePressPos;
+        int distance = delta.manhattanLength();
+        // If the mouse moved less than 5 pixels, treat it as a click
+        if (distance < 5) {
+            handleSingleClickSelection(event->pos());
+        }
     }
 
     if (_graphicsWindow.valid()) {
@@ -451,4 +475,56 @@ void OsgVerseWidget::setNavigationStyle(NavigationStyle style)
     _viewer->home();
 
     update();
+}
+
+//===========================================================================
+// Single click selection
+//===========================================================================
+
+void OsgVerseWidget::handleSingleClickSelection(const QPoint& pos)
+{
+    if (!_osgVerseViewer) {
+        return;
+    }
+
+    // Perform pick operation
+    Gui::View3D::PickResult result = _osgVerseViewer->pick(pos);
+
+    if (result.valid && result.viewProvider) {
+        // Get the ViewProvider and its DocumentObject
+        Gui::ViewProviderDocumentObject* vpDoc =
+            dynamic_cast<Gui::ViewProviderDocumentObject*>(result.viewProvider);
+
+        if (vpDoc && vpDoc->getObject()) {
+            App::DocumentObject* obj = vpDoc->getObject();
+            App::Document* doc = obj->getDocument();
+
+            if (doc) {
+                const char* docName = doc->getName();
+                const char* objName = obj->getNameInDocument();
+
+                Base::Console().log("OsgVerseWidget: Click selection - doc=%s, obj=%s\n",
+                    docName, objName);
+
+                // Check if Ctrl is pressed for additive selection
+                Qt::KeyboardModifiers modifiers = QGuiApplication::keyboardModifiers();
+                bool additive = modifiers & Qt::ControlModifier;
+
+                if (!additive) {
+                    // Clear current selection if not additive
+                    Gui::Selection().clearSelection();
+                }
+
+                // Add to selection
+                Gui::Selection().addSelection(docName, objName);
+            }
+        }
+    } else {
+        // Clicked on empty space - clear selection
+        Qt::KeyboardModifiers modifiers = QGuiApplication::keyboardModifiers();
+        if (!(modifiers & Qt::ControlModifier)) {
+            Gui::Selection().clearSelection();
+            Base::Console().log("OsgVerseWidget: Click on empty space - selection cleared\n");
+        }
+    }
 }

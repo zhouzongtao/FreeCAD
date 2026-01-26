@@ -97,11 +97,18 @@ private:
     int qtButtonToOsg(Qt::MouseButton button);
     int qtKeyToOsg(int key);
     unsigned int getButtonMask();
-    
+
+    // Handle single-click selection
+    void handleSingleClickSelection(const QPoint& pos);
+
     osg::ref_ptr<osgViewer::Viewer> _viewer;
     osg::ref_ptr<osgViewer::GraphicsWindowEmbedded> _graphicsWindow;
     NavigationStyle _currentNavStyle = NavigationStyle::Trackball;
     OsgVerseViewer* _osgVerseViewer = nullptr;  ///< Back-reference to viewer for selection
+
+    // For click detection (distinguish click from drag)
+    QPoint _mousePressPos;
+    bool _mousePressed = false;
 };
 
 } // namespace OsgVerseGui

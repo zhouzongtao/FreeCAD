@@ -80,6 +80,7 @@
 #include "Utilities.h"
 #include "View3DInventor.h"
 #include "View3DInventorViewer.h"
+#include "View3DOsgVerse.h"
 #include "ViewParams.h"
 #include "ViewProviderGeometryObject.h"
 #include "WaitCursor.h"
@@ -2283,6 +2284,35 @@ bool StdCmdViewCreate::isActive()
 }
 
 //===========================================================================
+// Std_ViewCreateOsgVerse
+//===========================================================================
+DEF_STD_CMD_A(StdCmdViewCreateOsgVerse)
+
+StdCmdViewCreateOsgVerse::StdCmdViewCreateOsgVerse()
+    : Command("Std_ViewCreateOsgVerse")
+{
+    sGroup = "Standard-View";
+    sMenuText = QT_TR_NOOP("New OsgVerse 3D View");
+    sToolTipText = QT_TR_NOOP("Opens a new OsgVerse 3D view window for the active document");
+    sWhatsThis = "Std_ViewCreateOsgVerse";
+    sStatusTip = sToolTipText;
+    sPixmap = "window-new";
+    eType = Alter3DView;
+}
+
+void StdCmdViewCreateOsgVerse::activated(int iMsg)
+{
+    Q_UNUSED(iMsg);
+    getActiveGuiDocument()->createView(View3DOsgVerse::getClassTypeId());
+    getActiveGuiDocument()->getActiveView()->viewAll();
+}
+
+bool StdCmdViewCreateOsgVerse::isActive()
+{
+    return (getActiveGuiDocument() != nullptr);
+}
+
+//===========================================================================
 // Std_ToggleNavigation
 //===========================================================================
 DEF_STD_CMD_A(StdCmdToggleNavigation)
@@ -4418,6 +4448,7 @@ void CreateViewStdCommands()
     rcCmdMgr.addCommand(new StdCmdViewIvIssueCamPos());
 
     rcCmdMgr.addCommand(new StdCmdViewCreate());
+    rcCmdMgr.addCommand(new StdCmdViewCreateOsgVerse());
     rcCmdMgr.addCommand(new StdViewScreenShot());
     rcCmdMgr.addCommand(new StdViewLoadImage());
     rcCmdMgr.addCommand(new StdMainFullscreen());
