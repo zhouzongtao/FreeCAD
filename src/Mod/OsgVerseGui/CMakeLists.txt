@@ -84,6 +84,18 @@ INSTALL(FILES
     DESTINATION Mod/OsgVerseGui
 )
 
+# Install documentation files
+INSTALL(FILES
+    docs/README.md
+    docs/API_Reference.md
+    docs/Backend_Implementation_Guide.md
+    docs/ViewProvider_Integration.md
+    docs/Geometry_Converter_Guide.md
+    docs/Performance_Optimization.md
+    docs/Architecture_Overview.md
+    DESTINATION Mod/OsgVerseGui/docs
+)
+
 message(STATUS "OsgVerseGui: Module configured")
 message(STATUS "OsgVerseGui: OSG includes = ${OPENSCENEGRAPH_INCLUDE_DIRS}")
 message(STATUS "OsgVerseGui: OSG libs = ${OPENSCENEGRAPH_LIBRARIES}")
