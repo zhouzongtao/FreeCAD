@@ -81,6 +81,7 @@ public:
     //-----------------------------------------------------------------------
     void addViewProvider(Gui::ViewProvider* vp) override;
     void removeViewProvider(Gui::ViewProvider* vp) override;
+    void updateViewProvider(Gui::ViewProvider* vp) override;
     bool hasViewProvider(Gui::ViewProvider* vp) const override;
     std::vector<Gui::ViewProvider*> getViewProviders() const override;
     

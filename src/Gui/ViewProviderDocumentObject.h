@@ -254,6 +254,14 @@ protected:
     /** Adds a menu item and bind it with \ref startDefaultEditMode().  */
     void addDefaultAction(QMenu*, const QString&);
 
+    /**
+     * @brief 同步选择样式到抽象层节点
+     * Sync selection style to abstraction layer node
+     *
+     * @param style 0=Shape (Full), 1=BoundBox
+     */
+    void syncSelectionStyleToRenderNode(int style);
+
 protected:
     App::DocumentObject* pcObject {nullptr};
     Gui::Document* pcDocument {nullptr};

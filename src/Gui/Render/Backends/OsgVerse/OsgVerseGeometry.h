@@ -33,6 +33,7 @@
 
 #include <FCGlobal.h>
 #include "../../Core/RenderTypes.h"
+#include "../../Core/GeometryData.h"
 #include "OsgVerseNode.h"
 
 namespace Gui {
@@ -240,13 +241,27 @@ public:
     void reverseWinding();
 
     //-----------------------------------------------------------------------
-    // Coin3D 兼容性 / Coin3D Compatibility
+    // Geometry Data Conversion
     //-----------------------------------------------------------------------
 
     /**
-     * @brief 从 Coin3D 几何体转换 / Convert from Coin3D geometry
+     * @brief 从 GeometryData 设置几何数据 / Set geometry from GeometryData
+     *
+     * 使用后端无关的 GeometryData 结构来设置几何数据。
+     * Uses the backend-agnostic GeometryData structure to set geometry.
+     *
+     * @param data 几何数据 / Geometry data
+     * @return true 如果成功 / true if successful
      */
-    void setFromCoin3DGeometry(const void* coinGeometry);
+    bool setFromGeometryData(const GeometryData& data);
+
+    /**
+     * @brief 导出为 GeometryData / Export to GeometryData
+     *
+     * @param data 输出几何数据 / Output geometry data
+     * @return true 如果成功 / true if successful
+     */
+    bool toGeometryData(GeometryData& data) const;
 
     //-----------------------------------------------------------------------
     // 工具方法 / Utility Methods

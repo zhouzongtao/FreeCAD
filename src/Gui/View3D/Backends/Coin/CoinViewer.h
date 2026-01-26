@@ -109,6 +109,7 @@ public:
     // ViewProvider 管理
     void addViewProvider(ViewProvider* vp) override;
     void removeViewProvider(ViewProvider* vp) override;
+    void updateViewProvider(ViewProvider* vp) override;
     bool hasViewProvider(ViewProvider* vp) const override;
     std::vector<ViewProvider*> getViewProviders() const override;
 

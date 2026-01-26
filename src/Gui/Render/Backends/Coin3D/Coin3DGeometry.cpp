@@ -425,6 +425,116 @@ void Coin3DIndexedFaceSet::calculateNormals(bool perVertex)
     Base::Console().warning("Coin3DIndexedFaceSet::calculateNormals: Not yet implemented\n");
 }
 
+bool Coin3DIndexedFaceSet::toGeometryData(GeometryData& data) const
+{
+    data.clear();
+
+    // Get coordinates
+    auto coords = getCoordinates();
+    if (coords.empty()) {
+        return false;
+    }
+
+    // Convert vertices
+    data.vertices.reserve(coords.size() * 3);
+    for (const auto& v : coords) {
+        data.vertices.push_back(v.x);
+        data.vertices.push_back(v.y);
+        data.vertices.push_back(v.z);
+    }
+
+    // Convert normals
+    auto normals = getNormals();
+    if (!normals.empty()) {
+        data.normals.reserve(normals.size() * 3);
+        for (const auto& n : normals) {
+            data.normals.push_back(n.x);
+            data.normals.push_back(n.y);
+            data.normals.push_back(n.z);
+        }
+        data.normalBinding = GeometryData::NormalBinding::PerVertex;
+    }
+
+    // Convert texture coordinates
+    auto texCoords = getTextureCoords();
+    if (!texCoords.empty()) {
+        data.texCoords.reserve(texCoords.size() * 2);
+        for (const auto& t : texCoords) {
+            data.texCoords.push_back(t.x);
+            data.texCoords.push_back(t.y);
+        }
+        data.hasTexCoords = true;
+    }
+
+    // Convert face indices (already in -1 separated format)
+    auto indices = getCoordIndex();
+    data.faceIndices = indices;
+
+    data.computeBoundingBox();
+    return true;
+}
+
+bool Coin3DIndexedFaceSet::setFromGeometryData(const GeometryData& data)
+{
+    if (data.isEmpty()) {
+        return false;
+    }
+
+    // Convert vertices
+    size_t vertexCount = data.getVertexCount();
+    if (vertexCount > 0) {
+        std::vector<Vec3f> coords(vertexCount);
+        for (size_t i = 0; i < vertexCount; ++i) {
+            coords[i] = Vec3f(
+                data.vertices[i * 3],
+                data.vertices[i * 3 + 1],
+                data.vertices[i * 3 + 2]
+            );
+        }
+        setCoordinates(coords);
+    }
+
+    // Convert normals
+    if (data.normalBinding != GeometryData::NormalBinding::None && !data.normals.empty()) {
+        size_t normalCount = data.normals.size() / 3;
+        std::vector<Vec3f> normals(normalCount);
+        for (size_t i = 0; i < normalCount; ++i) {
+            normals[i] = Vec3f(
+                data.normals[i * 3],
+                data.normals[i * 3 + 1],
+                data.normals[i * 3 + 2]
+            );
+        }
+        setNormals(normals);
+
+        if (data.normalBinding == GeometryData::NormalBinding::PerVertex) {
+            setNormalBinding(NormalBinding::PerVertex);
+        } else if (data.normalBinding == GeometryData::NormalBinding::PerFace) {
+            setNormalBinding(NormalBinding::PerFace);
+        }
+    }
+
+    // Convert texture coordinates
+    if (data.hasTexCoords && !data.texCoords.empty()) {
+        size_t texCoordCount = data.texCoords.size() / 2;
+        std::vector<Vec2f> texCoords(texCoordCount);
+        for (size_t i = 0; i < texCoordCount; ++i) {
+            texCoords[i] = Vec2f(
+                data.texCoords[i * 2],
+                data.texCoords[i * 2 + 1]
+            );
+        }
+        setTextureCoords(texCoords);
+    }
+
+    // Set face indices (already in -1 separated format)
+    if (!data.faceIndices.empty()) {
+        setCoordIndex(data.faceIndices);
+    }
+
+    return true;
+}
+
 int Coin3DIndexedFaceSet::getFaceCount() const
 {
     auto* ifs = getIndexedFaceSet();

@@ -78,6 +78,61 @@ void Coin3DNode::touch()
 }
 
 //===========================================================================
+// Coin3DNode Selection Support
+//===========================================================================
+
+void Coin3DNode::setSelected(bool selected, const std::string& element)
+{
+    // Update base class state
+    RenderNode::setSelected(selected, element);
+
+    // Coin3D selection synchronization is handled through SoFCSelection nodes
+    // in the actual scene graph. This method updates the internal state,
+    // and the View3DInventorViewer/SoFCUnifiedSelection handles the visual update.
+    //
+    // Note: For full Coin3D integration, we would need to find the SoFCSelection
+    // parent node and call its setSelected() method. However, that's typically
+    // handled by the selection system itself (SelectionSingleton -> SoFCSelectionAction).
+
+    if (_coinNode) {
+        _coinNode->touch();  // Trigger redraw
+    }
+}
+
+void Coin3DNode::setHighlighted(bool highlighted, const std::string& element)
+{
+    // Update base class state
+    RenderNode::setHighlighted(highlighted, element);
+
+    // Similar to selection, highlighting is typically handled through
+    // SoFCUnifiedSelection and SoFCPreselectionAction in Coin3D.
+
+    if (_coinNode) {
+        _coinNode->touch();  // Trigger redraw
+    }
+}
+
+void Coin3DNode::setHighlightColor(float r, float g, float b, float a)
+{
+    // Update base class state
+    RenderNode::setHighlightColor(r, g, b, a);
+
+    // Note: In Coin3D, highlight colors are typically managed globally
+    // through SoFCUnifiedSelection::colorHighlight field.
+    // This method updates the per-node state which can be used by
+    // custom rendering or alternative backends.
+}
+
+void Coin3DNode::setSelectionColor(float r, float g, float b, float a)
+{
+    // Update base class state
+    RenderNode::setSelectionColor(r, g, b, a);
+
+    // Note: In Coin3D, selection colors are typically managed globally
+    // through SoFCUnifiedSelection::colorSelection field.
+}
+
+//===========================================================================
 // Coin3DGroup - SoGroup 包装器 / SoGroup Wrapper
 //===========================================================================
 

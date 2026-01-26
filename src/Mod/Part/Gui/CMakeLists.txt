@@ -162,6 +162,8 @@ SET(PartGui_SRCS
     ViewProviderDatum.h
     ViewProviderExt.cpp
     ViewProviderExt.h
+    ShapeGeometryConverter.cpp
+    ShapeGeometryConverter.h
     ViewProviderReference.cpp
     ViewProviderReference.h
     ViewProviderBox.cpp

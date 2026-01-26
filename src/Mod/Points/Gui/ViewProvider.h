@@ -26,10 +26,13 @@
 #define POINTSGUI_VIEWPROVIDERPOINTS_H
 
 #include <Inventor/SbVec2f.h>
+#include <memory>
 
 #include <Gui/ViewProviderBuilder.h>
 #include <Gui/ViewProviderGeometryObject.h>
 #include <Gui/ViewProviderFeaturePython.h>
+#include <Gui/Render/Core/RenderNode.h>
+#include <Gui/Render/Core/GeometryData.h>
 #include <Mod/Points/PointsGlobal.h>
 
 
@@ -108,12 +111,48 @@ protected:
     void setVertexNormalMode(Points::PropertyNormalList*);
     virtual void cut(const std::vector<SbVec2f>& picked, Gui::View3DInventorViewer& Viewer) = 0;
 
+    //=========================================================================
+    // Render Abstraction Layer Methods
+    //=========================================================================
+
+    /**
+     * @brief Initialize render nodes
+     *
+     * Creates geometry and material nodes for the abstraction layer.
+     */
+    void initRenderNodes() override;
+
+    /**
+     * @brief Sync geometry data to render nodes
+     *
+     * Converts current point cloud data and syncs to abstraction layer nodes.
+     */
+    void syncGeometryToRenderNodes();
+
+    /**
+     * @brief Sync draw style to render nodes
+     */
+    void syncDrawStyleToRenderNode();
+
 protected:
     Gui::SoFCSelection* pcHighlight;
     SoCoordinate3* pcPointsCoord;
     SoMaterial* pcColorMat;
     SoNormal* pcPointsNormal;
     SoDrawStyle* pcPointStyle;
+
+    //=========================================================================
+    // Render Abstraction Layer Members
+    //=========================================================================
+
+    /// Geometry data cache
+    std::shared_ptr<Gui::Render::GeometryData> m_renderGeometryData;
+
+    /// Abstraction layer point set node
+    std::shared_ptr<Gui::Render::RenderNode> m_renderPointSet;
+
+    /// Abstraction layer point style node
+    std::shared_ptr<Gui::Render::RenderNode> m_renderPointStyle;
 
 private:
     static App::PropertyFloatConstraint::Constraints floatRange;

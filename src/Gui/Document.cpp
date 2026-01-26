@@ -74,6 +74,8 @@
 #include "ViewProviderDocumentObject.h"
 #include "ViewProviderDocumentObjectGroup.h"
 #include "WaitCursor.h"
+#include "Render/Core/RenderNode.h"
+#include "Render/Core/SceneGraphBridge.h"
 
 
 FC_LOG_LEVEL_INIT("Gui", true, true)
@@ -117,6 +119,7 @@ struct DocumentP
     std::list<Gui::BaseView*> passiveViews;
     std::map<const App::DocumentObject*, ViewProviderDocumentObject*> _ViewProviderMap;
     std::map<SoSeparator*, ViewProviderDocumentObject*> _CoinMap;
+    std::map<Render::RenderNode*, ViewProviderDocumentObject*> _RenderNodeMap;
     std::map<std::string, ViewProvider*> _ViewProviderMapAnnotation;
     std::list<ViewProviderDocumentObject*> _redoViewProviders;
 
@@ -1005,6 +1008,10 @@ void Document::slotNewObject(const App::DocumentObject& Obj)
         setModified(true);
         d->_ViewProviderMap[&Obj] = pcProvider;
         d->_CoinMap[pcProvider->getRoot()] = pcProvider;
+        // Track RenderNode for render abstraction layer
+        if (auto* renderRoot = pcProvider->getRenderRoot()) {
+            d->_RenderNodeMap[renderRoot] = pcProvider;
+        }
         pcProvider->setStatus(Gui::ViewStatus::TouchDocument, d->_changeViewTouchDocument);
 
         try {
@@ -1039,9 +1046,20 @@ void Document::slotNewObject(const App::DocumentObject& Obj)
         std::list<Gui::BaseView*>::iterator vIt;
         // cycling to all views of the document
         for (vIt = d->baseViews.begin(); vIt != d->baseViews.end(); ++vIt) {
+            // Handle View3DInventor (Coin3D backend)
             auto activeView = dynamic_cast<View3DInventor*>(*vIt);
             if (activeView) {
                 activeView->getViewer()->addViewProvider(pcProvider);
+                continue;
+            }
+
+            // Handle View3DOsgVerse (OsgVerse backend)
+            auto osgVerseView = dynamic_cast<View3DOsgVerse*>(*vIt);
+            if (osgVerseView) {
+                auto* viewer = osgVerseView->getViewerInterface();
+                if (viewer) {
+                    viewer->addViewProvider(pcProvider);
+                }
             }
         }
 
@@ -1084,9 +1102,20 @@ void Document::slotDeletedObject(const App::DocumentObject& Obj)
     if (viewProvider && viewProvider->isDerivedFrom(ViewProviderDocumentObject::getClassTypeId())) {
         // go through the views
         for (vIt = d->baseViews.begin(); vIt != d->baseViews.end(); ++vIt) {
+            // Handle View3DInventor (Coin3D backend)
             auto activeView = dynamic_cast<View3DInventor*>(*vIt);
             if (activeView) {
                 activeView->getViewer()->removeViewProvider(viewProvider);
+                continue;
+            }
+
+            // Handle View3DOsgVerse (OsgVerse backend)
+            auto osgVerseView = dynamic_cast<View3DOsgVerse*>(*vIt);
+            if (osgVerseView) {
+                auto* viewer = osgVerseView->getViewerInterface();
+                if (viewer) {
+                    viewer->removeViewProvider(viewProvider);
+                }
             }
         }
 
@@ -1130,6 +1159,25 @@ void Document::slotChangedObject(const App::DocumentObject& Obj, const App::Prop
                 if (sobj == d->_editingObject && d->_editingTransform != mat) {
                     d->_editingTransform = mat;
                     d->_editingViewer->setEditingTransform(d->_editingTransform);
+                }
+            }
+
+            // Update OsgVerse views when shape-related properties change
+            const char* propName = Prop.getName();
+            bool isShapeChange = propName && (strcmp(propName, "Shape") == 0 ||
+                                              strstr(propName, "Length") ||
+                                              strstr(propName, "Width") ||
+                                              strstr(propName, "Height") ||
+                                              strstr(propName, "Radius"));
+            if (isShapeChange) {
+                for (auto* view : d->baseViews) {
+                    auto* osgVerseView = dynamic_cast<View3DOsgVerse*>(view);
+                    if (osgVerseView) {
+                        auto* viewer = osgVerseView->getViewerInterface();
+                        if (viewer) {
+                            viewer->updateViewProvider(viewProvider);
+                        }
+                    }
                 }
             }
         }
@@ -1188,6 +1236,14 @@ void Document::slotTransactionRemove(const App::DocumentObject& obj, App::Transa
         auto itC = d->_CoinMap.find(viewProvider->getRoot());
         if (itC != d->_CoinMap.end()) {
             d->_CoinMap.erase(itC);
+        }
+
+        // Remove from RenderNode map (render abstraction layer)
+        if (auto* renderRoot = viewProvider->getRenderRoot()) {
+            auto itR = d->_RenderNodeMap.find(renderRoot);
+            if (itR != d->_RenderNodeMap.end()) {
+                d->_RenderNodeMap.erase(itR);
+            }
         }
 
         d->_ViewProviderMap.erase(&obj);
@@ -1313,6 +1369,10 @@ void Document::addViewProvider(Gui::ViewProviderDocumentObject* vp)
     vp->setStatus(Detach, false);
     d->_ViewProviderMap[vp->getObject()] = vp;
     d->_CoinMap[vp->getRoot()] = vp;
+    // Track RenderNode for render abstraction layer
+    if (auto* renderRoot = vp->getRenderRoot()) {
+        d->_RenderNodeMap[renderRoot] = vp;
+    }
 }
 
 void Document::setModified(bool b)
@@ -1376,6 +1436,18 @@ ViewProviderDocumentObject* Document::getViewProvider(SoNode* node) const
     }
     auto it = d->_CoinMap.find(static_cast<SoSeparator*>(node));
     if (it != d->_CoinMap.end()) {
+        return it->second;
+    }
+    return nullptr;
+}
+
+ViewProviderDocumentObject* Document::getViewProvider(Render::RenderNode* node) const
+{
+    if (!node) {
+        return nullptr;
+    }
+    auto it = d->_RenderNodeMap.find(node);
+    if (it != d->_RenderNodeMap.end()) {
         return it->second;
     }
     return nullptr;

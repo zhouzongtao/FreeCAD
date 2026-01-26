@@ -5,32 +5,51 @@
 set(RENDER_PUBLIC_HEADERS
     Core/RenderTypes.h
     Core/RenderNode.h
+    Core/RenderNodeFactory.h
     Core/RenderEngine.h
     Core/RenderViewer.h
+    Core/GeometryData.h
+    Core/GeometryConverter.h
+    Core/GeometryNodeBuilder.h
+    Core/SceneGraphBridge.h
+    Core/SelectionBridge.h
+    Core/ViewerRenderer.h
+    Core/InteractionTypes.h
+    Core/PickingService.h
 )
 
 set(RENDER_PRIVATE_HEADERS
     Backends/Coin3D/Coin3DEngine.h
     Backends/Coin3D/Coin3DNode.h
+    Backends/Coin3D/Coin3DNodeFactory.h
     Backends/Coin3D/Coin3DMaterial.h
     Backends/Coin3D/Coin3DGeometry.h
     Backends/Coin3D/Coin3DUtils.h
     Backends/Coin3D/Coin3DViewer.h
+    Backends/Coin3D/Coin3DPickingService.h
 )
 
 set(RENDER_SOURCES
     Core/RenderNode.cpp
+    Core/RenderNodeFactory.cpp
     Core/RenderEngine.cpp
+    Core/GeometryConverter.cpp
+    Core/GeometryNodeBuilder.cpp
+    Core/SceneGraphBridge.cpp
+    Core/SelectionBridge.cpp
+    Core/PickingService.cpp
 )
 
 # Coin3D 后端源文件 / Coin3D backend sources
 # Coin3D is always available in FreeCAD, so always include these sources
 list(APPEND RENDER_SOURCES
     Backends/Coin3D/Coin3DNode.cpp
+    Backends/Coin3D/Coin3DNodeFactory.cpp
     Backends/Coin3D/Coin3DMaterial.cpp
     Backends/Coin3D/Coin3DGeometry.cpp
     Backends/Coin3D/Coin3DUtils.cpp
     Backends/Coin3D/Coin3DEngine.cpp
+    Backends/Coin3D/Coin3DPickingService.cpp
     # Backends/Coin3D/Coin3DViewer.cpp  # TODO: Fix API compatibility issues
 )
 
@@ -48,9 +67,24 @@ source_group("Render\\Core" FILES
     Core/RenderTypes.h
     Core/RenderNode.h
     Core/RenderNode.cpp
+    Core/RenderNodeFactory.h
+    Core/RenderNodeFactory.cpp
     Core/RenderEngine.h
     Core/RenderEngine.cpp
     Core/RenderViewer.h
+    Core/ViewerRenderer.h
+    Core/GeometryData.h
+    Core/GeometryConverter.h
+    Core/GeometryConverter.cpp
+    Core/GeometryNodeBuilder.h
+    Core/GeometryNodeBuilder.cpp
+    Core/SceneGraphBridge.h
+    Core/SceneGraphBridge.cpp
+    Core/SelectionBridge.h
+    Core/SelectionBridge.cpp
+    Core/InteractionTypes.h
+    Core/PickingService.h
+    Core/PickingService.cpp
 )
 
 source_group("Render\\Backends\\Coin3D" FILES
@@ -58,6 +92,8 @@ source_group("Render\\Backends\\Coin3D" FILES
     Backends/Coin3D/Coin3DEngine.cpp
     Backends/Coin3D/Coin3DNode.h
     Backends/Coin3D/Coin3DNode.cpp
+    Backends/Coin3D/Coin3DNodeFactory.h
+    Backends/Coin3D/Coin3DNodeFactory.cpp
     Backends/Coin3D/Coin3DMaterial.h
     Backends/Coin3D/Coin3DMaterial.cpp
     Backends/Coin3D/Coin3DGeometry.h
@@ -66,6 +102,8 @@ source_group("Render\\Backends\\Coin3D" FILES
     Backends/Coin3D/Coin3DUtils.cpp
     Backends/Coin3D/Coin3DViewer.h
     Backends/Coin3D/Coin3DViewer.cpp
+    Backends/Coin3D/Coin3DPickingService.h
+    Backends/Coin3D/Coin3DPickingService.cpp
 )
 
 source_group("Render\\Backends\\OsgVerse" FILES

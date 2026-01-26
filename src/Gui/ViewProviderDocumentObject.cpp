@@ -36,6 +36,7 @@
 #include <Base/Tools.h>
 
 #include "ViewProviderDocumentObjectPy.h"
+#include "Render/Core/RenderNode.h"
 #include "ActionFunction.h"
 #include "Application.h"
 #include "Command.h"
@@ -218,11 +219,15 @@ void ViewProviderDocumentObject::onChanged(const App::Property* prop)
         }
     }
     else if (prop == &SelectionStyle) {
+        // Coin3D backend: set selection style on SoFCSelectionRoot
         if (getRoot()->isOfType(SoFCSelectionRoot::getClassTypeId())) {
             static_cast<SoFCSelectionRoot*>(getRoot())->selectionStyle = SelectionStyle.getValue()
                 ? SoFCSelectionRoot::Box
                 : SoFCSelectionRoot::Full;
         }
+
+        // 同步到抽象层节点 / Sync to abstraction layer node
+        syncSelectionStyleToRenderNode(SelectionStyle.getValue());
     }
 
     if (prop && !prop->testStatus(App::Property::NoModify) && pcDocument
@@ -788,4 +793,31 @@ std::string ViewProviderDocumentObject::getFullName() const
         return pcObject->getFullName() + ".ViewObject";
     }
     return std::string("?");
+}
+
+void ViewProviderDocumentObject::syncSelectionStyleToRenderNode(int style)
+{
+    // 获取抽象层根节点 / Get abstraction layer root node
+    auto renderRoot = getRenderRootPtr();
+    if (!renderRoot) {
+        return;
+    }
+
+    // TODO: 当 RenderSelectionRoot 节点类型实现后，在这里设置选择样式
+    // TODO: When RenderSelectionRoot node type is implemented, set selection style here
+    //
+    // 目前抽象层还没有完整的选择根节点实现，
+    // 所以这个方法目前是一个占位符
+    // Currently the abstraction layer doesn't have a complete selection root implementation,
+    // so this method is a placeholder for now
+
+    // 当实现完成后，代码应该类似于：
+    // When implementation is complete, the code should look like:
+    //
+    // auto* selRoot = dynamic_cast<Render::RenderSelectionRoot*>(renderRoot.get());
+    // if (selRoot) {
+    //     selRoot->setSelectionStyle(style == 0 ? SelectionStyle::Full : SelectionStyle::Box);
+    // }
+
+    (void)style;  // 避免未使用警告 / Avoid unused warning
 }

@@ -25,6 +25,7 @@
 
 #include <FCGlobal.h>
 #include "../../Core/RenderTypes.h"
+#include "../../Core/RenderNode.h"
 #include "Coin3DNode.h"
 
 // 前向声明 / Forward declarations
@@ -64,6 +65,52 @@ public:
      * @brief 获取 SoMaterial 指针 / Get SoMaterial pointer
      */
     SoMaterial* getSoMaterial() const;
+
+    //-----------------------------------------------------------------------
+    // RenderMaterial 接口实现 / RenderMaterial Interface Implementation
+    // 提供与抽象层兼容的 float 参数版本
+    // Provides float-parameter versions compatible with abstraction layer
+    //-----------------------------------------------------------------------
+
+    /**
+     * @brief 设置环境光颜色 (float版本) / Set ambient color (float version)
+     */
+    void setAmbientColor(float r, float g, float b);
+
+    /**
+     * @brief 获取环境光颜色 (float版本) / Get ambient color (float version)
+     */
+    void getAmbientColor(float& r, float& g, float& b) const;
+
+    /**
+     * @brief 设置漫反射颜色 (float版本) / Set diffuse color (float version)
+     */
+    void setDiffuseColor(float r, float g, float b);
+
+    /**
+     * @brief 获取漫反射颜色 (float版本) / Get diffuse color (float version)
+     */
+    void getDiffuseColor(float& r, float& g, float& b) const;
+
+    /**
+     * @brief 设置镜面反射颜色 (float版本) / Set specular color (float version)
+     */
+    void setSpecularColor(float r, float g, float b);
+
+    /**
+     * @brief 获取镜面反射颜色 (float版本) / Get specular color (float version)
+     */
+    void getSpecularColor(float& r, float& g, float& b) const;
+
+    /**
+     * @brief 设置自发光颜色 (float版本) / Set emissive color (float version)
+     */
+    void setEmissiveColor(float r, float g, float b);
+
+    /**
+     * @brief 获取自发光颜色 (float版本) / Get emissive color (float version)
+     */
+    void getEmissiveColor(float& r, float& g, float& b) const;
 
     //-----------------------------------------------------------------------
     // 环境光属性 / Ambient Properties

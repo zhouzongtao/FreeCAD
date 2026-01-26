@@ -26,9 +26,12 @@
 #define MESHGUI_VIEWPROVIDERMESH_H
 
 #include <vector>
+#include <memory>
 
 #include <Gui/ViewProviderBuilder.h>
 #include <Gui/ViewProviderGeometryObject.h>
+#include <Gui/Render/Core/RenderNode.h>
+#include <Gui/Render/Core/GeometryData.h>
 #include <Mod/Mesh/App/Core/Elements.h>
 #include <Mod/Mesh/App/Types.h>
 
@@ -230,6 +233,34 @@ protected:
     void unsetEdit(int ModNum) override;
     /// get called by the container whenever a property has been changed
     void onChanged(const App::Property* prop) override;
+
+    //=========================================================================
+    // Render Abstraction Layer Methods
+    //=========================================================================
+
+    /**
+     * @brief Initialize render nodes
+     *
+     * Creates geometry and material nodes for the abstraction layer.
+     */
+    void initRenderNodes() override;
+
+    /**
+     * @brief Sync geometry data to render nodes
+     *
+     * Converts current mesh geometry data and syncs to abstraction layer nodes.
+     */
+    void syncGeometryToRenderNodes();
+
+    /**
+     * @brief Sync line material to render nodes
+     */
+    void syncLineMaterialToRenderNode();
+
+    /**
+     * @brief Sync draw style to render nodes
+     */
+    void syncDrawStyleToRenderNode();
     virtual void showOpenEdges(bool);
     void setOpenEdgeColorFrom(const Base::Color& col);
     virtual void splitMesh(
@@ -314,6 +345,25 @@ protected:
     SoShapeHints* pShapeHints {nullptr};
     SoMaterialBinding* pcMatBinding {nullptr};
     // NOLINTEND
+
+    //=========================================================================
+    // Render Abstraction Layer Members
+    //=========================================================================
+
+    /// Geometry data cache
+    std::shared_ptr<Gui::Render::GeometryData> m_renderGeometryData;
+
+    /// Abstraction layer face set node
+    std::shared_ptr<Gui::Render::RenderNode> m_renderFaceSet;
+
+    /// Abstraction layer line material node
+    std::shared_ptr<Gui::Render::RenderNode> m_renderLineMaterial;
+
+    /// Abstraction layer line style node
+    std::shared_ptr<Gui::Render::RenderNode> m_renderLineStyle;
+
+    /// Abstraction layer point style node
+    std::shared_ptr<Gui::Render::RenderNode> m_renderPointStyle;
 
 private:
     static const App::PropertyFloatConstraint::Constraints floatRange;

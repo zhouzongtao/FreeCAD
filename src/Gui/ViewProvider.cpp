@@ -45,7 +45,12 @@
 #include "Inventor/SoFCTransform.h"
 #include "ViewProvider.h"
 #include "Render/Core/RenderNode.h"
+#include "Render/Core/RenderNodeFactory.h"
 #include "Render/Backends/Coin3D/Coin3DNode.h"
+#include "Render/Backends/Coin3D/Coin3DNodeFactory.h"
+#ifdef RENDER_HAS_OSGVERSE_BACKEND
+#include "Render/Backends/OsgVerse/OsgVerseNode.h"
+#endif
 #include "ActionFunction.h"
 #include "Application.h"
 #include "BitmapFactory.h"
@@ -104,6 +109,10 @@ ViewProvider::ViewProvider()
 {
     setStatus(UpdateData, true);
 
+    //=========================================================================
+    // 初始化 Coin3D 节点（向后兼容）
+    // Initialize Coin3D nodes (backward compatibility)
+    //=========================================================================
 
     // SoFCSeparator and SoFCSelectionRoot can both track render cache setting.
     // We change to SoFCSelectionRoot so that we can dynamically change full
@@ -125,6 +134,13 @@ ViewProvider::ViewProvider()
     pcModeSwitch->whichChild = _iActualMode;
 
     setRenderCacheMode(ViewParams::instance()->getRenderCache());
+
+    //=========================================================================
+    // 初始化抽象层节点（方案B：后端完全平等）
+    // Initialize abstraction layer nodes (Plan B: backends are fully equal)
+    //=========================================================================
+
+    initRenderNodes();
 }
 
 ViewProvider::~ViewProvider()
@@ -408,6 +424,38 @@ void ViewProvider::addDisplayMaskMode(SoNode* node, const char* type)
     pcModeSwitch->addChild(node);
 }
 
+void ViewProvider::addDisplayMaskMode(std::shared_ptr<Render::RenderNode> node, const char* type)
+{
+    if (!node) {
+        FC_WARN("ViewProvider::addDisplayMaskMode: null node for mode '" << type << "'");
+        return;
+    }
+
+    // 存储抽象层节点 / Store abstraction layer node
+    m_renderDisplayMaskModes[type] = node;
+
+    // 同时添加到抽象层模式切换节点 / Also add to abstraction layer mode switch
+    if (m_renderModeSwitch) {
+        // 获取 Switch 节点并添加子节点
+        // 由于 m_renderModeSwitch 可能是 Coin3DSwitch 或 OsgVerseSwitch，
+        // 我们需要通过 RenderGroup 接口添加
+        auto* group = dynamic_cast<Render::RenderGroup*>(m_renderModeSwitch.get());
+        if (group) {
+            group->addChild(node);
+        }
+    }
+
+    // 同时添加到 Coin3D 模式切换节点（向后兼容）
+    // Also add to Coin3D mode switch (backward compatibility)
+    if (pcModeSwitch && node->getBackendType() == Render::BackendType::Coin3D) {
+        auto* coinNode = node->getBackendNode<SoNode>();
+        if (coinNode) {
+            _sDisplayMaskModes[type] = pcModeSwitch->getNumChildren();
+            pcModeSwitch->addChild(coinNode);
+        }
+    }
+}
+
 void ViewProvider::setDisplayMaskMode(const char* type)
 {
     std::map<std::string, int>::const_iterator it = _sDisplayMaskModes.find(type);
@@ -427,6 +475,15 @@ SoNode* ViewProvider::getDisplayMaskMode(const char* type) const
         return pcModeSwitch->getChild(it->second);
     }
 
+    return nullptr;
+}
+
+std::shared_ptr<Render::RenderNode> ViewProvider::getRenderDisplayMaskMode(const char* type) const
+{
+    auto it = m_renderDisplayMaskModes.find(type);
+    if (it != m_renderDisplayMaskModes.end()) {
+        return it->second;
+    }
     return nullptr;
 }
 
@@ -488,6 +545,9 @@ void ViewProvider::hide()
             ext->extensionModeSwitchChange();
         }
     }
+
+    // 同步到抽象层模式切换节点 / Sync to abstraction layer mode switch
+    syncModeSwitchToRenderNode(-1);
 
     // tell extensions that we hide
     for (Gui::ViewProviderExtension* ext : exts) {
@@ -553,15 +613,23 @@ const string ViewProvider::getOverrideMode()
 
 void ViewProvider::setModeSwitch()
 {
+    int modeIndex = -1;
+
     if (viewOverrideMode == -1) {
         pcModeSwitch->whichChild = _iActualMode;
+        modeIndex = _iActualMode;
     }
     else if (viewOverrideMode < pcModeSwitch->getNumChildren()) {
         pcModeSwitch->whichChild = viewOverrideMode;
+        modeIndex = viewOverrideMode;
     }
     else {
         return;
     }
+
+    // 同步到抽象层模式切换节点 / Sync to abstraction layer mode switch
+    syncModeSwitchToRenderNode(modeIndex);
+
     for (auto ext : getExtensionsDerivedFromType<Gui::ViewProviderExtension>()) {
         ext->extensionModeSwitchChange();
     }
@@ -953,10 +1021,55 @@ SoGroup* ViewProvider::getChildRoot() const
 // 渲染抽象层集成 / Rendering Abstraction Layer Integration
 //---------------------------------------------------------------------------
 
+void ViewProvider::initRenderNodes()
+{
+    // 检查是否已初始化（幂等性）/ Check if already initialized (idempotent)
+    if (m_renderRoot) {
+        return;
+    }
+
+    // 获取节点工厂 / Get node factory
+    auto* factory = getNodeFactory();
+    if (!factory) {
+        // 如果没有工厂可用，使用 Coin3D 包装器作为后备
+        // If no factory available, use Coin3D wrapper as fallback
+        FC_WARN("ViewProvider::initRenderNodes: No factory available, using Coin3D wrapper");
+        return;
+    }
+
+    // 使用工厂创建抽象层节点 / Create abstraction layer nodes using factory
+    m_renderRoot = factory->createSeparator();
+    m_renderTransform = factory->createTransform();
+    m_renderModeSwitch = factory->createSwitch();
+
+    if (m_renderRoot && m_renderTransform && m_renderModeSwitch) {
+        // 构建节点层次 / Build node hierarchy
+        // 需要转换为 RenderGroup 才能使用 addChild / Need to cast to RenderGroup for addChild
+        auto* rootGroup = dynamic_cast<Render::RenderGroup*>(m_renderRoot.get());
+        if (rootGroup) {
+            rootGroup->addChild(m_renderTransform);
+            rootGroup->addChild(m_renderModeSwitch);
+        }
+
+        m_renderRoot->setName("ViewProviderRoot");
+        m_renderTransform->setName("Transform");
+        m_renderModeSwitch->setName("ModeSwitch");
+
+        FC_LOG("ViewProvider::initRenderNodes: Abstraction layer nodes initialized");
+    }
+    else {
+        FC_WARN("ViewProvider::initRenderNodes: Failed to create some nodes");
+    }
+}
+
 Render::RenderNode* ViewProvider::getRenderRoot() const
 {
-    // Default implementation: Wrap Coin3D root node as abstraction layer node
+    // 优先返回抽象层节点 / Prefer returning abstraction layer node
+    if (m_renderRoot) {
+        return m_renderRoot.get();
+    }
 
+    // 后备：包装 Coin3D 节点 / Fallback: wrap Coin3D node
     if (!pcRoot) {
         return nullptr;
     }
@@ -976,6 +1089,59 @@ Render::RenderNode* ViewProvider::getRenderRoot() const
     return wrapper.get();
 }
 
+std::shared_ptr<Render::RenderNode> ViewProvider::getRenderRootPtr() const
+{
+    return m_renderRoot;
+}
+
+std::shared_ptr<Render::RenderNode> ViewProvider::getRenderModeSwitch() const
+{
+    return m_renderModeSwitch;
+}
+
+std::shared_ptr<Render::RenderNode> ViewProvider::getRenderTransform() const
+{
+    return m_renderTransform;
+}
+
+Render::BackendType ViewProvider::getBackendType() const
+{
+    // 默认使用 Coin3D / Default to Coin3D
+    return Render::BackendType::Coin3D;
+}
+
+Render::RenderNodeFactory* ViewProvider::getNodeFactory() const
+{
+    // 获取当前后端的工厂 / Get factory for current backend
+    auto factory = Render::RenderNodeFactoryRegistry::instance().getFactory(getBackendType());
+    return factory.get();
+}
+
+void ViewProvider::syncModeSwitchToRenderNode(int modeIndex)
+{
+    if (!m_renderModeSwitch) {
+        return;
+    }
+
+    // 尝试作为 Coin3DSwitch / Try as Coin3DSwitch
+    if (auto* coin3dSwitch = dynamic_cast<Render::Coin3DSwitch*>(m_renderModeSwitch.get())) {
+        coin3dSwitch->setWhichChild(modeIndex);
+        return;
+    }
+
+    // 尝试作为 OsgVerseSwitch / Try as OsgVerseSwitch
+    // 注意：需要包含 OsgVerseNode.h，但为避免编译依赖，使用条件编译
+#ifdef RENDER_HAS_OSGVERSE_BACKEND
+    if (auto* osgSwitch = dynamic_cast<Render::OsgVerseSwitch*>(m_renderModeSwitch.get())) {
+        osgSwitch->setWhichChild(modeIndex);
+        return;
+    }
+#endif
+
+    // 通用回退：设置可见性 / Generic fallback: set visibility
+    m_renderModeSwitch->setVisible(modeIndex >= 0);
+}
+
 SoSeparator* ViewProvider::getFrontRoot() const
 {
     auto vector = getExtensionsDerivedFromType<Gui::ViewProviderExtension>();
@@ -986,6 +1152,52 @@ SoSeparator* ViewProvider::getFrontRoot() const
         }
     }
     return nullptr;
+}
+
+std::shared_ptr<Render::RenderNode> ViewProvider::getRenderFrontRoot() const
+{
+    // 默认实现：尝试从扩展获取，或包装 Coin3D 节点
+    // Default implementation: try to get from extensions, or wrap Coin3D node
+    // TODO: 当扩展支持抽象层后，应优先调用扩展的抽象层方法
+    // TODO: When extensions support abstraction layer, prefer calling extension's abstraction method
+
+    SoSeparator* frontRoot = getFrontRoot();
+    if (!frontRoot) {
+        return nullptr;
+    }
+
+    // 创建 Coin3D 包装器 / Create Coin3D wrapper
+    // 注意：这是临时方案，完整实现应在扩展中直接返回 RenderSeparator
+    // Note: This is a temporary solution, full implementation should return RenderSeparator from extension
+    return std::make_shared<Render::Coin3DSeparator>(frontRoot, false);
+}
+
+std::shared_ptr<Render::RenderNode> ViewProvider::getRenderChildRoot() const
+{
+    // 默认实现：尝试从扩展获取，或包装 Coin3D 节点
+    // Default implementation: try to get from extensions, or wrap Coin3D node
+
+    SoGroup* childRoot = getChildRoot();
+    if (!childRoot) {
+        return nullptr;
+    }
+
+    // 创建 Coin3D 包装器 / Create Coin3D wrapper
+    return std::make_shared<Render::Coin3DGroup>(childRoot, false);
+}
+
+std::shared_ptr<Render::RenderNode> ViewProvider::getRenderBackRoot() const
+{
+    // 默认实现：尝试从扩展获取，或包装 Coin3D 节点
+    // Default implementation: try to get from extensions, or wrap Coin3D node
+
+    SoSeparator* backRoot = getBackRoot();
+    if (!backRoot) {
+        return nullptr;
+    }
+
+    // 创建 Coin3D 包装器 / Create Coin3D wrapper
+    return std::make_shared<Render::Coin3DSeparator>(backRoot, false);
 }
 
 std::vector<App::DocumentObject*> ViewProvider::claimChildren() const

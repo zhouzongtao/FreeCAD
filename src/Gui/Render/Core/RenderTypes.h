@@ -126,6 +126,35 @@ using Vec3f = Base::Vector3f;
 using Vec3d = Base::Vector3d;
 
 /**
+ * @brief Simple 3D vector for render abstraction layer
+ *
+ * This is a lightweight struct to avoid depending on Base::Vector3 in headers
+ * where simple point/direction data is needed.
+ */
+struct Vector3 {
+    float x{0.0f}, y{0.0f}, z{0.0f};
+
+    Vector3() = default;
+    Vector3(float x_, float y_, float z_) : x(x_), y(y_), z(z_) {}
+
+    // Conversion from Base::Vector3f
+    Vector3(const Base::Vector3f& v) : x(v.x), y(v.y), z(v.z) {}
+
+    // Conversion to Base::Vector3f
+    operator Base::Vector3f() const { return Base::Vector3f(x, y, z); }
+
+    Vector3 operator+(const Vector3& other) const {
+        return Vector3(x + other.x, y + other.y, z + other.z);
+    }
+    Vector3 operator-(const Vector3& other) const {
+        return Vector3(x - other.x, y - other.y, z - other.z);
+    }
+    Vector3 operator*(float s) const {
+        return Vector3(x * s, y * s, z * s);
+    }
+};
+
+/**
  * @brief 颜色类型 / Color type
  *
  * 使用 FreeCAD 现有的 Base::Color 作为基础类型。
@@ -294,16 +323,8 @@ struct LightParams {
     bool on{true};                            ///< 开关状态 / On/off state
 };
 
-/**
- * @brief 拾取结果 / Pick result
- */
-struct PickResult {
-    RenderNode* node{nullptr};                ///< 被拾取的节点 / Picked node
-    Vec3f point{0.0f, 0.0f, 0.0f};            ///< 拾取点 / Picked point
-    Vec3f normal{0.0f, 0.0f, 1.0f};           ///< 表面法线 / Surface normal
-    float distance{0.0f};                     ///< 距离 / Distance from camera
-    uint32_t faceIndex{0};                    ///< 面索引 / Face index
-};
+// Note: PickResult and related picking types are defined in InteractionTypes.h
+// 注意：PickResult 和相关拾取类型在 InteractionTypes.h 中定义
 
 /**
  * @brief 后端信息 / Backend information

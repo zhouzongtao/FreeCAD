@@ -489,11 +489,171 @@ void OsgVerseGeometry::reverseWinding()
     }
 }
 
-// Coin3D compatibility
-void OsgVerseGeometry::setFromCoin3DGeometry(const void* coinGeometry)
+// Geometry Data Conversion
+bool OsgVerseGeometry::setFromGeometryData(const GeometryData& data)
 {
-    // TODO: Implement Coin3D geometry conversion
-    // This requires access to Coin3D headers and data structures
+    if (data.isEmpty()) {
+        return false;
+    }
+
+    clear();
+
+    // Convert vertices
+    size_t vertexCount = data.getVertexCount();
+    if (vertexCount > 0) {
+        std::vector<Vec3f> vertices(vertexCount);
+        for (size_t i = 0; i < vertexCount; ++i) {
+            vertices[i] = Vec3f(
+                data.vertices[i * 3],
+                data.vertices[i * 3 + 1],
+                data.vertices[i * 3 + 2]
+            );
+        }
+        setVertices(vertices);
+    }
+
+    // Convert normals
+    if (data.normalBinding != GeometryData::NormalBinding::None && !data.normals.empty()) {
+        size_t normalCount = data.normals.size() / 3;
+        std::vector<Vec3f> normals(normalCount);
+        for (size_t i = 0; i < normalCount; ++i) {
+            normals[i] = Vec3f(
+                data.normals[i * 3],
+                data.normals[i * 3 + 1],
+                data.normals[i * 3 + 2]
+            );
+        }
+        setNormals(normals);
+    }
+
+    // Convert colors
+    if (data.colorBinding != GeometryData::ColorBinding::None && !data.colors.empty()) {
+        size_t colorCount = data.colors.size() / 4;
+        std::vector<Color> colors(colorCount);
+        for (size_t i = 0; i < colorCount; ++i) {
+            colors[i] = Color(
+                data.colors[i * 4],
+                data.colors[i * 4 + 1],
+                data.colors[i * 4 + 2],
+                data.colors[i * 4 + 3]
+            );
+        }
+        setColors(colors);
+    }
+
+    // Convert texture coordinates
+    if (data.hasTexCoords && !data.texCoords.empty()) {
+        size_t texCoordCount = data.texCoords.size() / 2;
+        std::vector<Vec2f> texCoords(texCoordCount);
+        for (size_t i = 0; i < texCoordCount; ++i) {
+            texCoords[i] = Vec2f(
+                data.texCoords[i * 2],
+                data.texCoords[i * 2 + 1]
+            );
+        }
+        setTexCoords(texCoords);
+    }
+
+    // Convert face indices (triangles)
+    if (data.hasFaces()) {
+        // Convert from -1 separated format to flat triangle list
+        std::vector<uint32_t> triangleIndices;
+        std::vector<int32_t> faceVertices;
+
+        for (int32_t idx : data.faceIndices) {
+            if (idx == -1) {
+                // End of face - triangulate if needed
+                if (faceVertices.size() >= 3) {
+                    // Simple fan triangulation for convex polygons
+                    for (size_t i = 1; i < faceVertices.size() - 1; ++i) {
+                        triangleIndices.push_back(static_cast<uint32_t>(faceVertices[0]));
+                        triangleIndices.push_back(static_cast<uint32_t>(faceVertices[i]));
+                        triangleIndices.push_back(static_cast<uint32_t>(faceVertices[i + 1]));
+                    }
+                }
+                faceVertices.clear();
+            } else {
+                faceVertices.push_back(idx);
+            }
+        }
+
+        if (!triangleIndices.empty()) {
+            setPrimitiveType(PrimitiveType::Triangles);
+            setIndices(triangleIndices);
+        }
+    }
+
+    updateGeometry();
+    return true;
+}
+
+bool OsgVerseGeometry::toGeometryData(GeometryData& data) const
+{
+    data.clear();
+
+    // Export vertices
+    auto vertices = getVertices();
+    if (vertices.empty()) {
+        return false;
+    }
+
+    data.vertices.reserve(vertices.size() * 3);
+    for (const auto& v : vertices) {
+        data.vertices.push_back(v.x);
+        data.vertices.push_back(v.y);
+        data.vertices.push_back(v.z);
+    }
+
+    // Export normals
+    if (hasNormals()) {
+        auto normals = getNormals();
+        data.normals.reserve(normals.size() * 3);
+        for (const auto& n : normals) {
+            data.normals.push_back(n.x);
+            data.normals.push_back(n.y);
+            data.normals.push_back(n.z);
+        }
+        data.normalBinding = GeometryData::NormalBinding::PerVertex;
+    }
+
+    // Export colors
+    if (hasColors()) {
+        auto colors = getColors();
+        data.colors.reserve(colors.size() * 4);
+        for (const auto& c : colors) {
+            data.colors.push_back(c.r);
+            data.colors.push_back(c.g);
+            data.colors.push_back(c.b);
+            data.colors.push_back(c.a);
+        }
+        data.colorBinding = GeometryData::ColorBinding::PerVertex;
+    }
+
+    // Export texture coordinates
+    if (hasTexCoords()) {
+        auto texCoords = getTexCoords();
+        data.texCoords.reserve(texCoords.size() * 2);
+        for (const auto& t : texCoords) {
+            data.texCoords.push_back(t.x);
+            data.texCoords.push_back(t.y);
+        }
+        data.hasTexCoords = true;
+    }
+
+    // Export face indices (convert from triangles to -1 separated format)
+    if (hasIndices() && _primitiveType == PrimitiveType::Triangles) {
+        auto indices = getIndices();
+        data.faceIndices.reserve(indices.size() + indices.size() / 3);
+        for (size_t i = 0; i < indices.size(); i += 3) {
+            data.faceIndices.push_back(static_cast<int32_t>(indices[i]));
+            data.faceIndices.push_back(static_cast<int32_t>(indices[i + 1]));
+            data.faceIndices.push_back(static_cast<int32_t>(indices[i + 2]));
+            data.faceIndices.push_back(-1);
+        }
+    }
+
+    data.computeBoundingBox();
+    return true;
 }
 
 // Utility methods

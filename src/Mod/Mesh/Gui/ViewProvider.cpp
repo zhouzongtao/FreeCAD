@@ -92,6 +92,8 @@
 #include "SoFCMeshObject.h"
 #include "ViewProvider.h"
 
+#include <Gui/Render/Core/RenderNodeFactory.h>
+
 
 using namespace MeshGui;
 namespace sp = std::placeholders;
@@ -337,9 +339,11 @@ void ViewProviderMesh::onChanged(const App::Property* prop)
     }
     else if (prop == &LineWidth) {
         pcLineStyle->lineWidth = LineWidth.getValue();
+        syncDrawStyleToRenderNode();
     }
     else if (prop == &PointSize) {
         pcPointStyle->pointSize = PointSize.getValue();
+        syncDrawStyleToRenderNode();
     }
     else if (prop == &CreaseAngle) {
         pShapeHints->creaseAngle = Base::toRadians<float>(CreaseAngle.getValue());
@@ -358,6 +362,7 @@ void ViewProviderMesh::onChanged(const App::Property* prop)
     else if (prop == &LineColor) {
         const Base::Color& c = LineColor.getValue();
         pLineColor->diffuseColor.setValue(c.r, c.g, c.b);
+        syncLineMaterialToRenderNode();
     }
     else if (prop == &Coloring) {
         tryColorPerVertexOrFace(Coloring.getValue());
@@ -419,6 +424,9 @@ SoNode* ViewProviderMesh::getCoordNode() const
 void ViewProviderMesh::attach(App::DocumentObject* obj)
 {
     ViewProviderGeometryObject::attach(obj);
+
+    // Initialize render abstraction layer nodes
+    initRenderNodes();
 
     pcHighlight->objectName = obj->getNameInDocument();
     pcHighlight->documentName = obj->getDocument()->getName();
@@ -2489,6 +2497,111 @@ PyObject* ViewProviderMesh::getPyObject()
     }
     pyViewObject->IncRef();
     return pyViewObject;
+}
+
+//===========================================================================
+// Render Abstraction Layer Implementation
+//===========================================================================
+
+void ViewProviderMesh::initRenderNodes()
+{
+    // Idempotent check - only initialize once
+    if (m_renderGeometryData) {
+        return;
+    }
+
+    // Call base class implementation
+    ViewProviderGeometryObject::initRenderNodes();
+
+    // Get the factory
+    auto factory = Gui::Render::RenderNodeFactoryRegistry::instance().getDefaultFactory();
+    if (!factory) {
+        return;
+    }
+
+    // Create geometry data cache
+    m_renderGeometryData = std::make_shared<Gui::Render::GeometryData>();
+
+    // Create line material node
+    m_renderLineMaterial = factory->createMaterial();
+
+    // Create style nodes
+    m_renderLineStyle = factory->createDrawStyle();
+    m_renderPointStyle = factory->createDrawStyle();
+
+    // Create face set node
+    m_renderFaceSet = factory->createIndexedFaceSet();
+
+    // Sync initial values
+    syncLineMaterialToRenderNode();
+    syncDrawStyleToRenderNode();
+}
+
+void ViewProviderMesh::syncGeometryToRenderNodes()
+{
+    if (!m_renderGeometryData) {
+        return;
+    }
+
+    // Clear previous data
+    m_renderGeometryData->clear();
+
+    // Get the mesh object
+    try {
+        const Mesh::MeshObject& mesh = getMeshObject();
+        const MeshCore::MeshKernel& kernel = mesh.getKernel();
+        const MeshCore::MeshPointArray& points = kernel.GetPoints();
+        const MeshCore::MeshFacetArray& facets = kernel.GetFacets();
+
+        if (points.empty() || facets.empty()) {
+            return;
+        }
+
+        // Reserve memory
+        m_renderGeometryData->reserve(points.size(), facets.size());
+
+        // Add vertices
+        for (const auto& pt : points) {
+            m_renderGeometryData->addVertex(pt.x, pt.y, pt.z);
+        }
+
+        // Add triangles
+        for (const auto& facet : facets) {
+            m_renderGeometryData->addTriangle(
+                static_cast<int32_t>(facet._aulPoints[0]),
+                static_cast<int32_t>(facet._aulPoints[1]),
+                static_cast<int32_t>(facet._aulPoints[2]));
+        }
+
+        // Compute bounding box
+        m_renderGeometryData->computeBoundingBox();
+
+        // TODO: Update render node with geometry data
+        // This would be done through the geometry node's interface
+    }
+    catch (...) {
+        // Handle any exceptions from getMeshObject()
+    }
+}
+
+void ViewProviderMesh::syncLineMaterialToRenderNode()
+{
+    if (!m_renderLineMaterial) {
+        return;
+    }
+
+    // TODO: Sync line color to render node
+    // The actual implementation depends on the RenderMaterial interface
+}
+
+void ViewProviderMesh::syncDrawStyleToRenderNode()
+{
+    if (!m_renderLineStyle || !m_renderPointStyle) {
+        return;
+    }
+
+    // TODO: Sync line width and point size to render nodes
+    // The actual implementation depends on the RenderDrawStyle interface
 }
 
 // ------------------------------------------------------

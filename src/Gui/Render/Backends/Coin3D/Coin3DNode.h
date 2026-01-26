@@ -100,6 +100,34 @@ public:
      */
     void touch() override;
 
+    //-----------------------------------------------------------------------
+    // Selection support (synchronizes with Coin3D scene graph)
+    //-----------------------------------------------------------------------
+
+    /**
+     * @brief 设置选中状态 / Set selected state
+     *
+     * Updates both the RenderNode state and synchronizes with Coin3D scene graph.
+     */
+    void setSelected(bool selected, const std::string& element = "") override;
+
+    /**
+     * @brief 设置高亮状态 / Set highlighted state
+     *
+     * Updates both the RenderNode state and synchronizes with Coin3D scene graph.
+     */
+    void setHighlighted(bool highlighted, const std::string& element = "") override;
+
+    /**
+     * @brief 设置高亮颜色 / Set highlight color
+     */
+    void setHighlightColor(float r, float g, float b, float a = 1.0f) override;
+
+    /**
+     * @brief 设置选择颜色 / Set selection color
+     */
+    void setSelectionColor(float r, float g, float b, float a = 1.0f) override;
+
 protected:
     void* getBackendNodeImpl() override { return _coinNode; }
     const void* getBackendNodeImpl() const override { return _coinNode; }

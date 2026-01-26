@@ -381,6 +381,13 @@ void CoinViewer::removeViewProvider(ViewProvider* vp)
     }
 }
 
+void CoinViewer::updateViewProvider(ViewProvider* vp)
+{
+    // Coin3D ViewProviders are updated automatically through the
+    // ViewProvider::update() mechanism. No additional action needed here.
+    (void)vp;
+}
+
 bool CoinViewer::hasViewProvider(ViewProvider* vp) const
 {
     if (_coinViewer && vp) {

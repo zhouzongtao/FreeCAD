@@ -268,7 +268,7 @@ public:
 
     /**
      * @brief 添加 ViewProvider
-     * 
+     *
      * ViewProvider 是 FreeCAD 中对象的视图表示
      */
     virtual void addViewProvider(ViewProvider* vp) = 0;
@@ -277,6 +277,13 @@ public:
      * @brief 移除 ViewProvider
      */
     virtual void removeViewProvider(ViewProvider* vp) = 0;
+
+    /**
+     * @brief 更新 ViewProvider
+     *
+     * 当 ViewProvider 的几何数据变化时调用（如形状重新计算后）
+     */
+    virtual void updateViewProvider(ViewProvider* vp) = 0;
 
     /**
      * @brief 检查是否包含 ViewProvider

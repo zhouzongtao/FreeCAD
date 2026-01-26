@@ -28,6 +28,7 @@
 
 #include <FCGlobal.h>
 #include "../../Core/RenderTypes.h"
+#include "../../Core/GeometryData.h"
 #include "Coin3DNode.h"
 
 // 前向声明 Coin3D 几何节点 / Forward declarations for Coin3D geometry nodes
@@ -258,6 +259,32 @@ public:
      * @brief 获取顶点数 / Get vertex count
      */
     int getVertexCount() const;
+
+    //-----------------------------------------------------------------------
+    // Geometry Data Conversion
+    //-----------------------------------------------------------------------
+
+    /**
+     * @brief 导出为 GeometryData / Export to GeometryData
+     *
+     * 将 Coin3D 几何数据转换为后端无关的 GeometryData 格式。
+     * Converts Coin3D geometry to backend-agnostic GeometryData format.
+     *
+     * @param data 输出几何数据 / Output geometry data
+     * @return true 如果成功 / true if successful
+     */
+    bool toGeometryData(GeometryData& data) const;
+
+    /**
+     * @brief 从 GeometryData 设置 / Set from GeometryData
+     *
+     * 从后端无关的 GeometryData 设置几何数据。
+     * Sets geometry from backend-agnostic GeometryData.
+     *
+     * @param data 输入几何数据 / Input geometry data
+     * @return true 如果成功 / true if successful
+     */
+    bool setFromGeometryData(const GeometryData& data);
 };
 
 //-------------------------------------------------------------------------

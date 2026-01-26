@@ -100,6 +100,68 @@ RenderNode::Ptr RenderNode::clone() const
 }
 
 //===========================================================================
+// Selection Methods
+//===========================================================================
+
+void RenderNode::setSelected(bool selected, const std::string& element)
+{
+    bool changed = (_selectionState.selected != selected) ||
+                   (_selectionState.selectedElement != element);
+
+    _selectionState.selected = selected;
+    _selectionState.selectedElement = element;
+
+    if (changed) {
+        touch();
+    }
+}
+
+void RenderNode::setHighlighted(bool highlighted, const std::string& element)
+{
+    bool changed = (_selectionState.highlighted != highlighted) ||
+                   (_selectionState.highlightedElement != element);
+
+    _selectionState.highlighted = highlighted;
+    _selectionState.highlightedElement = element;
+
+    if (changed) {
+        touch();
+    }
+}
+
+void RenderNode::setHighlightColor(float r, float g, float b, float a)
+{
+    _selectionColors.highlightColor[0] = r;
+    _selectionColors.highlightColor[1] = g;
+    _selectionColors.highlightColor[2] = b;
+    _selectionColors.highlightColor[3] = a;
+}
+
+void RenderNode::getHighlightColor(float& r, float& g, float& b, float& a) const
+{
+    r = _selectionColors.highlightColor[0];
+    g = _selectionColors.highlightColor[1];
+    b = _selectionColors.highlightColor[2];
+    a = _selectionColors.highlightColor[3];
+}
+
+void RenderNode::setSelectionColor(float r, float g, float b, float a)
+{
+    _selectionColors.selectionColor[0] = r;
+    _selectionColors.selectionColor[1] = g;
+    _selectionColors.selectionColor[2] = b;
+    _selectionColors.selectionColor[3] = a;
+}
+
+void RenderNode::getSelectionColor(float& r, float& g, float& b, float& a) const
+{
+    r = _selectionColors.selectionColor[0];
+    g = _selectionColors.selectionColor[1];
+    b = _selectionColors.selectionColor[2];
+    a = _selectionColors.selectionColor[3];
+}
+
+//===========================================================================
 // RenderGroup
 //===========================================================================
 

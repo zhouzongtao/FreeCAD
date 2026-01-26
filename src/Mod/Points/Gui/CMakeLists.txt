@@ -34,6 +34,8 @@ SET(PointsGui_SRCS
     ${Resource_SRCS}
     AppPointsGui.cpp
     Command.cpp
+    PointsGeometryConverter.cpp
+    PointsGeometryConverter.h
     PreCompiled.h
     ViewProvider.cpp
     ViewProvider.h

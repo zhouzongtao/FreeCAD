@@ -93,6 +93,14 @@
 #include "SoBrepPointSet.h"
 #include "TaskFaceAppearances.h"
 
+// 渲染抽象层 / Render Abstraction Layer
+#include <Gui/Render/Core/RenderNode.h>
+#include <Gui/Render/Core/RenderNodeFactory.h>
+#include <Gui/Render/Core/GeometryData.h>
+#include <Gui/Render/Core/GeometryConverter.h>
+#include "ShapeGeometryConverter.h"  // PartGui full implementation
+#include <Gui/Render/Core/GeometryNodeBuilder.h>
+
 
 FC_LOG_LEVEL_INIT("Part", true, true)
 
@@ -336,9 +344,13 @@ void ViewProviderPartExt::onChanged(const App::Property* prop)
     }
     if (prop == &LineWidth) {
         pcLineStyle->lineWidth = LineWidth.getValue();
+        // 同步到渲染抽象层 / Sync to render abstraction layer
+        syncDrawStyleToRenderNode();
     }
     else if (prop == &PointSize) {
         pcPointStyle->pointSize = PointSize.getValue();
+        // 同步到渲染抽象层 / Sync to render abstraction layer
+        syncDrawStyleToRenderNode();
     }
     else if (prop == &LineColor) {
         const Base::Color& c = LineColor.getValue();
@@ -347,6 +359,8 @@ void ViewProviderPartExt::onChanged(const App::Property* prop)
             LineMaterial.setDiffuseColor(c);
         }
         LineColorArray.setValue(LineColor.getValue());
+        // 同步到渲染抽象层 / Sync to render abstraction layer
+        syncLineMaterialToRenderNode();
     }
     else if (prop == &PointColor) {
         const Base::Color& c = PointColor.getValue();
@@ -355,6 +369,8 @@ void ViewProviderPartExt::onChanged(const App::Property* prop)
             PointMaterial.setDiffuseColor(c);
         }
         PointColorArray.setValue(PointColor.getValue());
+        // 同步到渲染抽象层 / Sync to render abstraction layer
+        syncPointMaterialToRenderNode();
     }
     else if (prop == &LineMaterial) {
         const App::Material& Mat = LineMaterial.getValue();
@@ -371,6 +387,9 @@ void ViewProviderPartExt::onChanged(const App::Property* prop)
             .setValue(Mat.emissiveColor.r, Mat.emissiveColor.g, Mat.emissiveColor.b);
         pcLineMaterial->shininess.setValue(Mat.shininess);
         pcLineMaterial->transparency.setValue(Mat.transparency);
+
+        // 同步到渲染抽象层 / Sync to render abstraction layer
+        syncLineMaterialToRenderNode();
     }
     else if (prop == &PointMaterial) {
         const App::Material& Mat = PointMaterial.getValue();
@@ -387,6 +406,9 @@ void ViewProviderPartExt::onChanged(const App::Property* prop)
             .setValue(Mat.emissiveColor.r, Mat.emissiveColor.g, Mat.emissiveColor.b);
         pcPointMaterial->shininess.setValue(Mat.shininess);
         pcPointMaterial->transparency.setValue(Mat.transparency);
+
+        // 同步到渲染抽象层 / Sync to render abstraction layer
+        syncPointMaterialToRenderNode();
     }
     else if (prop == &PointColorArray) {
         setHighlightedPoints(PointColorArray.getValues());
@@ -477,6 +499,10 @@ void ViewProviderPartExt::attach(App::DocumentObject* pcFeat)
 {
     // call parent attach method
     ViewProviderGeometryObject::attach(pcFeat);
+
+    // 初始化渲染抽象层节点（虚函数在构造函数中不会分派到派生类）
+    // Initialize render abstraction layer nodes (virtual functions don't dispatch to derived class in constructor)
+    initRenderNodes();
 
     // Workaround for #0000433, i.e. use SoSeparator instead of SoGroup
     auto* pcNormalRoot = new SoSeparator();
@@ -1498,6 +1524,9 @@ void ViewProviderPartExt::updateVisual()
         );
 
         VisualTouched = false;
+
+        // 同步几何数据到渲染抽象层 / Sync geometry data to render abstraction layer
+        syncGeometryToRenderNodes();
     }
     catch (const Standard_Failure& e) {
         FC_ERR(
@@ -1545,4 +1574,190 @@ void ViewProviderPartExt::handleChangedPropertyName(
     else {
         Gui::ViewProviderGeometryObject::handleChangedPropertyName(reader, TypeName, PropName);
     }
+}
+
+//=============================================================================
+// 渲染抽象层方法实现 / Render Abstraction Layer Method Implementations
+//=============================================================================
+
+void ViewProviderPartExt::initRenderNodes()
+{
+    // 检查是否已初始化（幂等性）/ Check if already initialized (idempotent)
+    if (m_renderGeometryData) {
+        return;
+    }
+
+    // 调用父类实现 / Call parent implementation
+    ViewProviderGeometryObject::initRenderNodes();
+
+    // 获取工厂 / Get factory
+    auto factory = Gui::Render::RenderNodeFactoryRegistry::instance().getDefaultFactory();
+    if (!factory) {
+        FC_WARN("ViewProviderPartExt::initRenderNodes: No render node factory available");
+        return;
+    }
+
+    // 创建几何数据缓存 / Create geometry data cache
+    m_renderGeometryData = std::make_shared<Gui::Render::GeometryData>();
+
+    // 创建材质节点 / Create material nodes
+    m_renderLineMaterial = factory->createMaterial();
+    m_renderPointMaterial = factory->createMaterial();
+
+    // 创建绘制样式节点 / Create draw style nodes
+    m_renderLineStyle = factory->createDrawStyle();
+    m_renderPointStyle = factory->createDrawStyle();
+
+    // 同步初始材质和样式 / Sync initial materials and styles
+    syncLineMaterialToRenderNode();
+    syncPointMaterialToRenderNode();
+    syncDrawStyleToRenderNode();
+
+    FC_LOG("ViewProviderPartExt::initRenderNodes: Render nodes initialized");
+}
+
+void ViewProviderPartExt::syncGeometryToRenderNodes()
+{
+    // 检查工厂是否可用 / Check if factory is available
+    auto factory = Gui::Render::RenderNodeFactoryRegistry::instance().getDefaultFactory();
+    if (!factory) {
+        return;
+    }
+
+    // 检查几何数据缓存 / Check geometry data cache
+    if (!m_renderGeometryData) {
+        m_renderGeometryData = std::make_shared<Gui::Render::GeometryData>();
+    }
+
+    try {
+        // 获取渲染形状 / Get rendered shape
+        TopoDS_Shape cShape = getRenderedShape().getShape();
+        if (cShape.IsNull()) {
+            FC_LOG("ViewProviderPartExt::syncGeometryToRenderNodes: Shape is null");
+            return;
+        }
+
+        // 清空旧数据 / Clear old data
+        m_renderGeometryData->clear();
+
+        // 使用 GeometryConverter 转换形状 / Convert shape using GeometryConverter
+        // 使用 PartGui 的完整实现替代 Gui 的 stub 实现
+        // Use PartGui's full implementation instead of Gui's stub
+        ShapeGeometryConverterImpl converter;
+        Gui::Render::ConversionOptions options;
+        options.deflection = Deviation.getValue();
+        options.smoothAngle = Base::toRadians(AngularDeflection.getValue());
+        options.computeVertexNormals = true;
+        options.extractEdges = true;
+        options.extractVertices = true;
+
+        bool success = converter.convert(cShape, *m_renderGeometryData, options);
+        if (!success) {
+            FC_WARN("ViewProviderPartExt::syncGeometryToRenderNodes: Geometry conversion failed");
+            return;
+        }
+
+        // 使用 GeometryNodeBuilder 构建节点 / Build nodes using GeometryNodeBuilder
+        Gui::Render::GeometryNodeBuilder builder(factory.get());
+
+        // 设置构建选项 / Set build options
+        Gui::Render::BuildOptions buildOptions;
+
+        // 获取材质颜色 / Get material colors
+        const App::Material& faceMat = ShapeAppearance[0];
+        buildOptions.diffuseColor = Gui::Render::Color{
+            faceMat.diffuseColor.r,
+            faceMat.diffuseColor.g,
+            faceMat.diffuseColor.b,
+            1.0f - faceMat.transparency
+        };
+
+        const Base::Color& lineCol = LineColor.getValue();
+        buildOptions.lineColor = Gui::Render::Color{lineCol.r, lineCol.g, lineCol.b, 1.0f};
+
+        const Base::Color& pointCol = PointColor.getValue();
+        buildOptions.pointColor = Gui::Render::Color{pointCol.r, pointCol.g, pointCol.b, 1.0f};
+
+        buildOptions.lineWidth = LineWidth.getValue();
+        buildOptions.pointSize = PointSize.getValue();
+        buildOptions.transparency = faceMat.transparency;
+
+        builder.setOptions(buildOptions);
+
+        // 构建坐标节点 / Build coordinate node
+        m_renderCoords = builder.createCoordinateNode(*m_renderGeometryData);
+
+        // 构建法线节点 / Build normal node
+        if (!m_renderGeometryData->normals.empty()) {
+            m_renderNormals = builder.createNormalNode(*m_renderGeometryData);
+        }
+
+        // 注意：面集、线集、点集节点的创建需要后端特定实现
+        // 这里只记录几何数据已更新
+        // Note: Face set, line set, point set node creation needs backend-specific implementation
+        // Here we just note that geometry data has been updated
+
+        FC_LOG("ViewProviderPartExt::syncGeometryToRenderNodes: Geometry synced - "
+               << m_renderGeometryData->getVertexCount() << " vertices, "
+               << m_renderGeometryData->getFaceCount() << " faces, "
+               << m_renderGeometryData->getLineCount() << " lines");
+
+    } catch (const Standard_Failure& e) {
+        FC_ERR("ViewProviderPartExt::syncGeometryToRenderNodes: " << e.GetMessageString());
+    } catch (...) {
+        FC_ERR("ViewProviderPartExt::syncGeometryToRenderNodes: Unknown error");
+    }
+}
+
+void ViewProviderPartExt::syncLineMaterialToRenderNode()
+{
+    if (!m_renderLineMaterial) {
+        return;
+    }
+
+    // 使用动态转换获取 RenderMaterial 接口 / Use dynamic cast to get RenderMaterial interface
+    auto* material = dynamic_cast<Gui::Render::RenderMaterial*>(m_renderLineMaterial.get());
+    if (!material) {
+        return;
+    }
+
+    const App::Material& mat = LineMaterial.getValue();
+    material->setAmbientColor(mat.ambientColor.r, mat.ambientColor.g, mat.ambientColor.b);
+    material->setDiffuseColor(mat.diffuseColor.r, mat.diffuseColor.g, mat.diffuseColor.b);
+    material->setSpecularColor(mat.specularColor.r, mat.specularColor.g, mat.specularColor.b);
+    material->setEmissiveColor(mat.emissiveColor.r, mat.emissiveColor.g, mat.emissiveColor.b);
+    material->setShininess(mat.shininess);
+    material->setTransparency(mat.transparency);
+}
+
+void ViewProviderPartExt::syncPointMaterialToRenderNode()
+{
+    if (!m_renderPointMaterial) {
+        return;
+    }
+
+    // 使用动态转换获取 RenderMaterial 接口 / Use dynamic cast to get RenderMaterial interface
+    auto* material = dynamic_cast<Gui::Render::RenderMaterial*>(m_renderPointMaterial.get());
+    if (!material) {
+        return;
+    }
+
+    const App::Material& mat = PointMaterial.getValue();
+    material->setAmbientColor(mat.ambientColor.r, mat.ambientColor.g, mat.ambientColor.b);
+    material->setDiffuseColor(mat.diffuseColor.r, mat.diffuseColor.g, mat.diffuseColor.b);
+    material->setSpecularColor(mat.specularColor.r, mat.specularColor.g, mat.specularColor.b);
+    material->setEmissiveColor(mat.emissiveColor.r, mat.emissiveColor.g, mat.emissiveColor.b);
+    material->setShininess(mat.shininess);
+    material->setTransparency(mat.transparency);
+}
+
+void ViewProviderPartExt::syncDrawStyleToRenderNode()
+{
+    // 同步线宽和点大小到抽象层节点
+    // Sync line width and point size to abstraction layer nodes
+    // 注意：需要 RenderDrawStyle 接口，当前版本暂不实现
+    // Note: Requires RenderDrawStyle interface, not implemented in current version
+
+    // TODO: 当 RenderDrawStyle 接口可用时实现
+    // TODO: Implement when RenderDrawStyle interface is available
 }

@@ -40,6 +40,13 @@ namespace Base
 class Matrix4D;
 }
 
+// Forward declarations for render abstraction layer
+namespace Gui {
+namespace Render {
+class RenderNode;
+}
+}
+
 namespace App
 {
 class Document;
@@ -248,6 +255,8 @@ public:
     /// Get the view provider for that object
     ViewProvider* getViewProvider(const App::DocumentObject*) const;
     ViewProviderDocumentObject* getViewProvider(SoNode* node) const;
+    /// Get the view provider for a RenderNode (render abstraction layer)
+    ViewProviderDocumentObject* getViewProvider(Render::RenderNode* node) const;
     /// set an annotation view provider
     void setAnnotationViewProvider(const char* name, ViewProvider* pcProvider);
     /// get an annotation view provider

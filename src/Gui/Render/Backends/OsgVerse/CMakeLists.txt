@@ -24,13 +24,13 @@ find_path(OSGVERSE_INCLUDE_DIR
 )
 
 # 配置选项 / Configuration option
-# 注意：OsgVerse 后端目前处于开发中，存在编译错误
-# Note: OsgVerse backend is currently under development with compilation errors
+# 注意：OsgVerse 后端目前为实验性功能
+# Note: OsgVerse backend is currently experimental
 if(OPENSCENEGRAPH_FOUND AND OSGVERSE_INCLUDE_DIR)
     option(BUILD_WITH_OSGVERSE "Build with OsgVerse rendering backend (EXPERIMENTAL)" OFF)
     message(STATUS "OpenSceneGraph found: ${OPENSCENEGRAPH_VERSION}")
     message(STATUS "OsgVerse found at: ${OSGVERSE_INCLUDE_DIR}")
-    message(WARNING "OsgVerse backend is EXPERIMENTAL and has known compilation issues")
+    message(STATUS "OsgVerse backend is available (EXPERIMENTAL)")
 else()
     set(BUILD_WITH_OSGVERSE OFF CACHE BOOL "Build with OsgVerse rendering backend" FORCE)
     if(NOT OPENSCENEGRAPH_FOUND)
@@ -48,22 +48,26 @@ if(BUILD_WITH_OSGVERSE)
     # 收集头文件 / Collect header files
     set(OSGVERSE_BACKEND_HEADERS
         OsgVerseNode.h
+        OsgVerseNodeFactory.h
         OsgVerseEngine.h
         OsgVerseMaterial.h
         OsgVerseGeometry.h
         OsgVerseViewer.h
         OsgVerseGraphicsWindow.h
+        OsgVersePickingService.h
     )
 
     # 收集源文件 / Collect source files
     set(OSGVERSE_BACKEND_SOURCES
         PreCompiled.cpp
         OsgVerseNode.cpp
+        OsgVerseNodeFactory.cpp
         OsgVerseEngine.cpp
         OsgVerseMaterial.cpp
         OsgVerseGeometry.cpp
         OsgVerseViewer.cpp
         OsgVerseGraphicsWindow.cpp
+        OsgVersePickingService.cpp
     )
 
     # 添加到 FreeCADGui 库 / Add to FreeCADGui library

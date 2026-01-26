@@ -26,6 +26,7 @@
 
 #include "ViewProviderDragger.h"
 #include <Inventor/lists/SoPickedPointList.h>
+#include <memory>
 
 class SoPickedPointList;
 class SoPickStyle;
@@ -33,6 +34,14 @@ class SoSwitch;
 class SoSensor;
 class SbVec2s;
 class SoBaseColor;
+
+// 抽象层前向声明 / Abstraction layer forward declarations
+namespace Gui {
+namespace Render {
+    class RenderNode;
+    class RenderMaterial;
+}
+}
 
 namespace Gui
 {
@@ -113,15 +122,51 @@ protected:
     ) override;
     void setCoinAppearance(const App::Material& source);
 
+    /**
+     * @brief 初始化抽象层几何渲染节点
+     * Initialize abstraction layer geometry render nodes
+     */
+    void initRenderNodes() override;
+
+    /**
+     * @brief 同步材质到抽象层节点
+     * Sync material to abstraction layer node
+     */
+    void syncMaterialToRenderNode(const App::Material& mat);
+
+    /**
+     * @brief 同步拾取样式到抽象层节点
+     * Sync pick style to abstraction layer node
+     *
+     * @param selectable true=SHAPE, false=UNPICKABLE
+     */
+    void syncPickStyleToRenderNode(bool selectable);
+
 private:
     bool isSelectionEnabled() const;
 
 protected:
+    //=========================================================================
+    // Coin3D 节点（向后兼容）/ Coin3D nodes (backward compatibility)
+    //=========================================================================
     SoMaterial* pcShapeMaterial {nullptr};
     SoFCBoundingBox* pcBoundingBox {nullptr};
     SoSwitch* pcBoundSwitch {nullptr};
     SoBaseColor* pcBoundColor {nullptr};
     SoPickStyle* pickStyle {nullptr};
+
+    //=========================================================================
+    // 抽象层节点 / Abstraction layer nodes
+    //=========================================================================
+
+    /// 抽象层材质节点 / Abstraction layer material node
+    /// 可通过 dynamic_cast<Render::Coin3DMaterial*> 访问扩展功能
+    /// Can access extended features via dynamic_cast<Render::Coin3DMaterial*>
+    std::shared_ptr<Render::RenderNode> m_renderMaterial;
+    /// 抽象层拾取样式节点 / Abstraction layer pick style node
+    std::shared_ptr<Render::RenderNode> m_renderPickStyle;
+    /// 抽象层边界框节点 / Abstraction layer bounding box node
+    std::shared_ptr<Render::RenderNode> m_renderBoundingBox;
 
     App::Material materialAppearance;
 };

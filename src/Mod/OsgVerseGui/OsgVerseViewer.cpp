@@ -370,30 +370,21 @@ bool OsgVerseViewer::isSelecting() const
 void OsgVerseViewer::addViewProvider(Gui::ViewProvider* vp)
 {
     if (!vp) {
-        Base::Console().warning("OsgVerseViewer::addViewProvider: vp is null\n");
         return;
     }
-    
-    Base::Console().log("OsgVerseViewer::addViewProvider: Adding VP\n");
-    
+
     // Create scene node for this ViewProvider
     osg::ref_ptr<osg::Node> node = createNodeForViewProvider(vp);
-    
+
     if (!node) {
-        Base::Console().log("OsgVerseViewer::addViewProvider: createNodeForViewProvider returned null, using placeholder\n");
+        // Shape may not be computed yet, use placeholder
         node = createPlaceholderSphere();
     }
-    else {
-        Base::Console().log("OsgVerseViewer::addViewProvider: Created node from ViewProvider\n");
-    }
-    
+
     // Store and add to scene
     _vpNodes[vp] = node;
     _sceneRoot->addChild(node.get());
-    
-    Base::Console().log("OsgVerseViewer::addViewProvider: Node added to scene, total children: %d\n", 
-                       _sceneRoot->getNumChildren());
-    
+
     render();
 }
 
@@ -402,13 +393,50 @@ void OsgVerseViewer::removeViewProvider(Gui::ViewProvider* vp)
     if (!vp) {
         return;
     }
-    
+
     auto it = _vpNodes.find(vp);
     if (it != _vpNodes.end()) {
         _sceneRoot->removeChild(it->second.get());
         _vpNodes.erase(it);
         render();
     }
+}
+
+void OsgVerseViewer::updateViewProvider(Gui::ViewProvider* vp)
+{
+    if (!vp) {
+        return;
+    }
+
+    Base::Console().message("OsgVerseViewer::updateViewProvider: Updating VP\n");
+
+    auto it = _vpNodes.find(vp);
+    if (it == _vpNodes.end()) {
+        // ViewProvider not in scene, try to add it now
+        Base::Console().message("OsgVerseViewer::updateViewProvider: VP not in scene, adding now\n");
+        addViewProvider(vp);
+        return;
+    }
+
+    // Remove old node
+    osg::ref_ptr<osg::Node> oldNode = it->second;
+    _sceneRoot->removeChild(oldNode.get());
+
+    // Create new node with updated geometry
+    osg::ref_ptr<osg::Node> newNode = createNodeForViewProvider(vp);
+
+    if (!newNode) {
+        Base::Console().message("OsgVerseViewer::updateViewProvider: Still no geometry, keeping placeholder\n");
+        newNode = createPlaceholderSphere();
+    } else {
+        Base::Console().message("OsgVerseViewer::updateViewProvider: Geometry updated successfully\n");
+    }
+
+    // Update mapping and scene
+    _vpNodes[vp] = newNode;
+    _sceneRoot->addChild(newNode.get());
+
+    render();
 }
 
 bool OsgVerseViewer::hasViewProvider(Gui::ViewProvider* vp) const
@@ -612,37 +640,48 @@ void OsgVerseViewer::resetEditingViewProvider()
 osg::ref_ptr<osg::Node> OsgVerseViewer::createNodeForViewProvider(Gui::ViewProvider* vp)
 {
     if (!vp) {
+        Base::Console().message("createNodeForViewProvider: vp is null\n");
         return nullptr;
     }
-    
+
     // Check if this is a ViewProviderDocumentObject
     auto* vpDoc = dynamic_cast<Gui::ViewProviderDocumentObject*>(vp);
     if (!vpDoc) {
+        Base::Console().message("createNodeForViewProvider: not a ViewProviderDocumentObject\n");
         return nullptr;
     }
-    
+
     App::DocumentObject* obj = vpDoc->getObject();
     if (!obj) {
+        Base::Console().message("createNodeForViewProvider: getObject() returned null\n");
         return nullptr;
     }
-    
+
+    Base::Console().message("createNodeForViewProvider: obj type=%s name=%s\n",
+                           obj->getTypeId().getName(), obj->getNameInDocument());
+
     // Check if this is a Part::Feature
     if (!obj->isDerivedFrom(Part::Feature::getClassTypeId())) {
+        Base::Console().message("createNodeForViewProvider: not a Part::Feature\n");
         return nullptr;
     }
-    
+
     // Extract TopoDS_Shape and convert to OSG geometry
     try {
+        Base::Console().message("createNodeForViewProvider: Getting TopoShape...\n");
         Part::TopoShape topoShape = Part::Feature::getTopoShape(
             obj,
             Part::ShapeOption::ResolveLink | Part::ShapeOption::Transform
         );
-        
+
         const TopoDS_Shape& shape = topoShape.getShape();
-        
+
         if (shape.IsNull()) {
+            Base::Console().message("createNodeForViewProvider: shape is null\n");
             return nullptr;
         }
+
+        Base::Console().message("createNodeForViewProvider: Shape is valid, converting...\n");
         
         // Convert using GeometryConverter
         GeometryConverter::ConversionOptions options;

@@ -28,11 +28,35 @@
 #include <vector>
 #include <unordered_map>
 
+#include <functional>
+
 #include <FCGlobal.h>
 #include "RenderTypes.h"
 
 namespace Gui {
+
+class ViewProvider;
+
 namespace Render {
+
+/**
+ * @brief 选择状态信息 / Selection state information
+ */
+struct SelectionState {
+    bool selected{false};           ///< 是否被选中 / Is selected
+    bool highlighted{false};        ///< 是否高亮（预选中）/ Is highlighted (preselected)
+    bool selectable{true};          ///< 是否可选中 / Is selectable
+    std::string selectedElement;    ///< 选中的子元素名称 / Selected sub-element name
+    std::string highlightedElement; ///< 高亮的子元素名称 / Highlighted sub-element name
+};
+
+/**
+ * @brief 选择颜色配置 / Selection color configuration
+ */
+struct SelectionColors {
+    float highlightColor[4]{0.9f, 0.9f, 0.0f, 1.0f};  ///< 高亮颜色 / Highlight color (yellow)
+    float selectionColor[4]{0.0f, 0.8f, 0.0f, 1.0f};  ///< 选择颜色 / Selection color (green)
+};
 
 /**
  * @brief 渲染节点基类 / Base class for render nodes
@@ -183,6 +207,115 @@ public:
      */
     virtual BoundingBox getBoundingBox() const;
 
+    //-----------------------------------------------------------------------
+    // 选择系统接口 / Selection System Interface
+    //-----------------------------------------------------------------------
+
+    /**
+     * @brief 设置是否可选中 / Set selectable
+     */
+    virtual void setSelectable(bool selectable) { _selectionState.selectable = selectable; }
+
+    /**
+     * @brief 获取是否可选中 / Get selectable
+     */
+    bool isSelectable() const { return _selectionState.selectable; }
+
+    /**
+     * @brief 设置选中状态 / Set selected state
+     * @param selected 是否选中 / Whether selected
+     * @param element 子元素名称（如 "Face1", "Edge2"）/ Sub-element name
+     */
+    virtual void setSelected(bool selected, const std::string& element = "");
+
+    /**
+     * @brief 获取是否选中 / Get selected state
+     */
+    bool isSelected() const { return _selectionState.selected; }
+
+    /**
+     * @brief 获取选中的子元素 / Get selected sub-element
+     */
+    const std::string& getSelectedElement() const { return _selectionState.selectedElement; }
+
+    /**
+     * @brief 设置高亮状态（预选中）/ Set highlighted state (preselection)
+     * @param highlighted 是否高亮 / Whether highlighted
+     * @param element 子元素名称 / Sub-element name
+     */
+    virtual void setHighlighted(bool highlighted, const std::string& element = "");
+
+    /**
+     * @brief 获取是否高亮 / Get highlighted state
+     */
+    bool isHighlighted() const { return _selectionState.highlighted; }
+
+    /**
+     * @brief 获取高亮的子元素 / Get highlighted sub-element
+     */
+    const std::string& getHighlightedElement() const { return _selectionState.highlightedElement; }
+
+    /**
+     * @brief 设置高亮颜色 / Set highlight color
+     */
+    virtual void setHighlightColor(float r, float g, float b, float a = 1.0f);
+
+    /**
+     * @brief 获取高亮颜色 / Get highlight color
+     */
+    void getHighlightColor(float& r, float& g, float& b, float& a) const;
+
+    /**
+     * @brief 设置选择颜色 / Set selection color
+     */
+    virtual void setSelectionColor(float r, float g, float b, float a = 1.0f);
+
+    /**
+     * @brief 获取选择颜色 / Get selection color
+     */
+    void getSelectionColor(float& r, float& g, float& b, float& a) const;
+
+    /**
+     * @brief 获取选择状态 / Get full selection state
+     */
+    const SelectionState& getSelectionState() const { return _selectionState; }
+
+    /**
+     * @brief 获取拾取的子元素 / Get picked element at point
+     * @param x 屏幕 X 坐标 / Screen X coordinate
+     * @param y 屏幕 Y 坐标 / Screen Y coordinate
+     * @param subname 输出子元素名称 / Output sub-element name
+     * @return 是否拾取到元素 / Whether an element was picked
+     */
+    virtual bool getElementAtPoint(int x, int y, std::string& subname) const {
+        (void)x; (void)y; (void)subname;
+        return false;
+    }
+
+    /**
+     * @brief 获取选择形状（用于高亮显示）/ Get selection shape for highlighting
+     * @param element 子元素名称 / Sub-element name
+     * @return 形状顶点列表 / Shape vertex list
+     */
+    virtual std::vector<std::array<float, 3>> getSelectionShape(const std::string& element) const {
+        (void)element;
+        return {};
+    }
+
+    //-----------------------------------------------------------------------
+    // ViewProvider 关联 / ViewProvider Association
+    //-----------------------------------------------------------------------
+
+    /**
+     * @brief 设置关联的 ViewProvider / Set associated ViewProvider
+     */
+    void setViewProvider(ViewProvider* vp) { _viewProvider = vp; }
+
+    /**
+     * @brief 获取关联的 ViewProvider / Get associated ViewProvider
+     */
+    ViewProvider* getViewProvider() const { return _viewProvider; }
+
     /**
      * @brief 克隆节点 / Clone node
      */
@@ -238,6 +371,11 @@ protected:
     bool _touched{false};
     RenderMode _renderMode{RenderMode::Default};
     BackendType _backendType{BackendType::None};
+
+    // Selection state
+    SelectionState _selectionState;
+    SelectionColors _selectionColors;
+    ViewProvider* _viewProvider{nullptr};
 };
 
 /**
@@ -373,6 +511,100 @@ public:
 };
 
 /**
+ * @brief 材质节点 / Material node
+ *
+ * 抽象材质节点，定义材质属性接口。
+ * Abstract material node defining material property interface.
+ */
+class GuiExport RenderMaterial : public RenderNode {
+public:
+    RENDER_NODE_STATIC_TYPE(NodeType::Material)
+
+    RenderMaterial() : RenderNode(NodeType::Material) {}
+    ~RenderMaterial() override = default;
+
+    //-----------------------------------------------------------------------
+    // 环境光颜色 / Ambient Color
+    //-----------------------------------------------------------------------
+
+    /**
+     * @brief 设置环境光颜色 / Set ambient color
+     */
+    virtual void setAmbientColor(float r, float g, float b) = 0;
+
+    /**
+     * @brief 获取环境光颜色 / Get ambient color
+     */
+    virtual void getAmbientColor(float& r, float& g, float& b) const = 0;
+
+    //-----------------------------------------------------------------------
+    // 漫反射颜色 / Diffuse Color
+    //-----------------------------------------------------------------------
+
+    /**
+     * @brief 设置漫反射颜色 / Set diffuse color
+     */
+    virtual void setDiffuseColor(float r, float g, float b) = 0;
+
+    /**
+     * @brief 获取漫反射颜色 / Get diffuse color
+     */
+    virtual void getDiffuseColor(float& r, float& g, float& b) const = 0;
+
+    //-----------------------------------------------------------------------
+    // 镜面反射颜色 / Specular Color
+    //-----------------------------------------------------------------------
+
+    /**
+     * @brief 设置镜面反射颜色 / Set specular color
+     */
+    virtual void setSpecularColor(float r, float g, float b) = 0;
+
+    /**
+     * @brief 获取镜面反射颜色 / Get specular color
+     */
+    virtual void getSpecularColor(float& r, float& g, float& b) const = 0;
+
+    //-----------------------------------------------------------------------
+    // 自发光颜色 / Emissive Color
+    //-----------------------------------------------------------------------
+
+    /**
+     * @brief 设置自发光颜色 / Set emissive color
+     */
+    virtual void setEmissiveColor(float r, float g, float b) = 0;
+
+    /**
+     * @brief 获取自发光颜色 / Get emissive color
+     */
+    virtual void getEmissiveColor(float& r, float& g, float& b) const = 0;
+
+    //-----------------------------------------------------------------------
+    // 光泽度和透明度 / Shininess and Transparency
+    //-----------------------------------------------------------------------
+
+    /**
+     * @brief 设置光泽度 / Set shininess [0-1]
+     */
+    virtual void setShininess(float shininess) = 0;
+
+    /**
+     * @brief 获取光泽度 / Get shininess
+     */
+    virtual float getShininess() const = 0;
+
+    /**
+     * @brief 设置透明度 / Set transparency [0-1]
+     */
+    virtual void setTransparency(float transparency) = 0;
+
+    /**
+     * @brief 获取透明度 / Get transparency
+     */
+    virtual float getTransparency() const = 0;
+};
+
+/**
  * @brief 命名类型别名 / Named type aliases
  *
  * 兼容现有 FreeCAD 代码中的命名习惯
@@ -381,6 +613,7 @@ public:
 using RenderNodePtr = RenderNode::Ptr;
 using RenderGroupPtr = std::shared_ptr<RenderGroup>;
 using RenderSeparatorPtr = std::shared_ptr<RenderSeparator>;
+using RenderMaterialPtr = std::shared_ptr<RenderMaterial>;
 
 /**
  * @brief Concept 检查节点类型 / Concept for node type checking

@@ -25,6 +25,7 @@
 
 #include <bitset>
 #include <map>
+#include <memory>
 #include <string>
 #include <vector>
 #include <QIcon>
@@ -71,6 +72,10 @@ class SoGroup;
 namespace Gui {
 namespace Render {
     class RenderNode;
+    class RenderGroup;
+    class RenderSeparator;
+    class RenderNodeFactory;
+    enum class BackendType : uint8_t;
 }
 }
 
@@ -160,10 +165,41 @@ public:
     }
 
     // returns the abstract render root node (for rendering abstraction layer)
-    // 默认返回包装的 Coin3D 节点
-    // returns the abstract render root node (for rendering abstraction layer)
-    // By default returns wrapped Coin3D node
+    // 返回抽象层根节点，用于后端无关的渲染
+    // Returns the abstraction layer root node for backend-agnostic rendering
     virtual Render::RenderNode* getRenderRoot() const;
+
+    /**
+     * @brief 获取抽象层根节点（智能指针版本）
+     * Get abstraction layer root node (smart pointer version)
+     * 返回 RenderNode，可 dynamic_cast 到 RenderSeparator 或具体后端类型
+     * Returns RenderNode, use dynamic_cast for RenderSeparator or backend-specific types
+     */
+    std::shared_ptr<Render::RenderNode> getRenderRootPtr() const;
+
+    /**
+     * @brief 获取抽象层模式切换节点
+     * Get abstraction layer mode switch node
+     */
+    std::shared_ptr<Render::RenderNode> getRenderModeSwitch() const;
+
+    /**
+     * @brief 获取抽象层变换节点
+     * Get abstraction layer transform node
+     */
+    std::shared_ptr<Render::RenderNode> getRenderTransform() const;
+
+    /**
+     * @brief 获取当前使用的后端类型
+     * Get the currently used backend type
+     */
+    virtual Render::BackendType getBackendType() const;
+
+    /**
+     * @brief 获取节点工厂
+     * Get node factory for creating backend-specific nodes
+     */
+    Render::RenderNodeFactory* getNodeFactory() const;
 
     // return the mode switch node of the Provider (3D)
     SoSwitch* getModeSwitch() const
@@ -182,6 +218,42 @@ public:
     virtual SoGroup* getChildRoot() const;
     // returns the root node of the Provider (3D)
     virtual SoSeparator* getBackRoot() const;
+
+    /**
+     * @brief 获取前景层根节点（抽象层）
+     * Get front root node (abstraction layer)
+     *
+     * 用于前景层渲染，如标注、选择高亮等
+     * For front layer rendering, such as annotations, selection highlights
+     *
+     * 注意：返回 RenderNode 以避免继承问题，可通过 dynamic_cast 转换
+     * Note: Returns RenderNode to avoid inheritance issues, use dynamic_cast
+     */
+    virtual std::shared_ptr<Render::RenderNode> getRenderFrontRoot() const;
+
+    /**
+     * @brief 获取子对象根节点（抽象层）
+     * Get child root node (abstraction layer)
+     *
+     * 用于收集子对象的渲染节点
+     * For collecting child objects' render nodes
+     *
+     * 注意：返回 RenderNode 以避免继承问题，可通过 dynamic_cast 转换
+     * Note: Returns RenderNode to avoid inheritance issues, use dynamic_cast
+     */
+    virtual std::shared_ptr<Render::RenderNode> getRenderChildRoot() const;
+
+    /**
+     * @brief 获取背景层根节点（抽象层）
+     * Get back root node (abstraction layer)
+     *
+     * 用于背景层渲染
+     * For back layer rendering
+     *
+     * 注意：返回 RenderNode 以避免继承问题，可通过 dynamic_cast 转换
+     * Note: Returns RenderNode to avoid inheritance issues, use dynamic_cast
+     */
+    virtual std::shared_ptr<Render::RenderNode> getRenderBackRoot() const;
     /// Indicate whether to be added to scene graph or not
     virtual bool canAddToSceneGraph() const
     {
@@ -661,12 +733,30 @@ public:
      * values are displayed by one display mask mode that handles color values.
      */
     //@{
-    /// Adds a new display mask mode
+    /// Adds a new display mask mode (Coin3D node)
+    /// @deprecated Use addDisplayMaskMode(RenderNode::Ptr, const char*) for new code
     void addDisplayMaskMode(SoNode* node, const char* type);
+
+    /**
+     * @brief 添加显示模式（抽象层节点）
+     * Add display mask mode (abstraction layer node)
+     *
+     * @param node 抽象层节点 / Abstraction layer node
+     * @param type 模式名称 / Mode name
+     */
+    void addDisplayMaskMode(std::shared_ptr<Render::RenderNode> node, const char* type);
+
     /// Activates the display mask mode \a type
     void setDisplayMaskMode(const char* type);
-    /// Get the node to the display mask mode \a type
+    /// Get the node to the display mask mode \a type (Coin3D)
     SoNode* getDisplayMaskMode(const char* type) const;
+
+    /**
+     * @brief 获取显示模式节点（抽象层）
+     * Get display mask mode node (abstraction layer)
+     */
+    std::shared_ptr<Render::RenderNode> getRenderDisplayMaskMode(const char* type) const;
+
     /// Returns a list of added display mask modes
     std::vector<std::string> getDisplayMaskModes() const;
     void setDefaultMode(int);
@@ -712,16 +802,60 @@ protected:
         toggleVisibilityMode = mode;
     }
 
+    /**
+     * @brief 初始化抽象层渲染节点
+     * Initialize abstraction layer render nodes
+     *
+     * 通过工厂创建后端无关的节点结构。
+     * Creates backend-agnostic node structure through factory.
+     */
+    virtual void initRenderNodes();
+
+    /**
+     * @brief 同步模式切换到抽象层节点
+     * Sync mode switch to abstraction layer node
+     *
+     * @param modeIndex 模式索引，-1 表示隐藏 / Mode index, -1 means hidden
+     */
+    void syncModeSwitchToRenderNode(int modeIndex);
+
 protected:
-    /// The root Separator of the ViewProvider
+    //=========================================================================
+    // Coin3D 节点（向后兼容，过渡期保留）
+    // Coin3D nodes (for backward compatibility, kept during transition)
+    //=========================================================================
+
+    /// The root Separator of the ViewProvider (Coin3D)
+    /// @deprecated Use m_renderRoot instead for new code
     SoSeparator* pcRoot;
-    /// this is transformation for the provider
+    /// this is transformation for the provider (Coin3D)
+    /// @deprecated Use m_renderTransform instead for new code
     SoTransform* pcTransform;
     const char* sPixmap;
-    /// this is the mode switch, all the different viewing modes are collected here
+    /// this is the mode switch, all the different viewing modes are collected here (Coin3D)
+    /// @deprecated Use m_renderModeSwitch instead for new code
     SoSwitch* pcModeSwitch;
-    /// The root separator for annotations
+    /// The root separator for annotations (Coin3D)
     SoSeparator* pcAnnotation {nullptr};
+
+    //=========================================================================
+    // 抽象层节点（方案B：后端完全平等）
+    // Abstraction layer nodes (Plan B: backends are fully equal)
+    //=========================================================================
+
+    /// 抽象层根节点 / Abstraction layer root node
+    /// 实际类型取决于后端，可 dynamic_cast 为 RenderGroup/RenderSeparator
+    /// Actual type depends on backend, can dynamic_cast to RenderGroup/RenderSeparator
+    std::shared_ptr<Render::RenderNode> m_renderRoot;
+    /// 抽象层变换节点 / Abstraction layer transform node
+    std::shared_ptr<Render::RenderNode> m_renderTransform;
+    /// 抽象层模式切换节点 / Abstraction layer mode switch node
+    std::shared_ptr<Render::RenderNode> m_renderModeSwitch;
+
+    //=========================================================================
+    // 其他成员 / Other members
+    //=========================================================================
+
     ViewProviderPy* pyViewObject {nullptr};
     std::string overrideMode;
     std::bitset<32> StatusBits;
@@ -736,6 +870,9 @@ private:
     int viewOverrideMode {-1};
     std::string _sCurrentMode;
     std::map<std::string, int> _sDisplayMaskModes;
+
+    /// 抽象层显示模式节点映射 / Abstraction layer display mode nodes
+    std::map<std::string, std::shared_ptr<Render::RenderNode>> m_renderDisplayMaskModes;
 };
 
 }  // namespace Gui

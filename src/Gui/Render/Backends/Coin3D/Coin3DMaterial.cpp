@@ -61,6 +61,90 @@ SoMaterial* Coin3DMaterial::getSoMaterial() const
 }
 
 //---------------------------------------------------------------------------
+// RenderMaterial 接口实现 / RenderMaterial Interface Implementation
+//---------------------------------------------------------------------------
+
+void Coin3DMaterial::setAmbientColor(float r, float g, float b)
+{
+    if (auto* mat = getSoMaterial()) {
+        mat->ambientColor.setValue(r, g, b);
+        touch();
+    }
+}
+
+void Coin3DMaterial::getAmbientColor(float& r, float& g, float& b) const
+{
+    if (auto* mat = getSoMaterial()) {
+        const SbColor& c = mat->ambientColor[0];
+        r = c[0];
+        g = c[1];
+        b = c[2];
+    } else {
+        r = g = b = 0.2f;
+    }
+}
+
+void Coin3DMaterial::setDiffuseColor(float r, float g, float b)
+{
+    if (auto* mat = getSoMaterial()) {
+        mat->diffuseColor.setValue(r, g, b);
+        touch();
+    }
+}
+
+void Coin3DMaterial::getDiffuseColor(float& r, float& g, float& b) const
+{
+    if (auto* mat = getSoMaterial()) {
+        const SbColor& c = mat->diffuseColor[0];
+        r = c[0];
+        g = c[1];
+        b = c[2];
+    } else {
+        r = g = b = 0.8f;
+    }
+}
+
+void Coin3DMaterial::setSpecularColor(float r, float g, float b)
+{
+    if (auto* mat = getSoMaterial()) {
+        mat->specularColor.setValue(r, g, b);
+        touch();
+    }
+}
+
+void Coin3DMaterial::getSpecularColor(float& r, float& g, float& b) const
+{
+    if (auto* mat = getSoMaterial()) {
+        const SbColor& c = mat->specularColor[0];
+        r = c[0];
+        g = c[1];
+        b = c[2];
+    } else {
+        r = g = b = 0.0f;
+    }
+}
+
+void Coin3DMaterial::setEmissiveColor(float r, float g, float b)
+{
+    if (auto* mat = getSoMaterial()) {
+        mat->emissiveColor.setValue(r, g, b);
+        touch();
+    }
+}
+
+void Coin3DMaterial::getEmissiveColor(float& r, float& g, float& b) const
+{
+    if (auto* mat = getSoMaterial()) {
+        const SbColor& c = mat->emissiveColor[0];
+        r = c[0];
+        g = c[1];
+        b = c[2];
+    } else {
+        r = g = b = 0.0f;
+    }
+}
+
+//---------------------------------------------------------------------------
 // 环境光属性 / Ambient Properties
 //---------------------------------------------------------------------------
 
