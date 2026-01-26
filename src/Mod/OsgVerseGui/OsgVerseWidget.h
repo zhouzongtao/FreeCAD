@@ -37,7 +37,28 @@ public:
      * @return Pointer to the OSG viewer
      */
     osgViewer::Viewer* getViewer() const { return _viewer.get(); }
-    
+
+    /**
+     * @brief Navigation style enumeration
+     */
+    enum class NavigationStyle {
+        Trackball,      // Default OSG trackball (similar to Blender)
+        CAD,            // CAD-style: middle=rotate, shift+middle=pan
+        Touchpad,       // Touchpad-friendly navigation
+        Terrain         // Terrain/walkthrough style
+    };
+
+    /**
+     * @brief Set the navigation style
+     * @param style The navigation style to use
+     */
+    void setNavigationStyle(NavigationStyle style);
+
+    /**
+     * @brief Get the current navigation style
+     */
+    NavigationStyle getNavigationStyle() const { return _currentNavStyle; }
+
 protected:
     // Qt OpenGL lifecycle
     void initializeGL() override;
@@ -63,6 +84,7 @@ private:
     
     osg::ref_ptr<osgViewer::Viewer> _viewer;
     osg::ref_ptr<osgViewer::GraphicsWindowEmbedded> _graphicsWindow;
+    NavigationStyle _currentNavStyle = NavigationStyle::Trackball;
 };
 
 } // namespace OsgVerseGui

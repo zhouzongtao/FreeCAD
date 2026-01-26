@@ -7,6 +7,8 @@
 #include <Gui/View3D/IViewer3D.h>
 #include <osg/ref_ptr>
 #include <osg/Group>
+#include <osg/Node>
+#include <osg/LightSource>
 #include <map>
 
 // Forward declarations
@@ -21,6 +23,17 @@ namespace OsgVerseGui {
 }
 
 namespace OsgVerseGui {
+
+/**
+ * @brief UserData class to store ViewProvider reference in OSG nodes
+ *
+ * This allows efficient lookup of ViewProvider from picked nodes
+ */
+class ViewProviderUserData : public osg::Referenced {
+public:
+    ViewProviderUserData(Gui::ViewProvider* vp) : viewProvider(vp) {}
+    Gui::ViewProvider* viewProvider;
+};
 
 /**
  * @brief OsgVerse implementation of Gui::View3D::IViewer3D
@@ -144,11 +157,19 @@ private:
      */
     void applyMaterial(osg::Node* node, const Base::Color& color);
 
+    /**
+     * @brief Find ViewProvider from OSG node path
+     *
+     * Traverses the node path from leaf to root looking for ViewProviderUserData
+     */
+    Gui::ViewProvider* findViewProviderFromNodePath(const osg::NodePath& nodePath);
+
 private:
     OsgVerseWidget* _widget;                              ///< Qt OpenGL widget
     osg::ref_ptr<osg::Group> _sceneRoot;                  ///< Scene root node
+    osg::ref_ptr<osg::LightSource> _backlightSource;      ///< Backlight source
     std::map<Gui::ViewProvider*, osg::ref_ptr<osg::Node>> _vpNodes; ///< ViewProvider to node mapping
-    
+
     // State
     std::string _navigationStyle;                         ///< Current navigation style
     Gui::View3D::SelectionMode _selectionMode;            ///< Current selection mode

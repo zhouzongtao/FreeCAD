@@ -10,6 +10,8 @@
 #include <osgViewer/GraphicsWindow>
 #include <osg/Camera>
 #include <osgGA/TrackballManipulator>
+#include <osgGA/OrbitManipulator>
+#include <osgGA/TerrainManipulator>
 #include <osgGA/GUIEventAdapter>
 
 // Qt includes
@@ -353,4 +355,74 @@ void OsgVerseWidget::focusInEvent(QFocusEvent* event)
 void OsgVerseWidget::focusOutEvent(QFocusEvent* event)
 {
     QOpenGLWidget::focusOutEvent(event);
+}
+
+//===========================================================================
+// Navigation style (Phase 5)
+//===========================================================================
+
+void OsgVerseWidget::setNavigationStyle(NavigationStyle style)
+{
+    if (!_viewer.valid()) {
+        return;
+    }
+
+    _currentNavStyle = style;
+
+    osg::ref_ptr<osgGA::CameraManipulator> manipulator;
+
+    switch (style) {
+        case NavigationStyle::CAD: {
+            // OrbitManipulator is closer to CAD navigation
+            // Middle button rotates around the center, scroll zooms
+            osg::ref_ptr<osgGA::OrbitManipulator> orbit = new osgGA::OrbitManipulator();
+            orbit->setAllowThrow(false);
+            orbit->setVerticalAxisFixed(true);
+            manipulator = orbit;
+            break;
+        }
+
+        case NavigationStyle::Terrain: {
+            // TerrainManipulator for walkthrough/terrain navigation
+            osg::ref_ptr<osgGA::TerrainManipulator> terrain = new osgGA::TerrainManipulator();
+            terrain->setAllowThrow(false);
+            manipulator = terrain;
+            break;
+        }
+
+        case NavigationStyle::Touchpad: {
+            // Use TrackballManipulator with adjusted settings for touchpad
+            osg::ref_ptr<osgGA::TrackballManipulator> trackball = new osgGA::TrackballManipulator();
+            trackball->setAllowThrow(false);
+            trackball->setVerticalAxisFixed(true);
+            // Trackball works well with touchpad gestures
+            manipulator = trackball;
+            break;
+        }
+
+        case NavigationStyle::Trackball:
+        default: {
+            // Default trackball - good for general 3D navigation
+            osg::ref_ptr<osgGA::TrackballManipulator> trackball = new osgGA::TrackballManipulator();
+            trackball->setAllowThrow(false);
+            trackball->setVerticalAxisFixed(true);
+            manipulator = trackball;
+            break;
+        }
+    }
+
+    // Preserve current camera position
+    osg::Vec3d eye, center, up;
+    osgGA::CameraManipulator* currentManip = _viewer->getCameraManipulator();
+    if (currentManip) {
+        currentManip->getHomePosition(eye, center, up);
+        manipulator->setHomePosition(eye, center, up);
+    }
+
+    _viewer->setCameraManipulator(manipulator.get());
+
+    // Go to home position
+    _viewer->home();
+
+    update();
 }

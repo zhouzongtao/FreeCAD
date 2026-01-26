@@ -416,15 +416,70 @@ std::vector<ViewProvider*> CoinViewer::getViewProviders() const
 
 void CoinViewer::setRenderMode(RenderMode mode)
 {
-    // View3DInventorViewer 有自己的渲染模式设置
-    // 这里需要映射到 Coin3D 的渲染模式
-    // TODO: 实现渲染模式映射
+    if (!_coinViewer) {
+        return;
+    }
+
+    // Map IViewer3D RenderMode to View3DInventorViewer override mode strings
+    std::string overrideMode;
+    switch (mode) {
+        case RenderMode::Wireframe:
+            overrideMode = "Wireframe";
+            break;
+        case RenderMode::Points:
+            overrideMode = "Point";
+            break;
+        case RenderMode::HiddenLine:
+            overrideMode = "Hidden Line";
+            break;
+        case RenderMode::NoShading:
+            overrideMode = "No Shading";
+            break;
+        case RenderMode::Shaded:
+            overrideMode = "Shaded";
+            break;
+        case RenderMode::FlatLines:
+            overrideMode = "Flat Lines";
+            break;
+        case RenderMode::AsIs:
+        default:
+            overrideMode = "As Is";
+            break;
+    }
+
+    _coinViewer->setOverrideMode(overrideMode);
 }
 
 RenderMode CoinViewer::getRenderMode() const
 {
-    // TODO: 从 View3DInventorViewer 获取渲染模式
-    return RenderMode::Shaded;
+    if (!_coinViewer) {
+        return RenderMode::Shaded;
+    }
+
+    // Map View3DInventorViewer override mode string to IViewer3D RenderMode
+    std::string mode = _coinViewer->getOverrideMode();
+
+    if (mode == "Wireframe") {
+        return RenderMode::Wireframe;
+    }
+    else if (mode == "Point") {
+        return RenderMode::Points;
+    }
+    else if (mode == "Hidden Line") {
+        return RenderMode::HiddenLine;
+    }
+    else if (mode == "No Shading") {
+        return RenderMode::NoShading;
+    }
+    else if (mode == "Shaded") {
+        return RenderMode::Shaded;
+    }
+    else if (mode == "Flat Lines") {
+        return RenderMode::FlatLines;
+    }
+    else {
+        return RenderMode::AsIs;
+    }
 }
 
 void CoinViewer::setBackgroundColor(const Base::Color& color)
@@ -465,10 +520,56 @@ bool CoinViewer::isBacklightEnabled() const
 
 void CoinViewer::setNavigationStyle(const std::string& style)
 {
-    if (_coinViewer) {
-        // View3DInventorViewer 使用 Base::Type 设置导航样式
-        // 需要根据字符串查找对应的类型
-        // TODO: 实现导航样式映射
+    if (!_coinViewer) {
+        return;
+    }
+
+    // Map style string to full type name if needed
+    std::string typeName = style;
+
+    // Handle both short names and full names
+    if (style.find("Gui::") == std::string::npos) {
+        // Short name provided, convert to full name
+        if (style == "CAD" || style == "CADNavigationStyle") {
+            typeName = "Gui::CADNavigationStyle";
+        }
+        else if (style == "Blender" || style == "BlenderNavigationStyle") {
+            typeName = "Gui::BlenderNavigationStyle";
+        }
+        else if (style == "Touchpad" || style == "TouchpadNavigationStyle") {
+            typeName = "Gui::TouchpadNavigationStyle";
+        }
+        else if (style == "Gesture" || style == "GestureNavigationStyle") {
+            typeName = "Gui::GestureNavigationStyle";
+        }
+        else if (style == "OpenInventor" || style == "InventorNavigationStyle") {
+            typeName = "Gui::InventorNavigationStyle";
+        }
+        else if (style == "Maya" || style == "MayaGestureNavigationStyle") {
+            typeName = "Gui::MayaGestureNavigationStyle";
+        }
+        else if (style == "OpenCascade" || style == "OpenCascadeNavigationStyle") {
+            typeName = "Gui::OpenCascadeNavigationStyle";
+        }
+        else if (style == "OpenSCAD" || style == "OpenSCADNavigationStyle") {
+            typeName = "Gui::OpenSCADNavigationStyle";
+        }
+        else if (style == "Revit" || style == "RevitNavigationStyle") {
+            typeName = "Gui::RevitNavigationStyle";
+        }
+        else if (style == "TinkerCAD" || style == "TinkerCADNavigationStyle") {
+            typeName = "Gui::TinkerCADNavigationStyle";
+        }
+        else if (style == "Trackball") {
+            // Trackball maps to Blender style in FreeCAD
+            typeName = "Gui::BlenderNavigationStyle";
+        }
+    }
+
+    // Find and set the navigation type
+    Base::Type navType = Base::Type::fromName(typeName.c_str());
+    if (!navType.isBad()) {
+        _coinViewer->setNavigationType(navType);
     }
 }
 
@@ -514,19 +615,31 @@ std::string CoinViewer::getBackendVersion() const
 Render::RenderStats CoinViewer::getStats() const
 {
     Render::RenderStats stats;
-    // TODO: 从 View3DInventorViewer 收集统计信息
     stats.frameCount = 0;
     stats.drawCalls = 0;
     stats.triangleCount = 0;
     stats.vertexCount = 0;
     stats.frameTime = 0.0;
     stats.fps = 0.0;
+
+    if (!_coinViewer) {
+        return stats;
+    }
+
+    // Count ViewProviders as a proxy for draw calls
+    auto vpSet = _coinViewer->getViewProvidersOfType(ViewProvider::getClassTypeId());
+    stats.drawCalls = static_cast<int>(vpSet.size());
+
+    // Note: Detailed frame timing stats would require modifications to View3DInventorViewer
+    // to expose the internal framesPerSecond array. For now, we return basic stats.
+
     return stats;
 }
 
 void CoinViewer::resetStats()
 {
-    // TODO: 重置统计信息
+    // Coin3D manages stats internally per-frame
+    // This is a placeholder for any custom stat tracking reset
 }
 
 void CoinViewer::setFPSEnabled(bool enabled)
@@ -538,7 +651,8 @@ void CoinViewer::setFPSEnabled(bool enabled)
 
 bool CoinViewer::isFPSEnabled() const
 {
-    // TODO: 从 View3DInventorViewer 获取 FPS 显示状态
+    // Note: View3DInventorViewer doesn't expose a getter for fpsEnabled
+    // Return false as default; enabling FPS counter still works via setFPSEnabled
     return false;
 }
 
