@@ -11,3 +11,23 @@ import OsgVerseGui
 
 # Module is now initialized and backend should be registered
 print("OsgVerseGui: Python Init.py executed")
+
+
+def runTests():
+    """Run all OsgVerseGui unit tests"""
+    import unittest
+
+    # Import test modules
+    from OsgVerseGui import TestRenderAbstractionLayer
+    from OsgVerseGui import TestOsgVerseBackend
+
+    # Create combined test suite
+    suite = unittest.TestSuite()
+    suite.addTests(TestRenderAbstractionLayer.suite())
+    suite.addTests(TestOsgVerseBackend.suite())
+
+    # Run tests
+    runner = unittest.TextTestRunner(verbosity=2)
+    result = runner.run(suite)
+
+    return result.wasSuccessful()

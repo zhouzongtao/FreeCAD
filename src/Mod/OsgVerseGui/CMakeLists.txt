@@ -75,6 +75,15 @@ INSTALL(TARGETS OsgVerseGui DESTINATION ${CMAKE_INSTALL_LIBDIR})
 # Install Python initialization file
 INSTALL(FILES Init.py DESTINATION Mod/OsgVerseGui)
 
+# Install Python test files
+INSTALL(FILES
+    TestRenderAbstractionLayer.py
+    TestOsgVerseBackend.py
+    TestHeadless.py
+    run_tests.py
+    DESTINATION Mod/OsgVerseGui
+)
+
 message(STATUS "OsgVerseGui: Module configured")
 message(STATUS "OsgVerseGui: OSG includes = ${OPENSCENEGRAPH_INCLUDE_DIRS}")
 message(STATUS "OsgVerseGui: OSG libs = ${OPENSCENEGRAPH_LIBRARIES}")
