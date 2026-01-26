@@ -28,7 +28,7 @@ target_include_directories(OsgVerseGui
 )
 
 # Add OSG include directories - CRITICAL: Must be before PCH
-find_package(OpenSceneGraph REQUIRED COMPONENTS osgDB osgUtil osgViewer osgGA)
+find_package(OpenSceneGraph REQUIRED COMPONENTS osgDB osgUtil osgViewer osgGA osgShadow)
 target_include_directories(OsgVerseGui SYSTEM PUBLIC
     ${OPENSCENEGRAPH_INCLUDE_DIRS}
 )

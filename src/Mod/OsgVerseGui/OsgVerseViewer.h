@@ -9,7 +9,12 @@
 #include <osg/Group>
 #include <osg/Node>
 #include <osg/LightSource>
+#include <osg/Camera>
+#include <osg/Geometry>
+#include <osg/Geode>
+#include <osgShadow/ShadowedScene>
 #include <map>
+#include <vector>
 
 // Forward declarations
 namespace osgViewer {
@@ -141,6 +146,50 @@ public:
     bool isEditingViewProvider() const override;
     void resetEditingViewProvider() override;
 
+    //-----------------------------------------------------------------------
+    // 阴影渲染 (Shadow Rendering)
+    //-----------------------------------------------------------------------
+
+    /**
+     * @brief Shadow quality level
+     */
+    enum class ShadowQuality {
+        Low,        ///< 512x512 shadow map
+        Medium,     ///< 1024x1024 shadow map
+        High,       ///< 2048x2048 shadow map
+        Ultra       ///< 4096x4096 shadow map
+    };
+
+    /**
+     * @brief Enable or disable shadow rendering
+     */
+    void setShadowEnabled(bool enabled);
+
+    /**
+     * @brief Check if shadow rendering is enabled
+     */
+    bool isShadowEnabled() const;
+
+    /**
+     * @brief Set shadow quality level
+     */
+    void setShadowQuality(ShadowQuality quality);
+
+    /**
+     * @brief Get current shadow quality level
+     */
+    ShadowQuality getShadowQuality() const;
+
+    /**
+     * @brief Enable soft shadows (more realistic but slower)
+     */
+    void setSoftShadowEnabled(bool enabled);
+
+    /**
+     * @brief Check if soft shadows are enabled
+     */
+    bool isSoftShadowEnabled() const;
+
 private:
     /**
      * @brief Create a scene node for a ViewProvider
@@ -158,11 +207,61 @@ private:
     void applyMaterial(osg::Node* node, const Base::Color& color);
 
     /**
+     * @brief Apply material with transparency to a node
+     *
+     * @param node The node to apply material to
+     * @param color The material color
+     * @param transparency Transparency value (0.0 = fully transparent, 1.0 = fully opaque)
+     */
+    void applyMaterialWithTransparency(osg::Node* node, const Base::Color& color, float transparency);
+
+    /**
+     * @brief Get shadow map size for quality level
+     */
+    int getShadowMapSize(ShadowQuality quality) const;
+
+    /**
      * @brief Find ViewProvider from OSG node path
      *
      * Traverses the node path from leaf to root looking for ViewProviderUserData
      */
     Gui::ViewProvider* findViewProviderFromNodePath(const osg::NodePath& nodePath);
+
+    /**
+     * @brief Create the HUD camera for selection overlays
+     */
+    void createSelectionHUD();
+
+    /**
+     * @brief Update the selection rectangle visualization
+     */
+    void updateSelectionRectangle(int x1, int y1, int x2, int y2);
+
+    /**
+     * @brief Update the selection lasso visualization
+     */
+    void updateSelectionLasso(const std::vector<QPoint>& points);
+
+    /**
+     * @brief Clear the selection visualization
+     */
+    void clearSelectionVisualization();
+
+public:
+    /**
+     * @brief Set the selection start point (called by widget on mouse press)
+     */
+    void setSelectionStart(const QPoint& pos);
+
+    /**
+     * @brief Update the selection end point (called by widget on mouse move)
+     */
+    void updateSelectionEnd(const QPoint& pos);
+
+    /**
+     * @brief Finish the selection (called by widget on mouse release)
+     */
+    void finishSelection();
 
 private:
     OsgVerseWidget* _widget;                              ///< Qt OpenGL widget
@@ -181,6 +280,20 @@ private:
     bool _orthographic;                                   ///< Orthographic camera
     Gui::ViewProvider* _editingVP;                        ///< Currently editing ViewProvider
     int _editingMode;                                     ///< Editing mode
+
+    // Shadow rendering
+    osg::ref_ptr<osgShadow::ShadowedScene> _shadowedScene;  ///< Shadowed scene container
+    bool _shadowEnabled;                                  ///< Shadow enabled flag
+    ShadowQuality _shadowQuality;                         ///< Shadow quality level
+    bool _softShadowEnabled;                              ///< Soft shadow flag
+
+    // Selection visualization
+    osg::ref_ptr<osg::Camera> _hudCamera;                 ///< HUD camera for selection overlays
+    osg::ref_ptr<osg::Geode> _selectionGeode;             ///< Geode for selection geometry
+    osg::ref_ptr<osg::Geometry> _selectionGeometry;       ///< Selection shape geometry
+    QPoint _selectionStart;                               ///< Selection start point
+    QPoint _selectionCurrent;                             ///< Current selection point
+    std::vector<QPoint> _lassoPoints;                     ///< Lasso selection points
 };
 
 } // namespace OsgVerseGui

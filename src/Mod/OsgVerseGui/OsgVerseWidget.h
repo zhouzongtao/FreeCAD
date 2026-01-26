@@ -15,6 +15,9 @@ namespace osgViewer {
 
 namespace OsgVerseGui {
 
+// Forward declaration
+class OsgVerseViewer;
+
 /**
  * @brief Qt OpenGL widget that embeds an OSG viewer
  * 
@@ -59,6 +62,19 @@ public:
      */
     NavigationStyle getNavigationStyle() const { return _currentNavStyle; }
 
+    /**
+     * @brief Set the OsgVerseViewer that owns this widget
+     *
+     * This allows the widget to call selection methods on the viewer
+     * when the user performs selection gestures.
+     */
+    void setViewer(OsgVerseViewer* viewer) { _osgVerseViewer = viewer; }
+
+    /**
+     * @brief Get the OsgVerseViewer that owns this widget
+     */
+    OsgVerseViewer* getOsgVerseViewer() const { return _osgVerseViewer; }
+
 protected:
     // Qt OpenGL lifecycle
     void initializeGL() override;
@@ -85,6 +101,7 @@ private:
     osg::ref_ptr<osgViewer::Viewer> _viewer;
     osg::ref_ptr<osgViewer::GraphicsWindowEmbedded> _graphicsWindow;
     NavigationStyle _currentNavStyle = NavigationStyle::Trackball;
+    OsgVerseViewer* _osgVerseViewer = nullptr;  ///< Back-reference to viewer for selection
 };
 
 } // namespace OsgVerseGui

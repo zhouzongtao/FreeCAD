@@ -3,6 +3,7 @@
 #include "PreCompiled.h"
 
 #include "OsgVerseWidget.h"
+#include "OsgVerseViewer.h"
 #include <Base/Console.h>
 
 // OSG includes
@@ -235,38 +236,63 @@ unsigned int OsgVerseWidget::getButtonMask()
 
 void OsgVerseWidget::mousePressEvent(QMouseEvent* event)
 {
+    // Check if we're in selection mode
+    if (_osgVerseViewer && _osgVerseViewer->isSelecting() && event->button() == Qt::LeftButton) {
+        // Start selection
+        _osgVerseViewer->setSelectionStart(event->pos());
+        event->accept();
+        return;
+    }
+
     if (_graphicsWindow.valid()) {
         int button = qtButtonToOsg(event->button());
         _graphicsWindow->getEventQueue()->mouseButtonPress(
             event->x(), event->y(), button
         );
     }
-    
+
     // Trigger repaint
     update();
 }
 
 void OsgVerseWidget::mouseMoveEvent(QMouseEvent* event)
 {
+    // Check if we're in selection mode and left button is pressed
+    if (_osgVerseViewer && _osgVerseViewer->isSelecting() && (event->buttons() & Qt::LeftButton)) {
+        // Update selection
+        _osgVerseViewer->updateSelectionEnd(event->pos());
+        event->accept();
+        return;
+    }
+
     if (_graphicsWindow.valid()) {
         _graphicsWindow->getEventQueue()->mouseMotion(
             event->x(), event->y()
         );
     }
-    
+
     // Trigger repaint
     update();
 }
 
 void OsgVerseWidget::mouseReleaseEvent(QMouseEvent* event)
 {
+    // Check if we're in selection mode
+    if (_osgVerseViewer && _osgVerseViewer->isSelecting() && event->button() == Qt::LeftButton) {
+        // Finish selection
+        _osgVerseViewer->finishSelection();
+        event->accept();
+        update();
+        return;
+    }
+
     if (_graphicsWindow.valid()) {
         int button = qtButtonToOsg(event->button());
         _graphicsWindow->getEventQueue()->mouseButtonRelease(
             event->x(), event->y(), button
         );
     }
-    
+
     // Trigger repaint
     update();
 }

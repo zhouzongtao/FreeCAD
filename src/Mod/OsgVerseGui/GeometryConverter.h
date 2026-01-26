@@ -50,6 +50,16 @@ namespace OsgVerseGui {
 class OsgVerseGuiExport GeometryConverter {
 public:
     /**
+     * @brief 质量预设
+     */
+    enum class QualityLevel {
+        Draft,      ///< 低精度，快速预览
+        Normal,     ///< 标准精度，日常使用
+        Fine,       ///< 高精度，最终渲染
+        Custom      ///< 自定义参数
+    };
+
+    /**
      * @brief 转换选项
      */
     struct OsgVerseGuiExport ConversionOptions {
@@ -57,8 +67,49 @@ public:
         double angle = 0.5;             ///< 角度偏差（弧度）
         bool computeNormals = true;     ///< 是否计算法线
         bool relative = false;          ///< 是否使用相对精度
-        
+        bool perVertexNormals = true;   ///< 使用每顶点法线（更精确的曲面法线）
+        bool smoothNormals = false;     ///< 平滑法线（共享顶点使用平均法线）
+        double smoothAngle = 45.0;      ///< 平滑角度阈值（度），超过此角度不平滑
+        QualityLevel quality = QualityLevel::Normal; ///< 质量预设
+
         ConversionOptions() = default;
+
+        /**
+         * @brief 创建低精度选项（快速预览）
+         */
+        static ConversionOptions Draft() {
+            ConversionOptions opt;
+            opt.quality = QualityLevel::Draft;
+            opt.deflection = 0.5;
+            opt.angle = 1.0;
+            opt.perVertexNormals = false;
+            return opt;
+        }
+
+        /**
+         * @brief 创建标准精度选项
+         */
+        static ConversionOptions Normal() {
+            ConversionOptions opt;
+            opt.quality = QualityLevel::Normal;
+            opt.deflection = 0.1;
+            opt.angle = 0.5;
+            opt.perVertexNormals = true;
+            return opt;
+        }
+
+        /**
+         * @brief 创建高精度选项
+         */
+        static ConversionOptions Fine() {
+            ConversionOptions opt;
+            opt.quality = QualityLevel::Fine;
+            opt.deflection = 0.01;
+            opt.angle = 0.1;
+            opt.perVertexNormals = true;
+            opt.smoothNormals = true;
+            return opt;
+        }
     };
     
     /**
@@ -128,9 +179,9 @@ private:
     
     /**
      * @brief 从三角剖分的形状中提取几何数据
-     * 
+     *
      * 遍历所有 Face，提取顶点、法线和索引数据。
-     * 
+     *
      * @param shape 已剖分的形状
      * @param vertices 输出：顶点数组
      * @param normals 输出：法线数组
@@ -145,10 +196,22 @@ private:
         std::vector<unsigned int>& indices,
         int& faceCount
     );
-    
+
+    /**
+     * @brief 从三角剖分的形状中提取几何数据（带选项）
+     */
+    static bool extractGeometryDataWithOptions(
+        const TopoDS_Shape& shape,
+        std::vector<osg::Vec3>& vertices,
+        std::vector<osg::Vec3>& normals,
+        std::vector<unsigned int>& indices,
+        int& faceCount,
+        const ConversionOptions& options
+    );
+
     /**
      * @brief 从单个 Face 提取三角形数据
-     * 
+     *
      * @param face 要处理的 Face
      * @param vertices 输出：顶点数组
      * @param normals 输出：法线数组
@@ -162,6 +225,18 @@ private:
         std::vector<osg::Vec3>& normals,
         std::vector<unsigned int>& indices,
         unsigned int& vertexOffset
+    );
+
+    /**
+     * @brief 从单个 Face 提取三角形数据（带选项）
+     */
+    static bool extractFaceTrianglesWithOptions(
+        const TopoDS_Face& face,
+        std::vector<osg::Vec3>& vertices,
+        std::vector<osg::Vec3>& normals,
+        std::vector<unsigned int>& indices,
+        unsigned int& vertexOffset,
+        const ConversionOptions& options
     );
     
     /**

@@ -9,6 +9,8 @@
 #include <Gui/ViewProvider.h>
 #include <Gui/ViewProviderDocumentObject.h>
 #include <App/DocumentObject.h>
+#include <App/Property.h>
+#include <App/PropertyStandard.h>
 #include <Gui/Render/Core/RenderTypes.h>
 
 // Part module - we can include this because OsgVerseGui links Part!
@@ -31,9 +33,17 @@
 #include <osg/PolygonMode>
 #include <osg/PolygonOffset>
 #include <osg/LineWidth>
+#include <osg/BlendFunc>
+#include <osg/Texture2D>
+#include <osg/TexEnv>
 
 // OSG stats includes
 #include <osg/Stats>
+
+// OSG shadow includes
+#include <osgShadow/ShadowedScene>
+#include <osgShadow/ShadowMap>
+#include <osgShadow/SoftShadowMap>
 
 using namespace OsgVerseGui;
 
@@ -50,11 +60,17 @@ OsgVerseViewer::OsgVerseViewer(QWidget* parent)
     , _orthographic(false)
     , _editingVP(nullptr)
     , _editingMode(0)
+    , _shadowEnabled(false)
+    , _shadowQuality(ShadowQuality::Medium)
+    , _softShadowEnabled(false)
 {
     try {
         // Create Qt OpenGL widget
         _widget = new OsgVerseWidget(parent);
-        
+
+        // Set back-reference for selection support
+        _widget->setViewer(this);
+
         // Get OSG viewer from widget
         osgViewer::Viewer* viewer = _widget->getViewer();
         
@@ -438,17 +454,191 @@ void OsgVerseViewer::startSelection(Gui::View3D::SelectionMode mode)
 
 void OsgVerseViewer::stopSelection()
 {
+    clearSelectionVisualization();
     _selectionMode = Gui::View3D::SelectionMode::None;
 }
 
 void OsgVerseViewer::abortSelection()
 {
+    clearSelectionVisualization();
     _selectionMode = Gui::View3D::SelectionMode::None;
 }
 
 bool OsgVerseViewer::isSelecting() const
 {
     return _selectionMode != Gui::View3D::SelectionMode::None;
+}
+
+//===========================================================================
+// 选择可视化
+//===========================================================================
+
+void OsgVerseViewer::createSelectionHUD()
+{
+    if (_hudCamera.valid()) {
+        return;  // Already created
+    }
+
+    if (!_widget) {
+        return;
+    }
+
+    // Create HUD camera
+    _hudCamera = new osg::Camera;
+    _hudCamera->setProjectionMatrix(osg::Matrix::ortho2D(0, _widget->width(), 0, _widget->height()));
+    _hudCamera->setReferenceFrame(osg::Transform::ABSOLUTE_RF);
+    _hudCamera->setViewMatrix(osg::Matrix::identity());
+    _hudCamera->setClearMask(GL_DEPTH_BUFFER_BIT);
+    _hudCamera->setRenderOrder(osg::Camera::POST_RENDER);
+    _hudCamera->setAllowEventFocus(false);
+
+    // Create geode for selection geometry
+    _selectionGeode = new osg::Geode;
+
+    // Create selection geometry
+    _selectionGeometry = new osg::Geometry;
+    _selectionGeometry->setUseDisplayList(false);
+    _selectionGeometry->setUseVertexBufferObjects(true);
+
+    // Create vertices array
+    osg::ref_ptr<osg::Vec3Array> vertices = new osg::Vec3Array;
+    _selectionGeometry->setVertexArray(vertices);
+
+    // Create color array (semi-transparent blue)
+    osg::ref_ptr<osg::Vec4Array> colors = new osg::Vec4Array;
+    colors->push_back(osg::Vec4(0.2f, 0.4f, 0.8f, 0.3f));  // Fill color
+    _selectionGeometry->setColorArray(colors, osg::Array::BIND_OVERALL);
+
+    _selectionGeode->addDrawable(_selectionGeometry);
+
+    // Set up state for transparency
+    osg::StateSet* stateSet = _selectionGeode->getOrCreateStateSet();
+    stateSet->setMode(GL_BLEND, osg::StateAttribute::ON);
+    stateSet->setMode(GL_DEPTH_TEST, osg::StateAttribute::OFF);
+    stateSet->setMode(GL_LIGHTING, osg::StateAttribute::OFF);
+    stateSet->setRenderingHint(osg::StateSet::TRANSPARENT_BIN);
+
+    _hudCamera->addChild(_selectionGeode);
+    _sceneRoot->addChild(_hudCamera);
+}
+
+void OsgVerseViewer::updateSelectionRectangle(int x1, int y1, int x2, int y2)
+{
+    if (!_selectionGeometry.valid()) {
+        createSelectionHUD();
+    }
+
+    if (!_selectionGeometry.valid() || !_widget) {
+        return;
+    }
+
+    // Update HUD projection for current widget size
+    int height = _widget->height();
+    _hudCamera->setProjectionMatrix(osg::Matrix::ortho2D(0, _widget->width(), 0, height));
+
+    // Convert Qt coordinates (top-left origin) to OSG coordinates (bottom-left origin)
+    float osgY1 = height - y1;
+    float osgY2 = height - y2;
+
+    // Create rectangle vertices
+    osg::ref_ptr<osg::Vec3Array> vertices = new osg::Vec3Array;
+    vertices->push_back(osg::Vec3(x1, osgY1, 0));  // Top-left
+    vertices->push_back(osg::Vec3(x2, osgY1, 0));  // Top-right
+    vertices->push_back(osg::Vec3(x2, osgY2, 0));  // Bottom-right
+    vertices->push_back(osg::Vec3(x1, osgY2, 0));  // Bottom-left
+
+    _selectionGeometry->setVertexArray(vertices);
+
+    // Set up draw arrays for filled quad
+    _selectionGeometry->removePrimitiveSet(0, _selectionGeometry->getNumPrimitiveSets());
+    _selectionGeometry->addPrimitiveSet(new osg::DrawArrays(GL_QUADS, 0, 4));
+
+    // Also draw outline
+    osg::ref_ptr<osg::Vec3Array> outlineVertices = new osg::Vec3Array;
+    outlineVertices->push_back(osg::Vec3(x1, osgY1, 0));
+    outlineVertices->push_back(osg::Vec3(x2, osgY1, 0));
+    outlineVertices->push_back(osg::Vec3(x2, osgY2, 0));
+    outlineVertices->push_back(osg::Vec3(x1, osgY2, 0));
+    _selectionGeometry->addPrimitiveSet(new osg::DrawArrays(GL_LINE_LOOP, 0, 4));
+
+    _selectionGeometry->dirtyBound();
+
+    render();
+}
+
+void OsgVerseViewer::updateSelectionLasso(const std::vector<QPoint>& points)
+{
+    if (!_selectionGeometry.valid()) {
+        createSelectionHUD();
+    }
+
+    if (!_selectionGeometry.valid() || !_widget || points.size() < 2) {
+        return;
+    }
+
+    // Update HUD projection for current widget size
+    int height = _widget->height();
+    _hudCamera->setProjectionMatrix(osg::Matrix::ortho2D(0, _widget->width(), 0, height));
+
+    // Create lasso vertices
+    osg::ref_ptr<osg::Vec3Array> vertices = new osg::Vec3Array;
+    for (const auto& pt : points) {
+        float osgY = height - pt.y();
+        vertices->push_back(osg::Vec3(pt.x(), osgY, 0));
+    }
+
+    _selectionGeometry->setVertexArray(vertices);
+
+    // Draw as line strip
+    _selectionGeometry->removePrimitiveSet(0, _selectionGeometry->getNumPrimitiveSets());
+    _selectionGeometry->addPrimitiveSet(new osg::DrawArrays(GL_LINE_STRIP, 0, points.size()));
+
+    _selectionGeometry->dirtyBound();
+
+    render();
+}
+
+void OsgVerseViewer::clearSelectionVisualization()
+{
+    if (_selectionGeometry.valid()) {
+        osg::ref_ptr<osg::Vec3Array> vertices = new osg::Vec3Array;
+        _selectionGeometry->setVertexArray(vertices);
+        _selectionGeometry->removePrimitiveSet(0, _selectionGeometry->getNumPrimitiveSets());
+        _selectionGeometry->dirtyBound();
+    }
+
+    _lassoPoints.clear();
+
+    render();
+}
+
+void OsgVerseViewer::setSelectionStart(const QPoint& pos)
+{
+    _selectionStart = pos;
+    _selectionCurrent = pos;
+    _lassoPoints.clear();
+    _lassoPoints.push_back(pos);
+}
+
+void OsgVerseViewer::updateSelectionEnd(const QPoint& pos)
+{
+    _selectionCurrent = pos;
+
+    if (_selectionMode == Gui::View3D::SelectionMode::Rectangle ||
+        _selectionMode == Gui::View3D::SelectionMode::Rubberband) {
+        updateSelectionRectangle(_selectionStart.x(), _selectionStart.y(),
+                                  _selectionCurrent.x(), _selectionCurrent.y());
+    }
+    else if (_selectionMode == Gui::View3D::SelectionMode::Lasso) {
+        _lassoPoints.push_back(pos);
+        updateSelectionLasso(_lassoPoints);
+    }
+}
+
+void OsgVerseViewer::finishSelection()
+{
+    clearSelectionVisualization();
+    _selectionMode = Gui::View3D::SelectionMode::None;
 }
 
 //===========================================================================
@@ -960,10 +1150,40 @@ osg::ref_ptr<osg::Node> OsgVerseViewer::createNodeForViewProvider(Gui::ViewProvi
             Base::Console().error("OsgVerseViewer: GeometryConverter failed\n");
             return nullptr;
         }
-        
-        // Apply material
-        applyMaterial(geode.get(), Base::Color(0.8f, 0.8f, 0.8f));
-        
+
+        // Extract color and transparency from ViewProvider
+        Base::Color shapeColor(0.8f, 0.8f, 0.8f);  // Default gray
+        float transparency = 1.0f;  // 1.0 = fully opaque
+
+        // Try to get ShapeColor property
+        App::Property* colorProp = vp->getPropertyByName("ShapeColor");
+        if (colorProp && colorProp->isDerivedFrom(App::PropertyColor::getClassTypeId())) {
+            App::PropertyColor* propColor = static_cast<App::PropertyColor*>(colorProp);
+            unsigned long packed = propColor->getValue().getPackedValue();
+            // Extract RGB from packed value (format: 0xRRGGBB)
+            float r = static_cast<float>((packed >> 24) & 0xFF) / 255.0f;
+            float g = static_cast<float>((packed >> 16) & 0xFF) / 255.0f;
+            float b = static_cast<float>((packed >> 8) & 0xFF) / 255.0f;
+            shapeColor = Base::Color(r, g, b);
+        }
+
+        // Try to get Transparency property
+        App::Property* transProp = vp->getPropertyByName("Transparency");
+        if (transProp && transProp->isDerivedFrom(App::PropertyPercent::getClassTypeId())) {
+            App::PropertyPercent* propTrans = static_cast<App::PropertyPercent*>(transProp);
+            // Transparency is typically 0-100, convert to alpha (0=opaque, 100=transparent)
+            int transPercent = propTrans->getValue();
+            transparency = 1.0f - (static_cast<float>(transPercent) / 100.0f);
+        }
+        else if (transProp && transProp->isDerivedFrom(App::PropertyInteger::getClassTypeId())) {
+            App::PropertyInteger* propTrans = static_cast<App::PropertyInteger*>(transProp);
+            int transPercent = propTrans->getValue();
+            transparency = 1.0f - (static_cast<float>(transPercent) / 100.0f);
+        }
+
+        // Apply material with transparency
+        applyMaterialWithTransparency(geode.get(), shapeColor, transparency);
+
         return geode;
     }
     catch (const Standard_Failure& e) {
@@ -998,18 +1218,202 @@ osg::ref_ptr<osg::Node> OsgVerseViewer::createPlaceholderSphere()
 
 void OsgVerseViewer::applyMaterial(osg::Node* node, const Base::Color& color)
 {
+    applyMaterialWithTransparency(node, color, 1.0f);
+}
+
+void OsgVerseViewer::applyMaterialWithTransparency(osg::Node* node, const Base::Color& color, float transparency)
+{
     if (!node) {
         return;
     }
-    
+
+    // Clamp transparency to valid range [0.0, 1.0]
+    // 0.0 = fully transparent, 1.0 = fully opaque
+    float alpha = std::max(0.0f, std::min(1.0f, transparency));
+
     osg::ref_ptr<osg::StateSet> stateSet = node->getOrCreateStateSet();
     osg::ref_ptr<osg::Material> material = new osg::Material();
-    
-    osg::Vec4 diffuse(color.r, color.g, color.b, 1.0f);
+
+    osg::Vec4 diffuse(color.r, color.g, color.b, alpha);
     material->setDiffuse(osg::Material::FRONT_AND_BACK, diffuse);
-    material->setAmbient(osg::Material::FRONT_AND_BACK, diffuse * 0.3f);
+    material->setAmbient(osg::Material::FRONT_AND_BACK, osg::Vec4(color.r * 0.3f, color.g * 0.3f, color.b * 0.3f, alpha));
     material->setSpecular(osg::Material::FRONT_AND_BACK, osg::Vec4(0.5f, 0.5f, 0.5f, 1.0f));
     material->setShininess(osg::Material::FRONT_AND_BACK, 32.0f);
-    
+    material->setTransparency(osg::Material::FRONT_AND_BACK, 1.0f - alpha);
+
     stateSet->setAttributeAndModes(material.get(), osg::StateAttribute::ON);
+
+    // Enable alpha blending for transparent materials
+    if (alpha < 1.0f) {
+        stateSet->setMode(GL_BLEND, osg::StateAttribute::ON);
+        stateSet->setRenderingHint(osg::StateSet::TRANSPARENT_BIN);
+
+        // Use standard alpha blending
+        osg::ref_ptr<osg::BlendFunc> blendFunc = new osg::BlendFunc(
+            osg::BlendFunc::SRC_ALPHA,
+            osg::BlendFunc::ONE_MINUS_SRC_ALPHA
+        );
+        stateSet->setAttributeAndModes(blendFunc.get(), osg::StateAttribute::ON);
+
+        // Enable depth writing but use depth sorting
+        stateSet->setRenderBinDetails(10, "DepthSortedBin");
+    }
+    else {
+        // Opaque materials
+        stateSet->setMode(GL_BLEND, osg::StateAttribute::OFF);
+        stateSet->setRenderingHint(osg::StateSet::OPAQUE_BIN);
+    }
+}
+
+//===========================================================================
+// 阴影渲染 (Shadow Rendering)
+//===========================================================================
+
+void OsgVerseViewer::setShadowEnabled(bool enabled)
+{
+    if (_shadowEnabled == enabled) {
+        return;  // No change
+    }
+
+    _shadowEnabled = enabled;
+
+    if (!_widget) {
+        return;
+    }
+
+    osgViewer::Viewer* viewer = _widget->getViewer();
+    if (!viewer) {
+        return;
+    }
+
+    if (enabled) {
+        // Create shadowed scene if it doesn't exist
+        if (!_shadowedScene) {
+            _shadowedScene = new osgShadow::ShadowedScene;
+
+            // Set up the shadow technique based on current settings
+            int shadowMapSize = getShadowMapSize(_shadowQuality);
+
+            if (_softShadowEnabled) {
+                osg::ref_ptr<osgShadow::SoftShadowMap> ssm = new osgShadow::SoftShadowMap;
+                ssm->setTextureSize(osg::Vec2s(shadowMapSize, shadowMapSize));
+                ssm->setSoftnessWidth(0.005f);
+                _shadowedScene->setShadowTechnique(ssm.get());
+            }
+            else {
+                osg::ref_ptr<osgShadow::ShadowMap> sm = new osgShadow::ShadowMap;
+                sm->setTextureSize(osg::Vec2s(shadowMapSize, shadowMapSize));
+                _shadowedScene->setShadowTechnique(sm.get());
+            }
+
+            // Set receive and cast shadow masks
+            _shadowedScene->setReceivesShadowTraversalMask(0x1);
+            _shadowedScene->setCastsShadowTraversalMask(0x2);
+        }
+
+        // Move scene root into shadowed scene
+        if (_sceneRoot) {
+            // Ensure scene root has the right mask
+            _sceneRoot->setNodeMask(0x1 | 0x2);  // Both receive and cast shadows
+
+            _shadowedScene->addChild(_sceneRoot.get());
+            viewer->setSceneData(_shadowedScene.get());
+        }
+
+        Base::Console().log("OsgVerseViewer: Shadows enabled\n");
+    }
+    else {
+        // Disable shadows - set scene root directly
+        if (_sceneRoot) {
+            viewer->setSceneData(_sceneRoot.get());
+        }
+
+        Base::Console().log("OsgVerseViewer: Shadows disabled\n");
+    }
+
+    render();
+}
+
+bool OsgVerseViewer::isShadowEnabled() const
+{
+    return _shadowEnabled;
+}
+
+void OsgVerseViewer::setShadowQuality(ShadowQuality quality)
+{
+    if (_shadowQuality == quality) {
+        return;  // No change
+    }
+
+    _shadowQuality = quality;
+
+    // If shadows are enabled, update the shadow map size
+    if (_shadowEnabled && _shadowedScene) {
+        int shadowMapSize = getShadowMapSize(quality);
+
+        osgShadow::ShadowTechnique* technique = _shadowedScene->getShadowTechnique();
+        if (technique) {
+            // Try to update texture size based on technique type
+            osgShadow::ShadowMap* sm = dynamic_cast<osgShadow::ShadowMap*>(technique);
+            if (sm) {
+                sm->setTextureSize(osg::Vec2s(shadowMapSize, shadowMapSize));
+            }
+
+            osgShadow::SoftShadowMap* ssm = dynamic_cast<osgShadow::SoftShadowMap*>(technique);
+            if (ssm) {
+                ssm->setTextureSize(osg::Vec2s(shadowMapSize, shadowMapSize));
+            }
+        }
+
+        render();
+    }
+}
+
+OsgVerseViewer::ShadowQuality OsgVerseViewer::getShadowQuality() const
+{
+    return _shadowQuality;
+}
+
+void OsgVerseViewer::setSoftShadowEnabled(bool enabled)
+{
+    if (_softShadowEnabled == enabled) {
+        return;  // No change
+    }
+
+    _softShadowEnabled = enabled;
+
+    // If shadows are enabled, recreate the shadow technique
+    if (_shadowEnabled && _shadowedScene) {
+        int shadowMapSize = getShadowMapSize(_shadowQuality);
+
+        if (enabled) {
+            osg::ref_ptr<osgShadow::SoftShadowMap> ssm = new osgShadow::SoftShadowMap;
+            ssm->setTextureSize(osg::Vec2s(shadowMapSize, shadowMapSize));
+            ssm->setSoftnessWidth(0.005f);
+            _shadowedScene->setShadowTechnique(ssm.get());
+        }
+        else {
+            osg::ref_ptr<osgShadow::ShadowMap> sm = new osgShadow::ShadowMap;
+            sm->setTextureSize(osg::Vec2s(shadowMapSize, shadowMapSize));
+            _shadowedScene->setShadowTechnique(sm.get());
+        }
+
+        render();
+    }
+}
+
+bool OsgVerseViewer::isSoftShadowEnabled() const
+{
+    return _softShadowEnabled;
+}
+
+int OsgVerseViewer::getShadowMapSize(ShadowQuality quality) const
+{
+    switch (quality) {
+        case ShadowQuality::Low:    return 512;
+        case ShadowQuality::Medium: return 1024;
+        case ShadowQuality::High:   return 2048;
+        case ShadowQuality::Ultra:  return 4096;
+        default:                    return 1024;
+    }
 }
