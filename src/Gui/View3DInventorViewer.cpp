@@ -453,6 +453,8 @@ void View3DInventorViewer::init()
     fpsEnabled = false;
     vboEnabled = false;
 
+    // TEMPORARILY DISABLED: SceneGraphBridge attachment
+#if 0
     // Attach to SceneGraphBridge for render abstraction layer integration
     try {
         Render::SceneGraphBridge::instance().attachViewer(this);
@@ -460,6 +462,7 @@ void View3DInventorViewer::init()
     catch (const std::exception& e) {
         Base::Console().warning("View3DInventorViewer: Failed to attach to SceneGraphBridge: %s\n", e.what());
     }
+#endif
 
     attachSelection();
 
@@ -709,6 +712,8 @@ void View3DInventorViewer::init()
 
 View3DInventorViewer::~View3DInventorViewer()
 {
+    // TEMPORARILY DISABLED: SceneGraphBridge detachment
+#if 0
     // Detach from SceneGraphBridge before cleanup
     try {
         Render::SceneGraphBridge::instance().detachViewer(this);
@@ -716,6 +721,7 @@ View3DInventorViewer::~View3DInventorViewer()
     catch (...) {
         // Ignore exceptions during cleanup
     }
+#endif
 
     // to prevent following OpenGL error message: "Texture is not valid in the current context.
     // Texture has not been destroyed"
@@ -945,10 +951,13 @@ void View3DInventorViewer::addViewProvider(ViewProvider* pcProvider)
         _ViewProviderMap[root] = pcProvider;
     }
 
+    // TEMPORARILY DISABLED: RenderNode tracking
+#if 0
     // Track RenderNode for render abstraction layer
     if (auto* renderRoot = pcProvider->getRenderRoot()) {
         _RenderNodeMap[renderRoot] = pcProvider;
     }
+#endif
 
     if (SoSeparator* fore = pcProvider->getFrontRoot()) {
         foregroundroot->addChild(fore);
@@ -961,6 +970,8 @@ void View3DInventorViewer::addViewProvider(ViewProvider* pcProvider)
     pcProvider->setOverrideMode(this->getOverrideMode());
     _ViewProviderSet.insert(pcProvider);
 
+    // TEMPORARILY DISABLED: SceneGraphBridge notification
+#if 0
     // Notify SceneGraphBridge of the addition
     try {
         Render::SceneGraphBridge::instance().addViewProvider(this, pcProvider);
@@ -968,6 +979,7 @@ void View3DInventorViewer::addViewProvider(ViewProvider* pcProvider)
     catch (const std::exception& e) {
         Base::Console().warning("View3DInventorViewer: Failed to notify SceneGraphBridge: %s\n", e.what());
     }
+#endif
 }
 
 void View3DInventorViewer::removeViewProvider(ViewProvider* pcProvider)
@@ -976,6 +988,8 @@ void View3DInventorViewer::removeViewProvider(ViewProvider* pcProvider)
         resetEditingViewProvider();
     }
 
+    // TEMPORARILY DISABLED: SceneGraphBridge notification
+#if 0
     // Notify SceneGraphBridge before removal
     try {
         Render::SceneGraphBridge::instance().removeViewProvider(this, pcProvider);
@@ -983,6 +997,7 @@ void View3DInventorViewer::removeViewProvider(ViewProvider* pcProvider)
     catch (...) {
         // Ignore exceptions during removal
     }
+#endif
 
     SoSeparator* root = pcProvider->getRoot();
 
@@ -999,10 +1014,13 @@ void View3DInventorViewer::removeViewProvider(ViewProvider* pcProvider)
         _ViewProviderMap.erase(root);
     }
 
+    // TEMPORARILY DISABLED: RenderNode map removal
+#if 0
     // Remove from RenderNode map
     if (auto* renderRoot = pcProvider->getRenderRoot()) {
         _RenderNodeMap.erase(renderRoot);
     }
+#endif
 
     if (SoSeparator* fore = pcProvider->getFrontRoot()) {
         foregroundroot->removeChild(fore);

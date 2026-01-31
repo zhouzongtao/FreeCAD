@@ -1008,10 +1008,13 @@ void Document::slotNewObject(const App::DocumentObject& Obj)
         setModified(true);
         d->_ViewProviderMap[&Obj] = pcProvider;
         d->_CoinMap[pcProvider->getRoot()] = pcProvider;
-        // Track RenderNode for render abstraction layer
+        // TEMPORARILY DISABLED: Track RenderNode for render abstraction layer
+        // This was causing crashes when loading documents
+#if 0
         if (auto* renderRoot = pcProvider->getRenderRoot()) {
             d->_RenderNodeMap[renderRoot] = pcProvider;
         }
+#endif
         pcProvider->setStatus(Gui::ViewStatus::TouchDocument, d->_changeViewTouchDocument);
 
         try {
@@ -1241,13 +1244,15 @@ void Document::slotTransactionRemove(const App::DocumentObject& obj, App::Transa
             d->_CoinMap.erase(itC);
         }
 
-        // Remove from RenderNode map (render abstraction layer)
+        // TEMPORARILY DISABLED: Remove from RenderNode map (render abstraction layer)
+#if 0
         if (auto* renderRoot = viewProvider->getRenderRoot()) {
             auto itR = d->_RenderNodeMap.find(renderRoot);
             if (itR != d->_RenderNodeMap.end()) {
                 d->_RenderNodeMap.erase(itR);
             }
         }
+#endif
 
         d->_ViewProviderMap.erase(&obj);
         // transaction being a nullptr indicates that undo/redo is off and the object
@@ -1372,10 +1377,12 @@ void Document::addViewProvider(Gui::ViewProviderDocumentObject* vp)
     vp->setStatus(Detach, false);
     d->_ViewProviderMap[vp->getObject()] = vp;
     d->_CoinMap[vp->getRoot()] = vp;
-    // Track RenderNode for render abstraction layer
+    // TEMPORARILY DISABLED: Track RenderNode for render abstraction layer
+#if 0
     if (auto* renderRoot = vp->getRenderRoot()) {
         d->_RenderNodeMap[renderRoot] = vp;
     }
+#endif
 }
 
 void Document::setModified(bool b)
@@ -2295,21 +2302,26 @@ MDIView* Document::createView(const Base::Type& typeId, CreateViewMode mode)
     // Check if requesting View3DInventor - select implementation based on backend
     if (typeId == View3DInventor::getClassTypeId()) {
         Base::Console().log("Document::createView: View3DInventor requested\n");
-        
+
         // Get current render backend from RenderManager
         auto& renderMgr = Gui::Core::RenderManager::instance();
         auto backend = renderMgr.getCurrentBackend();
-        
-        Base::Console().log("Document::createView: Current backend: %d\n", 
+
+        Base::Console().log("Document::createView: Current backend: %d\n",
                            static_cast<int>(backend));
-        
+
+        // TEMPORARILY DISABLED: OsgVerse backend auto-selection
+        // This was causing crashes when loading documents
+        // TODO: Re-enable once OsgVerse backend is fully stable
+#if 0
         // If OsgVerse backend is active, create View3DOsgVerse instead
         if (backend == Gui::Render::BackendType::OsgVerse) {
             Base::Console().log("Document::createView: Creating View3DOsgVerse for OsgVerse backend\n");
             return createView(View3DOsgVerse::getClassTypeId(), mode);
         }
-        
-        // Otherwise continue with Coin3D (View3DInventor)
+#endif
+
+        // Always use Coin3D (View3DInventor) for now
         Base::Console().log("Document::createView: Creating View3DInventor for Coin3D backend\n");
     }
     

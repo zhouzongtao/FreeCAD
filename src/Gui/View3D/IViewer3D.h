@@ -62,15 +62,43 @@ struct CameraParams {
 };
 
 /**
+ * @brief 拾取类型
+ */
+enum class PickType {
+    None = 0,   ///< 未命中
+    Face,       ///< 命中面
+    Edge,       ///< 命中边
+    Vertex,     ///< 命中顶点
+    Object      ///< 命中对象（未细分）
+};
+
+/**
  * @brief 拾取结果
  */
 struct PickResult {
-    bool valid{false};
-    Base::Vector3d point;
-    Base::Vector3d normal;
-    ViewProvider* viewProvider{nullptr};
-    std::string subElementName;
-    double distance{0.0};
+    bool valid{false};                          ///< 是否有效命中
+    Base::Vector3d point;                       ///< 交点坐标（世界坐标系）
+    Base::Vector3d normal;                      ///< 交点法线
+    ViewProvider* viewProvider{nullptr};        ///< 命中的 ViewProvider
+    std::string subElementName;                 ///< 子元素名称 (如 "Face1", "Edge2")
+    double distance{0.0};                       ///< 从相机到交点的距离
+
+    // 拾取类型相关字段
+    PickType pickType{PickType::None};          ///< 拾取类型 (Face/Edge/Vertex)
+    int primitiveIndex{-1};                     ///< 图元索引
+    int faceIndex{-1};                          ///< 面索引 (当 pickType == Face)
+    int edgeIndex{-1};                          ///< 边索引 (当 pickType == Edge)
+    int vertexIndex{-1};                        ///< 顶点索引 (当 pickType == Vertex)
+
+    // 辅助方法
+    bool isFace() const { return pickType == PickType::Face; }
+    bool isEdge() const { return pickType == PickType::Edge; }
+    bool isVertex() const { return pickType == PickType::Vertex; }
+
+    /// 按距离比较（用于排序）
+    bool operator<(const PickResult& other) const {
+        return distance < other.distance;
+    }
 };
 
 /**
@@ -181,6 +209,14 @@ public:
      * @brief 查看全部（适应所有对象）
      */
     virtual void viewAll() = 0;
+
+    /**
+     * @brief 适应选择（将相机调整到聚焦选中的对象）
+     *
+     * 如果有选中的对象，相机将调整位置和距离以使选中的对象
+     * 填满视口。如果没有选中的对象，则调用 viewAll()。
+     */
+    virtual void fitSelection() = 0;
 
     /**
      * @brief 重置相机到默认位置
@@ -328,6 +364,23 @@ public:
      * @brief 是否启用背光
      */
     virtual bool isBacklightEnabled() const = 0;
+
+    /**
+     * @brief 设置环境光强度
+     *
+     * 控制全局环境光的亮度，影响场景中所有对象的基础照明。
+     * 较高的值使阴影区域更亮，较低的值使对比度更强。
+     *
+     * @param intensity 环境光强度 (0.0 - 1.0)，默认值为 0.2
+     */
+    virtual void setAmbientIntensity(float intensity) = 0;
+
+    /**
+     * @brief 获取环境光强度
+     *
+     * @return 当前环境光强度 (0.0 - 1.0)
+     */
+    virtual float getAmbientIntensity() const = 0;
 
     //-----------------------------------------------------------------------
     // 导航和交互

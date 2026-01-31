@@ -13,8 +13,11 @@
 #include <osg/Geometry>
 #include <osg/Geode>
 #include <osgShadow/ShadowedScene>
+#include <osgText/Text>
+#include <osgUtil/LineSegmentIntersector>
 #include <map>
 #include <vector>
+#include <memory>
 
 // Forward declarations
 namespace osgViewer {
@@ -25,6 +28,8 @@ class QOpenGLWidget;
 
 namespace OsgVerseGui {
     class OsgVerseWidget;
+    class PostProcessManager;
+    class OsgVerseNaviCube;
 }
 
 namespace OsgVerseGui {
@@ -72,6 +77,7 @@ public:
     void setCamera(const Gui::View3D::CameraParams& params) override;
     Gui::View3D::CameraParams getCamera() const override;
     void viewAll() override;
+    void fitSelection() override;
     void resetCamera() override;
     void setCameraType(bool orthographic) override;
     bool isCameraOrthographic() const override;
@@ -93,7 +99,64 @@ public:
     void stopSelection() override;
     void abortSelection() override;
     bool isSelecting() const override;
-    
+
+    /**
+     * @brief 区域拾取 - 选取矩形区域内的所有对象
+     *
+     * 使用 osgUtil::PolytopeIntersector 实现视锥体拾取
+     *
+     * @param x1 矩形左上角X坐标 (Qt坐标系)
+     * @param y1 矩形左上角Y坐标 (Qt坐标系)
+     * @param x2 矩形右下角X坐标 (Qt坐标系)
+     * @param y2 矩形右下角Y坐标 (Qt坐标系)
+     * @param pickVisibleOnly 仅选择可见对象
+     * @param pickSelectableOnly 仅选择可选择对象
+     * @return 区域内所有 ViewProvider 的列表
+     */
+    std::vector<Gui::ViewProvider*> pickRegion(int x1, int y1, int x2, int y2,
+                                                bool pickVisibleOnly = true,
+                                                bool pickSelectableOnly = true);
+
+    /**
+     * @brief 区域拾取 - 返回详细的拾取结果
+     *
+     * @param x1 矩形左上角X坐标 (Qt坐标系)
+     * @param y1 矩形左上角Y坐标 (Qt坐标系)
+     * @param x2 矩形右下角X坐标 (Qt坐标系)
+     * @param y2 矩形右下角Y坐标 (Qt坐标系)
+     * @return 详细的拾取结果列表
+     */
+    std::vector<Gui::View3D::PickResult> pickRegionDetailed(int x1, int y1, int x2, int y2);
+
+    /**
+     * @brief 多目标拾取 - 返回射线穿过的所有对象
+     *
+     * 与 pick() 不同，此方法返回射线路径上的所有交点，
+     * 而不仅仅是最近的一个。结果按距离排序（最近的在前）。
+     *
+     * @param pos 屏幕坐标 (Qt坐标系)
+     * @param maxHits 最大返回数量 (0 = 无限制)
+     * @param pickVisibleOnly 仅拾取可见对象
+     * @param pickSelectableOnly 仅拾取可选择对象
+     * @return 所有命中的 PickResult 列表，按距离排序
+     */
+    std::vector<Gui::View3D::PickResult> pickAll(const QPoint& pos,
+                                                  int maxHits = 0,
+                                                  bool pickVisibleOnly = true,
+                                                  bool pickSelectableOnly = true);
+
+    /**
+     * @brief 多目标拾取 - 仅返回 ViewProvider 列表
+     *
+     * 简化版本，仅返回 ViewProvider 指针列表
+     *
+     * @param pos 屏幕坐标 (Qt坐标系)
+     * @param maxHits 最大返回数量 (0 = 无限制)
+     * @return 所有命中的 ViewProvider 列表，按距离排序
+     */
+    std::vector<Gui::ViewProvider*> pickAllViewProviders(const QPoint& pos,
+                                                          int maxHits = 0);
+
     //-----------------------------------------------------------------------
     // ViewProvider 管理
     //-----------------------------------------------------------------------
@@ -112,7 +175,9 @@ public:
     Base::Color getBackgroundColor() const override;
     void setBacklightEnabled(bool enabled) override;
     bool isBacklightEnabled() const override;
-    
+    void setAmbientIntensity(float intensity) override;
+    float getAmbientIntensity() const override;
+
     //-----------------------------------------------------------------------
     // 导航和交互
     //-----------------------------------------------------------------------
@@ -145,6 +210,36 @@ public:
     Gui::ViewProvider* getEditingViewProvider() const override;
     bool isEditingViewProvider() const override;
     void resetEditingViewProvider() override;
+
+    //-----------------------------------------------------------------------
+    // NaviCube (Navigation Cube)
+    //-----------------------------------------------------------------------
+
+    /**
+     * @brief Enable or disable the NaviCube
+     */
+    void setNaviCubeEnabled(bool enabled);
+
+    /**
+     * @brief Check if NaviCube is enabled
+     */
+    bool isNaviCubeEnabled() const;
+
+    /**
+     * @brief Set the NaviCube corner position
+     * @param corner 0=TopLeft, 1=TopRight, 2=BottomLeft, 3=BottomRight
+     */
+    void setNaviCubeCorner(int corner);
+
+    /**
+     * @brief Get the current NaviCube corner
+     */
+    int getNaviCubeCorner() const;
+
+    /**
+     * @brief Get the NaviCube object for advanced configuration
+     */
+    OsgVerseNaviCube* getNaviCube();
 
     //-----------------------------------------------------------------------
     // 阴影渲染 (Shadow Rendering)
@@ -190,6 +285,70 @@ public:
      */
     bool isSoftShadowEnabled() const;
 
+    //-----------------------------------------------------------------------
+    // 后处理效果 (Post-Processing Effects)
+    //-----------------------------------------------------------------------
+
+    /**
+     * @brief Enable or disable SSAO (Screen Space Ambient Occlusion)
+     */
+    void setSSAOEnabled(bool enabled);
+
+    /**
+     * @brief Check if SSAO is enabled
+     */
+    bool isSSAOEnabled() const;
+
+    /**
+     * @brief Set SSAO radius (sampling radius)
+     */
+    void setSSAORadius(float radius);
+
+    /**
+     * @brief Get SSAO radius
+     */
+    float getSSAORadius() const;
+
+    /**
+     * @brief Set SSAO intensity
+     */
+    void setSSAOIntensity(float intensity);
+
+    /**
+     * @brief Get SSAO intensity
+     */
+    float getSSAOIntensity() const;
+
+    /**
+     * @brief Enable or disable Bloom effect
+     */
+    void setBloomEnabled(bool enabled);
+
+    /**
+     * @brief Check if Bloom is enabled
+     */
+    bool isBloomEnabled() const;
+
+    /**
+     * @brief Set Bloom threshold (brightness threshold for bloom)
+     */
+    void setBloomThreshold(float threshold);
+
+    /**
+     * @brief Get Bloom threshold
+     */
+    float getBloomThreshold() const;
+
+    /**
+     * @brief Set Bloom intensity
+     */
+    void setBloomIntensity(float intensity);
+
+    /**
+     * @brief Get Bloom intensity
+     */
+    float getBloomIntensity() const;
+
 private:
     /**
      * @brief Create a scene node for a ViewProvider
@@ -228,6 +387,27 @@ private:
     Gui::ViewProvider* findViewProviderFromNodePath(const osg::NodePath& nodePath);
 
     /**
+     * @brief Determine pick type from OSG intersection
+     *
+     * Analyzes the intersection to determine if it hit a Face, Edge, or Vertex
+     * based on the geometry's primitive type and intersection details.
+     *
+     * @param intersection The OSG intersection result
+     * @param result The PickResult to populate with type information
+     */
+    void determinePickType(const osgUtil::LineSegmentIntersector::Intersection& intersection,
+                           Gui::View3D::PickResult& result);
+
+    /**
+     * @brief Generate sub-element name from pick type and index
+     *
+     * @param pickType The type of element picked (Face, Edge, Vertex)
+     * @param index The index of the element
+     * @return A string like "Face1", "Edge5", "Vertex3"
+     */
+    std::string generateSubElementName(Gui::View3D::PickType pickType, int index);
+
+    /**
      * @brief Create the HUD camera for selection overlays
      */
     void createSelectionHUD();
@@ -247,6 +427,20 @@ private:
      */
     void clearSelectionVisualization();
 
+    /**
+     * @brief Setup Hidden Line rendering mode
+     *
+     * Implements two-pass rendering:
+     * Pass 1: Render filled polygons with background color (for depth)
+     * Pass 2: Render wireframe edges on top
+     */
+    void setupHiddenLineMode(osg::StateSet* stateSet);
+
+    /**
+     * @brief Clear Hidden Line mode resources
+     */
+    void clearHiddenLineMode();
+
 public:
     /**
      * @brief Set the selection start point (called by widget on mouse press)
@@ -260,8 +454,9 @@ public:
 
     /**
      * @brief Finish the selection (called by widget on mouse release)
+     * @return List of ViewProviders selected in the region
      */
-    void finishSelection();
+    std::vector<Gui::ViewProvider*> finishSelection();
 
 private:
     OsgVerseWidget* _widget;                              ///< Qt OpenGL widget
@@ -275,6 +470,7 @@ private:
     Gui::View3D::RenderMode _renderMode;                  ///< Current render mode
     Base::Color _backgroundColor;                         ///< Background color
     bool _backlightEnabled;                               ///< Backlight enabled
+    float _ambientIntensity{0.2f};                        ///< Ambient light intensity (0.0-1.0)
     bool _viewing;                                        ///< Viewing mode
     bool _fpsEnabled;                                     ///< FPS display enabled
     bool _orthographic;                                   ///< Orthographic camera
@@ -294,6 +490,38 @@ private:
     QPoint _selectionStart;                               ///< Selection start point
     QPoint _selectionCurrent;                             ///< Current selection point
     std::vector<QPoint> _lassoPoints;                     ///< Lasso selection points
+
+    // FPS display
+    osg::ref_ptr<osg::Camera> _fpsCamera;                 ///< HUD camera for FPS display
+    osg::ref_ptr<osg::Geode> _fpsGeode;                   ///< Geode for FPS text
+    osg::ref_ptr<osgText::Text> _fpsText;                 ///< FPS text node
+    osg::ref_ptr<osgText::Text> _statsText;               ///< Detailed stats text node
+
+    // Hidden Line mode
+    osg::ref_ptr<osg::Group> _hiddenLinePass1;            ///< First pass node for hidden line mode
+    bool _hiddenLineModeActive{false};                    ///< Whether hidden line mode is active
+
+    // Post-processing
+    std::unique_ptr<PostProcessManager> _postProcessManager;  ///< Post-processing effects manager
+
+    // NaviCube
+    std::unique_ptr<OsgVerseNaviCube> _naviCube;              ///< Navigation cube
+    bool _naviCubeEnabled{true};                              ///< NaviCube enabled flag
+
+    /**
+     * @brief Create the FPS display HUD
+     */
+    void createFPSDisplay();
+
+    /**
+     * @brief Update the FPS display text
+     */
+    void updateFPSDisplay();
+
+    /**
+     * @brief Show or hide FPS display
+     */
+    void showFPSDisplay(bool visible);
 };
 
 } // namespace OsgVerseGui

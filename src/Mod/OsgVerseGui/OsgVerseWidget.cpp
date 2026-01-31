@@ -8,6 +8,7 @@
 
 #include "OsgVerseWidget.h"
 #include "OsgVerseViewer.h"
+#include "OsgVerseNaviCube.h"
 #include <Base/Console.h>
 #include <Gui/Selection/Selection.h>
 #include <Gui/ViewProviderDocumentObject.h>
@@ -187,9 +188,17 @@ void OsgVerseWidget::resizeGL(int width, int height)
 
 void OsgVerseWidget::paintGL()
 {
-    // Render one frame
+    // Render one frame (main scene)
     if (_viewer.valid()) {
         _viewer->frame();
+    }
+
+    // Draw NaviCube AFTER main scene (so it appears on top)
+    if (_osgVerseViewer) {
+        OsgVerseNaviCube* naviCube = _osgVerseViewer->getNaviCube();
+        if (naviCube && naviCube->isEnabled()) {
+            naviCube->draw();
+        }
     }
 }
 
@@ -242,6 +251,16 @@ unsigned int OsgVerseWidget::getButtonMask()
 
 void OsgVerseWidget::mousePressEvent(QMouseEvent* event)
 {
+    // Check NaviCube first - it has priority for mouse events
+    if (_osgVerseViewer) {
+        OsgVerseNaviCube* naviCube = _osgVerseViewer->getNaviCube();
+        if (naviCube && naviCube->isEnabled() && naviCube->handleMouseEvent(event)) {
+            event->accept();
+            update();
+            return;
+        }
+    }
+
     // Check if we're in selection mode
     if (_osgVerseViewer && _osgVerseViewer->isSelecting() && event->button() == Qt::LeftButton) {
         // Start selection
@@ -269,6 +288,15 @@ void OsgVerseWidget::mousePressEvent(QMouseEvent* event)
 
 void OsgVerseWidget::mouseMoveEvent(QMouseEvent* event)
 {
+    // Check NaviCube first for hover effects
+    if (_osgVerseViewer) {
+        OsgVerseNaviCube* naviCube = _osgVerseViewer->getNaviCube();
+        if (naviCube && naviCube->isEnabled()) {
+            // Always let NaviCube process move events for hover highlighting
+            naviCube->handleMouseEvent(event);
+        }
+    }
+
     // Check if we're in selection mode and left button is pressed
     if (_osgVerseViewer && _osgVerseViewer->isSelecting() && (event->buttons() & Qt::LeftButton)) {
         // Update selection
@@ -289,6 +317,17 @@ void OsgVerseWidget::mouseMoveEvent(QMouseEvent* event)
 
 void OsgVerseWidget::mouseReleaseEvent(QMouseEvent* event)
 {
+    // Check NaviCube first - it has priority for mouse events
+    if (_osgVerseViewer) {
+        OsgVerseNaviCube* naviCube = _osgVerseViewer->getNaviCube();
+        if (naviCube && naviCube->isEnabled() && naviCube->handleMouseEvent(event)) {
+            event->accept();
+            _mousePressed = false;  // Reset press state
+            update();
+            return;
+        }
+    }
+
     // Check if we're in selection mode
     if (_osgVerseViewer && _osgVerseViewer->isSelecting() && event->button() == Qt::LeftButton) {
         // Finish selection
@@ -342,13 +381,27 @@ void OsgVerseWidget::wheelEvent(QWheelEvent* event)
 
 void OsgVerseWidget::mouseDoubleClickEvent(QMouseEvent* event)
 {
+    // Check NaviCube first - ignore double clicks on NaviCube
+    if (_osgVerseViewer) {
+        OsgVerseNaviCube* naviCube = _osgVerseViewer->getNaviCube();
+        if (naviCube && naviCube->isEnabled()) {
+            // Check if double click is on NaviCube area - if so, ignore it
+            // This prevents mouse stickiness issues
+            if (naviCube->handleMouseEvent(event)) {
+                event->accept();
+                update();
+                return;
+            }
+        }
+    }
+
     if (_graphicsWindow.valid()) {
         int button = qtButtonToOsg(event->button());
         _graphicsWindow->getEventQueue()->mouseDoubleButtonPress(
             event->x(), event->y(), button
         );
     }
-    
+
     // Trigger repaint
     update();
 }

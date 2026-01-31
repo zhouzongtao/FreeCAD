@@ -406,6 +406,10 @@ void ViewProviderGeometryObject::handleChangedPropertyName(
 
 void ViewProviderGeometryObject::initRenderNodes()
 {
+    // TEMPORARILY DISABLED: Render abstraction layer initialization
+    // This was causing crashes when loading documents
+    // TODO: Re-enable once render abstraction is fully stable
+#if 0
     // 检查是否已初始化（幂等性）/ Check if already initialized (idempotent)
     if (m_renderMaterial) {
         return;
@@ -438,6 +442,7 @@ void ViewProviderGeometryObject::initRenderNodes()
 
     // TODO: 创建边界框节点（需要 RenderBoundingBox 类型）
     // TODO: Create bounding box node (needs RenderBoundingBox type)
+#endif
 }
 
 void ViewProviderGeometryObject::syncMaterialToRenderNode(const App::Material& mat)

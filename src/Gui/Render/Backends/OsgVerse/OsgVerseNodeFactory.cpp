@@ -34,6 +34,7 @@
 #include "OsgVerseNode.h"
 #include "OsgVerseMaterial.h"
 #include "OsgVerseGeometry.h"
+#include "OsgVerseSelection.h"
 
 FC_LOG_LEVEL_INIT("OsgVerseNodeFactory", true, true)
 
@@ -169,24 +170,36 @@ std::shared_ptr<RenderNode> OsgVerseNodeFactory::createPickStyle()
 
 std::shared_ptr<RenderNode> OsgVerseNodeFactory::createSelectionRoot()
 {
-    // TODO: 创建 OsgVerse 选择根节点
-    // 暂时返回普通 Separator
-    FC_WARN("OsgVerseNodeFactory::createSelectionRoot: "
-            "Using OsgVerseSeparator as placeholder");
-    auto sep = std::make_shared<OsgVerseSeparator>();
-    sep->setName("SelectionRoot");
-    return sep;
+    // 创建选择根节点，支持选择高亮和预选高亮
+    // Create selection root node with selection and preselection highlighting
+    auto selectionRoot = std::make_shared<OsgVerseSelectionRoot>();
+
+    // 设置默认高亮颜色 (与 FreeCAD 默认一致)
+    // Set default highlight colors (consistent with FreeCAD defaults)
+    selectionRoot->setSelectionColor(0.1f, 0.8f, 0.1f, 1.0f);     // 绿色 / Green
+    selectionRoot->setPreselectionColor(0.88f, 0.88f, 0.1f, 1.0f); // 黄色 / Yellow
+    selectionRoot->setHighlightMode(OsgVerseSelectionRoot::HighlightMode::Color);
+    selectionRoot->setOutlineWidth(2.0f);
+
+    FC_LOG("OsgVerseNodeFactory::createSelectionRoot: Created OsgVerseSelectionRoot");
+
+    return selectionRoot;
 }
 
 std::shared_ptr<RenderNode> OsgVerseNodeFactory::createBoundingBox()
 {
-    // TODO: 创建 OsgVerse 边界框节点
-    // 暂时返回普通 Separator
-    FC_WARN("OsgVerseNodeFactory::createBoundingBox: "
-            "Using OsgVerseSeparator as placeholder");
-    auto sep = std::make_shared<OsgVerseSeparator>();
-    sep->setName("BoundingBox");
-    return sep;
+    // 创建边界框节点
+    // Create bounding box node
+    auto boundingBox = std::make_shared<OsgVerseBoundingBox>();
+
+    // 设置默认外观 (白色线框)
+    // Set default appearance (white wireframe)
+    boundingBox->setColor(1.0f, 1.0f, 1.0f, 1.0f);
+    boundingBox->setLineWidth(1.0f);
+
+    FC_LOG("OsgVerseNodeFactory::createBoundingBox: Created OsgVerseBoundingBox");
+
+    return boundingBox;
 }
 
 //-----------------------------------------------------------------------------

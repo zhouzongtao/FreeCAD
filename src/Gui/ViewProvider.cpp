@@ -1023,6 +1023,10 @@ SoGroup* ViewProvider::getChildRoot() const
 
 void ViewProvider::initRenderNodes()
 {
+    // TEMPORARILY DISABLED: Render abstraction layer initialization
+    // This was causing crashes when loading documents
+    // TODO: Re-enable once render abstraction is fully stable
+#if 0
     // 检查是否已初始化（幂等性）/ Check if already initialized (idempotent)
     if (m_renderRoot) {
         return;
@@ -1060,10 +1064,15 @@ void ViewProvider::initRenderNodes()
     else {
         FC_WARN("ViewProvider::initRenderNodes: Failed to create some nodes");
     }
+#endif
 }
 
 Render::RenderNode* ViewProvider::getRenderRoot() const
 {
+    // TEMPORARILY DISABLED: Render abstraction layer
+    // This was causing crashes when loading documents
+    // TODO: Re-enable once render abstraction is fully stable
+#if 0
     // 优先返回抽象层节点 / Prefer returning abstraction layer node
     if (m_renderRoot) {
         return m_renderRoot.get();
@@ -1087,6 +1096,10 @@ Render::RenderNode* ViewProvider::getRenderRoot() const
     wrapperCache[pcRoot] = wrapper;
 
     return wrapper.get();
+#else
+    // Always return nullptr - use Coin3D path only
+    return nullptr;
+#endif
 }
 
 std::shared_ptr<Render::RenderNode> ViewProvider::getRenderRootPtr() const

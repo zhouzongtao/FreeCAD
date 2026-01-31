@@ -37,6 +37,7 @@
 #include <Inventor/SoDB.h>
 
 #include <cmath>
+#include <algorithm>
 
 using namespace Gui::View3D::Coin;
 using Gui::ViewProvider;
@@ -223,6 +224,13 @@ void CoinViewer::viewAll()
 {
     if (_coinViewer) {
         _coinViewer->viewAll();
+    }
+}
+
+void CoinViewer::fitSelection()
+{
+    if (_coinViewer) {
+        _coinViewer->viewSelection();
     }
 }
 
@@ -512,6 +520,26 @@ bool CoinViewer::isBacklightEnabled() const
         return _coinViewer->isBacklightEnabled();
     }
     return false;
+}
+
+void CoinViewer::setAmbientIntensity(float intensity)
+{
+    // Coin3D uses a different mechanism for ambient light
+    // The ambient intensity is typically controlled through SoEnvironment or SoLightModel
+    // For now, store the value and log it
+    _ambientIntensity = std::clamp(intensity, 0.0f, 1.0f);
+
+    // TODO: Implement proper Coin3D ambient intensity control
+    // This would require:
+    // 1. Finding or creating an SoEnvironment node
+    // 2. Setting its ambientIntensity field
+    Base::Console().log("CoinViewer: Ambient intensity set to %.2f (not fully implemented)\n",
+                        _ambientIntensity);
+}
+
+float CoinViewer::getAmbientIntensity() const
+{
+    return _ambientIntensity;
 }
 
 //-----------------------------------------------------------------------

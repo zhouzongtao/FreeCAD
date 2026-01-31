@@ -341,14 +341,46 @@ struct BackendInfo {
 
 /**
  * @brief 渲染统计信息 / Rendering statistics
+ *
+ * Detailed statistics about the current rendering state.
+ * 当前渲染状态的详细统计信息。
  */
 struct RenderStats {
-    uint32_t frameCount{0};
-    uint32_t drawCalls{0};
-    uint32_t triangleCount{0};
-    uint32_t vertexCount{0};
-    double frameTime{0.0};                    ///< 毫秒 / Milliseconds
-    double fps{0.0};
+    // Frame statistics / 帧统计
+    uint32_t frameCount{0};                   ///< 总帧数 / Total frame count
+    double frameTime{0.0};                    ///< 帧时间（毫秒）/ Frame time in milliseconds
+    double fps{0.0};                          ///< 每秒帧数 / Frames per second
+
+    // Geometry statistics / 几何统计
+    uint32_t vertexCount{0};                  ///< 顶点总数 / Total vertex count
+    uint32_t triangleCount{0};                ///< 三角形总数 / Total triangle count
+    uint32_t drawCalls{0};                    ///< 绘制调用数 / Number of draw calls
+    uint32_t geometryCount{0};                ///< 几何节点数 / Number of geometry nodes
+    uint32_t geodeCount{0};                   ///< Geode 节点数 / Number of Geode nodes (OSG specific)
+
+    // Scene graph statistics / 场景图统计
+    uint32_t nodeCount{0};                    ///< 节点总数 / Total node count
+    uint32_t viewProviderCount{0};            ///< ViewProvider 数量 / Number of ViewProviders
+
+    // Memory statistics / 内存统计
+    uint64_t gpuMemoryUsed{0};                ///< GPU 已用内存（字节）/ GPU memory used in bytes
+    uint64_t gpuMemoryTotal{0};               ///< GPU 总内存（字节）/ Total GPU memory in bytes
+    uint64_t textureMemory{0};                ///< 纹理内存（字节）/ Texture memory in bytes
+    uint64_t vboMemory{0};                    ///< VBO 内存（字节）/ VBO memory in bytes
+
+    // State statistics / 状态统计
+    uint32_t stateChanges{0};                 ///< 状态切换次数 / Number of state changes
+    uint32_t textureBinds{0};                 ///< 纹理绑定次数 / Number of texture binds
+    uint32_t shaderSwitches{0};               ///< 着色器切换次数 / Number of shader switches
+
+    // Helper methods / 辅助方法
+    double getAverageFrameTime() const {
+        return (fps > 0.0) ? (1000.0 / fps) : 0.0;
+    }
+
+    uint64_t getTotalGPUMemory() const {
+        return textureMemory + vboMemory;
+    }
 };
 
 } // namespace Render

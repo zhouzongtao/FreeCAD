@@ -88,6 +88,7 @@ public:
     void setCamera(const CameraParams& params) override;
     CameraParams getCamera() const override;
     void viewAll() override;
+    void fitSelection() override;
     void resetCamera() override;
     void setCameraType(bool orthographic) override;
     bool isCameraOrthographic() const override;
@@ -120,6 +121,8 @@ public:
     Base::Color getBackgroundColor() const override;
     void setBacklightEnabled(bool enabled) override;
     bool isBacklightEnabled() const override;
+    void setAmbientIntensity(float intensity) override;
+    float getAmbientIntensity() const override;
 
     // 导航和交互
     void setNavigationStyle(const std::string& style) override;
@@ -168,6 +171,7 @@ public:
 private:
     // 内部使用现有的 View3DInventorViewer
     View3DInventorViewer* _coinViewer;
+    float _ambientIntensity{0.2f};  ///< Ambient light intensity
 
     // 辅助方法：转换选择模式
     int convertSelectionMode(SelectionMode mode);
