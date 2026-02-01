@@ -7,6 +7,7 @@
 #include <Gui/View3D/IViewer3D.h>
 #include <Base/Console.h>
 
+#include <QDateTime>
 #include <QMouseEvent>
 #include <QOpenGLFramebufferObject>
 #include <QOpenGLTexture>
@@ -36,12 +37,18 @@ namespace OsgVerseGui {
 
 OsgVerseNaviCube::OsgVerseNaviCube(OsgVerseViewer* viewer)
     : _viewer(viewer)
+    , _animationTimer(new QTimer(this))
 {
     // Set default labels
     _labels = {"FRONT", "TOP", "RIGHT", "REAR", "BOTTOM", "LEFT"};
 
     // Initialize colors
     updateColors();
+
+    // Setup animation timer
+    _animationTimer->setInterval(16);  // ~60fps
+    connect(_animationTimer, &QTimer::timeout,
+            this, &OsgVerseNaviCube::updateCameraAnimation);
 }
 
 OsgVerseNaviCube::~OsgVerseNaviCube()
@@ -310,8 +317,6 @@ void OsgVerseNaviCube::updateColors()
 
 void OsgVerseNaviCube::prepare()
 {
-    Base::Console().log("OsgVerseNaviCube: Preparing NaviCube...\n");
-
     // Get device pixel ratio
     if (_viewer) {
         QWidget* widget = _viewer->getWidget();
@@ -377,8 +382,6 @@ void OsgVerseNaviCube::prepare()
     addButtonFace(ViewMenu);
 
     ensurePickingFramebuffer();
-
-    Base::Console().log("OsgVerseNaviCube: NaviCube prepared\n");
 }
 
 void OsgVerseNaviCube::addCubeFace(const osg::Vec3f& x, const osg::Vec3f& z,
@@ -1166,16 +1169,8 @@ void OsgVerseNaviCube::setCameraOrientation(PickId face)
         // Calculate new eye position
         osg::Vec3d newEye = center - newViewDir * distance;
 
-        // Update camera parameters
-        params.position.x = newEye.x();
-        params.position.y = newEye.y();
-        params.position.z = newEye.z();
-        params.upVector.x = newUp.x();
-        params.upVector.y = newUp.y();
-        params.upVector.z = newUp.z();
-
-        // Set camera
-        _viewer->setCamera(params);
+        // Start animation instead of directly setting camera
+        startCameraAnimation(newEye, newUp, center);
         return;
     }
 }
@@ -1453,4 +1448,143 @@ void OsgVerseNaviCube::updateFaceColors()
     // Colors are updated in drawNaviCube() directly based on highlight state
 }
 
-} // namespace OsgVerseGui
+//===========================================================================
+// Camera Animation
+//===========================================================================
+
+void OsgVerseNaviCube::startCameraAnimation(const osg::Vec3d& targetEye,
+                                             const osg::Vec3d& targetUp,
+                                             const osg::Vec3d& center)
+{
+    if (!_viewer) return;
+
+    // If animation is already running, stop it
+    if (_cameraAnimation.active) {
+        stopCameraAnimation();
+    }
+
+    // Get current camera state
+    auto params = _viewer->getCamera();
+    _cameraAnimation.startEye = osg::Vec3d(
+        params.position.x, params.position.y, params.position.z
+    );
+    _cameraAnimation.startUp = osg::Vec3d(
+        params.upVector.x, params.upVector.y, params.upVector.z
+    );
+
+    // Set target state
+    _cameraAnimation.targetEye = targetEye;
+    _cameraAnimation.targetUp = targetUp;
+    _cameraAnimation.center = center;
+
+    // Set timing
+    _cameraAnimation.startTime = QDateTime::currentMSecsSinceEpoch();
+    _cameraAnimation.duration = DEFAULT_ANIMATION_DURATION;
+    _cameraAnimation.active = true;
+
+    // Start timer
+    _animationTimer->start();
+}
+
+void OsgVerseNaviCube::stopCameraAnimation()
+{
+    _cameraAnimation.active = false;
+    _animationTimer->stop();
+}
+
+void OsgVerseNaviCube::updateCameraAnimation()
+{
+    if (!_cameraAnimation.active || !_viewer) {
+        _animationTimer->stop();
+        return;
+    }
+
+    // Calculate progress
+    qint64 currentTime = QDateTime::currentMSecsSinceEpoch();
+    double elapsed = currentTime - _cameraAnimation.startTime;
+    double t = elapsed / _cameraAnimation.duration;
+
+    if (t >= 1.0) {
+        // Animation complete, set final position
+        t = 1.0;
+        _cameraAnimation.active = false;
+        _animationTimer->stop();
+    }
+
+    // Apply easing function
+    double easedT = easeInOutCubic(t);
+
+    // Interpolate
+    osg::Vec3d currentEye = lerp(
+        _cameraAnimation.startEye,
+        _cameraAnimation.targetEye,
+        easedT
+    );
+
+    osg::Vec3d currentUp = slerp(
+        _cameraAnimation.startUp,
+        _cameraAnimation.targetUp,
+        easedT
+    );
+
+    // Update camera
+    auto params = _viewer->getCamera();
+    params.position.x = currentEye.x();
+    params.position.y = currentEye.y();
+    params.position.z = currentEye.z();
+    params.upVector.x = currentUp.x();
+    params.upVector.y = currentUp.y();
+    params.upVector.z = currentUp.z();
+
+    _viewer->setCamera(params);
+
+    // Trigger redraw
+    scheduleRedraw();
+}
+
+double OsgVerseNaviCube::easeInOutCubic(double t)
+{
+    if (t < 0.5) {
+        return 4.0 * t * t * t;
+    } else {
+        double f = 2.0 * t - 2.0;
+        return 0.5 * f * f * f + 1.0;
+    }
+}
+
+osg::Vec3d OsgVerseNaviCube::lerp(const osg::Vec3d& a, const osg::Vec3d& b, double t)
+{
+    return a * (1.0 - t) + b * t;
+}
+
+osg::Vec3d OsgVerseNaviCube::slerp(const osg::Vec3d& a, const osg::Vec3d& b, double t)
+{
+    // Normalize vectors
+    osg::Vec3d v0 = a;
+    osg::Vec3d v1 = b;
+    v0.normalize();
+    v1.normalize();
+
+    // Calculate dot product
+    double dot = v0 * v1;
+
+    // If vectors are nearly parallel, use linear interpolation
+    if (dot > 0.9995) {
+        return lerp(a, b, t);
+    }
+
+    // Clamp dot to [-1, 1]
+    dot = std::clamp(dot, -1.0, 1.0);
+
+    // Calculate angle
+    double theta = std::acos(dot) * t;
+
+    // Calculate orthogonal vector
+    osg::Vec3d v2 = v1 - v0 * dot;
+    v2.normalize();
+
+    // Spherical interpolation
+    return v0 * std::cos(theta) + v2 * std::sin(theta);
+}
+
+}
