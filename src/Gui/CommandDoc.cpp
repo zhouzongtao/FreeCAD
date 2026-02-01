@@ -719,16 +719,15 @@ void StdCmdNew::activated(int iMsg)
     cmd = QStringLiteral("App.newDocument()");
     runCommand(Command::Doc, cmd.toUtf8());
     
-    // Check if view exists before calling viewDefaultOrientation
+    // Check if view exists and supports viewDefaultOrientation before calling
+    // Note: Not all view backends (e.g., OsgVerse) may implement this method
     doCommand(Command::Gui, 
         "try:\n"
         "    view = Gui.activeDocument().activeView()\n"
-        "    if view:\n"
+        "    if view and hasattr(view, 'viewDefaultOrientation'):\n"
         "        view.viewDefaultOrientation()\n"
-        "    else:\n"
-        "        print('Warning: No active view available for viewDefaultOrientation')\n"
-        "except Exception as e:\n"
-        "    print(f'Error calling viewDefaultOrientation: {e}')\n");
+        "except Exception:\n"
+        "    pass  # Silently ignore for backends that don't support it\n");
 
     ParameterGrp::handle hViewGrp = App::GetApplication().GetParameterGroupByPath(
         "User parameter:BaseApp/Preferences/View"
