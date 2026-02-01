@@ -369,10 +369,10 @@ void OsgVerseNaviCube::prepare()
     // ArrowLeft/Right: roll counter-clockwise/clockwise (rotate around Y axis for roll)
     addButtonFace(ArrowNorth, osg::Vec3f(1, 0, 0));    // Swapped: was (-1, 0, 0)
     addButtonFace(ArrowSouth, osg::Vec3f(-1, 0, 0));   // Swapped: was (1, 0, 0)
-    addButtonFace(ArrowEast, osg::Vec3f(0, 0, -1));
-    addButtonFace(ArrowWest, osg::Vec3f(0, 0, 1));
-    addButtonFace(ArrowLeft, osg::Vec3f(0, -1, 0));
-    addButtonFace(ArrowRight, osg::Vec3f(0, 1, 0));
+    addButtonFace(ArrowEast, osg::Vec3f(0, 0, -1));    // Restored
+    addButtonFace(ArrowWest, osg::Vec3f(0, 0, 1));     // Restored
+    addButtonFace(ArrowLeft, osg::Vec3f(0, 1, 0));     // Swapped with Right
+    addButtonFace(ArrowRight, osg::Vec3f(0, -1, 0));   // Swapped with Left
     addButtonFace(DotBackside, osg::Vec3f(0, 1, 0));
     addButtonFace(ViewMenu);
 
@@ -1103,8 +1103,8 @@ void OsgVerseNaviCube::setCameraOrientation(PickId face)
         _viewer->setCamera(params);
         return;
     } else if (f.type == ShapeButton) {
-        // Handle button rotations by directly manipulating camera vectors
-        // This avoids quaternion convention issues between OSG and Coin3D
+        // Handle button rotations by transforming world axes to camera-relative axes
+        // This makes arrow buttons behave like mouse drag (camera-relative rotation)
 
         if (!_viewer) return;
 
@@ -1113,17 +1113,12 @@ void OsgVerseNaviCube::setCameraOrientation(PickId face)
         float rotStepAngle = (2.0f * std::numbers::pi_v<float>) / static_cast<float>(step);
 
         // Determine the rotation angle
-        // In Coin3D: SbRotation(direction, 1).inverse().scaleAngle(angle) = -angle around direction
         double angle;
         if (face == DotBackside) {
-            angle = -std::numbers::pi_v<double>;  // -180 degrees
+            angle = std::numbers::pi_v<double>;  // 180 degrees
         } else {
-            angle = -static_cast<double>(rotStepAngle);  // Negative to match Coin3D
+            angle = static_cast<double>(rotStepAngle);
         }
-
-        // Get the rotation axis (world space)
-        osg::Vec3d axis(f.direction.x(), f.direction.y(), f.direction.z());
-        axis.normalize();
 
         // Get current camera parameters
         auto params = _viewer->getCamera();
@@ -1131,29 +1126,45 @@ void OsgVerseNaviCube::setCameraOrientation(PickId face)
         osg::Vec3d center(params.target.x, params.target.y, params.target.z);
         osg::Vec3d up(params.upVector.x, params.upVector.y, params.upVector.z);
 
+        // Calculate camera coordinate system
+        osg::Vec3d viewDir = center - eye;  // Forward direction (from eye to center)
+        viewDir.normalize();
+        
+        osg::Vec3d right = viewDir ^ up;  // Right direction
+        right.normalize();
+        
+        osg::Vec3d camUp = right ^ viewDir;  // Recalculate up to ensure orthogonality
+        camUp.normalize();
+
+        // Transform world axis to camera space
+        // Arrow directions are defined in world space, we need to interpret them relative to camera
+        osg::Vec3d worldAxis(f.direction.x(), f.direction.y(), f.direction.z());
+        worldAxis.normalize();
+
+        // Map world axis to camera axis
+        // X-axis (1,0,0) -> right axis (for pitch/tilt up-down)
+        // Y-axis (0,1,0) -> viewDir axis (for roll left-right)
+        // Z-axis (0,0,1) -> camUp axis (for yaw east-west)
+        osg::Vec3d cameraAxis = right * worldAxis.x() + viewDir * worldAxis.y() + camUp * worldAxis.z();
+        cameraAxis.normalize();
+
         // Calculate distance (preserve it)
         double distance = (eye - center).length();
         if (distance < 0.1) {
             distance = 10.0;  // Default reasonable distance
         }
 
-        // Create rotation matrix around the axis
-        osg::Matrixd rotMatrix = osg::Matrixd::rotate(angle, axis);
+        // Create rotation matrix around the camera-relative axis
+        osg::Matrixd rotMatrix = osg::Matrixd::rotate(angle, cameraAxis);
 
         // Apply rotation to the view direction and up vector
-        // viewDir = eye - center (direction from center to eye)
-        osg::Vec3d viewDir = eye - center;
-        viewDir.normalize();
-
-        // Rotate the view direction and up vector
-        // Use operator* which applies the rotation correctly (v * M in OSG convention)
-        osg::Vec3d newViewDir = rotMatrix.postMult(viewDir);
+        osg::Vec3d newViewDir = rotMatrix.preMult(viewDir);
         newViewDir.normalize();
-        osg::Vec3d newUp = rotMatrix.postMult(up);
+        osg::Vec3d newUp = rotMatrix.preMult(camUp);
         newUp.normalize();
 
         // Calculate new eye position
-        osg::Vec3d newEye = center + newViewDir * distance;
+        osg::Vec3d newEye = center - newViewDir * distance;
 
         // Update camera parameters
         params.position.x = newEye.x();
@@ -1163,7 +1174,7 @@ void OsgVerseNaviCube::setCameraOrientation(PickId face)
         params.upVector.y = newUp.y();
         params.upVector.z = newUp.z();
 
-        // Set camera directly without using quaternions
+        // Set camera
         _viewer->setCamera(params);
         return;
     }
