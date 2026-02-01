@@ -191,8 +191,6 @@ View3DInventor::View3DInventor(
     connect(stopSpinTimer, &QTimer::timeout, this, &View3DInventor::stopAnimating);
 
     setWindowIcon(Gui::BitmapFactory().pixmap("Document"));
-    
-    Base::Console().log("View3DInventor: Constructor completed successfully\n");
 }
 
 View3DInventor::~View3DInventor()

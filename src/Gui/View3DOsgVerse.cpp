@@ -99,12 +99,6 @@ View3DOsgVerse::View3DOsgVerse(Gui::Document* pcDocument,
             throw std::runtime_error("ViewerFactory returned null viewer");
         }
         
-        Base::Console().log("View3DOsgVerse: Viewer created successfully\n");
-        Base::Console().log("View3DOsgVerse: Backend: %s\n", 
-                           _viewer->getBackendName().c_str());
-        Base::Console().log("View3DOsgVerse: Version: %s\n",
-                           _viewer->getBackendVersion().c_str());
-        
         // Get the widget from viewer
         QWidget* viewerWidget = _viewer->getWidget();
         if (!viewerWidget) {
@@ -119,8 +113,6 @@ View3DOsgVerse::View3DOsgVerse(Gui::Document* pcDocument,
         setFocusPolicy(Qt::StrongFocus);
         setMouseTracking(true);
         setAcceptDrops(true);
-        
-        Base::Console().log("View3DOsgVerse: Constructor completed successfully\n");
     }
     catch (const std::exception& e) {
         Base::Console().error("View3DOsgVerse: Failed to create viewer: %s\n", e.what());
