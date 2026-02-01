@@ -81,7 +81,8 @@ OsgVerseWidget::OsgVerseWidget(QWidget* parent)
         // Setup camera manipulator (Phase 2)
         osg::ref_ptr<osgGA::TrackballManipulator> manipulator = new osgGA::TrackballManipulator();
         manipulator->setAllowThrow(false);  // Disable momentum
-        manipulator->setVerticalAxisFixed(true);  // Keep up vector fixed
+        // Don't fix vertical axis to avoid gimbal lock when viewing from top/bottom
+        // manipulator->setVerticalAxisFixed(true);
         _viewer->setCameraManipulator(manipulator.get());
         
         // DON'T call realize() here - it needs OpenGL context
@@ -480,7 +481,8 @@ void OsgVerseWidget::setNavigationStyle(NavigationStyle style)
             // Middle button rotates around the center, scroll zooms
             osg::ref_ptr<osgGA::OrbitManipulator> orbit = new osgGA::OrbitManipulator();
             orbit->setAllowThrow(false);
-            orbit->setVerticalAxisFixed(true);
+            // Don't fix vertical axis to avoid gimbal lock
+            // orbit->setVerticalAxisFixed(true);
             manipulator = orbit;
             break;
         }
@@ -497,7 +499,8 @@ void OsgVerseWidget::setNavigationStyle(NavigationStyle style)
             // Use TrackballManipulator with adjusted settings for touchpad
             osg::ref_ptr<osgGA::TrackballManipulator> trackball = new osgGA::TrackballManipulator();
             trackball->setAllowThrow(false);
-            trackball->setVerticalAxisFixed(true);
+            // Don't fix vertical axis to avoid gimbal lock
+            // trackball->setVerticalAxisFixed(true);
             // Trackball works well with touchpad gestures
             manipulator = trackball;
             break;
@@ -508,7 +511,8 @@ void OsgVerseWidget::setNavigationStyle(NavigationStyle style)
             // Default trackball - good for general 3D navigation
             osg::ref_ptr<osgGA::TrackballManipulator> trackball = new osgGA::TrackballManipulator();
             trackball->setAllowThrow(false);
-            trackball->setVerticalAxisFixed(true);
+            // Don't fix vertical axis to avoid gimbal lock
+            // trackball->setVerticalAxisFixed(true);
             manipulator = trackball;
             break;
         }

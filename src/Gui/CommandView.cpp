@@ -2313,6 +2313,37 @@ bool StdCmdViewCreateOsgVerse::isActive()
 }
 
 //===========================================================================
+// Std_ViewCreateCoin3D
+//===========================================================================
+DEF_STD_CMD_A(StdCmdViewCreateCoin3D)
+
+StdCmdViewCreateCoin3D::StdCmdViewCreateCoin3D()
+    : Command("Std_ViewCreateCoin3D")
+{
+    sGroup = "Standard-View";
+    sMenuText = QT_TR_NOOP("New Coin3D 3D View");
+    sToolTipText = QT_TR_NOOP("Opens a new Coin3D 3D view window for the active document");
+    sWhatsThis = "Std_ViewCreateCoin3D";
+    sStatusTip = sToolTipText;
+    sPixmap = "window-new";
+    eType = Alter3DView;
+}
+
+void StdCmdViewCreateCoin3D::activated(int iMsg)
+{
+    Q_UNUSED(iMsg);
+    // 强制创建 Coin3D 视图（View3DInventor），绕过自动切换逻辑
+    getActiveGuiDocument()->createView(View3DInventor::getClassTypeId(), 
+                                       Gui::CreateViewMode::ForceCoin3D);
+    getActiveGuiDocument()->getActiveView()->viewAll();
+}
+
+bool StdCmdViewCreateCoin3D::isActive()
+{
+    return (getActiveGuiDocument() != nullptr);
+}
+
+//===========================================================================
 // Std_ToggleNavigation
 //===========================================================================
 DEF_STD_CMD_A(StdCmdToggleNavigation)
@@ -4449,6 +4480,7 @@ void CreateViewStdCommands()
 
     rcCmdMgr.addCommand(new StdCmdViewCreate());
     rcCmdMgr.addCommand(new StdCmdViewCreateOsgVerse());
+    rcCmdMgr.addCommand(new StdCmdViewCreateCoin3D());
     rcCmdMgr.addCommand(new StdViewScreenShot());
     rcCmdMgr.addCommand(new StdViewLoadImage());
     rcCmdMgr.addCommand(new StdMainFullscreen());

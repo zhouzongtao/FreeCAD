@@ -154,16 +154,10 @@ OsgVerseViewer::OsgVerseViewer(QWidget* parent)
         lightModel->setLocalViewer(true);
         stateSet->setAttributeAndModes(lightModel.get(), osg::StateAttribute::ON);
         
-        // Set default camera position
-        if (viewer) {
-            viewer->getCameraManipulator()->setHomePosition(
-                osg::Vec3d(0, -100, 50),  // Eye - further back for typical CAD models
-                osg::Vec3d(0, 0, 0),      // Center
-                osg::Vec3d(0, 0, 1)       // Up
-            );
-            viewer->home();
-        }
-
+        // NOTE: Default camera position is set in OsgVerseWidget constructor
+        // Don't override it here - it's already configured for TOP view
+        // The home position is set to (0, 0, 100) looking down with Y-up
+        
         // NaviCube will be created lazily on first render
         // Don't create it here as the viewer may not be fully initialized
     }
@@ -393,6 +387,17 @@ void OsgVerseViewer::viewAll()
     if (_widget) {
         osgViewer::Viewer* viewer = _widget->getViewer();
         if (viewer) {
+            Base::Console().warning("OsgVerseViewer::viewAll() called - calling viewer->home()\n");
+            
+            // Get current home position before calling home()
+            osgGA::CameraManipulator* manipulator = viewer->getCameraManipulator();
+            if (manipulator) {
+                osg::Vec3d eye, center, up;
+                manipulator->getHomePosition(eye, center, up);
+                Base::Console().warning("  Current home position - eye: (%.2f, %.2f, %.2f)\n",
+                                       eye.x(), eye.y(), eye.z());
+            }
+            
             viewer->home();
             render();
         }
@@ -485,8 +490,17 @@ void OsgVerseViewer::fitSelection()
     osgGA::TrackballManipulator* trackball =
         dynamic_cast<osgGA::TrackballManipulator*>(manipulator);
     if (trackball) {
-        trackball->setCenter(bs.center());
-        trackball->setDistance(bs.radius() * 2.5);  // Distance to fit the sphere
+        // Set isometric view to match Coin3D (shows top, front, right)
+        double dist = bs.radius() * 2.5;
+        osg::Vec3d eye = bs.center() + osg::Vec3d(dist, -dist, dist);
+        osg::Vec3d center = bs.center();
+        osg::Vec3d up(0, 1, 0);  // Y-up
+        
+        // Create view matrix and set it
+        osg::Matrixd viewMatrix;
+        viewMatrix.makeLookAt(eye, center, up);
+        trackball->setByMatrix(osg::Matrixd::inverse(viewMatrix));
+        
         render();
         return;
     }
@@ -501,9 +515,12 @@ void OsgVerseViewer::fitSelection()
     }
 
     // Generic approach: set home position and go home
-    osg::Vec3d eye = bs.center() + osg::Vec3d(0, -bs.radius() * 2.5, bs.radius());
+    // Use isometric view to match Coin3D default (shows top, front, right)
+    // Isometric view: eye at (1, -1, 1) direction relative to center
+    double dist = bs.radius() * 2.5;
+    osg::Vec3d eye = bs.center() + osg::Vec3d(dist, -dist, dist);
     osg::Vec3d center = bs.center();
-    osg::Vec3d up(0, 0, 1);
+    osg::Vec3d up(0, 1, 0);  // Y-up to match Coin3D
     manipulator->setHomePosition(eye, center, up);
     viewer->home();
     render();

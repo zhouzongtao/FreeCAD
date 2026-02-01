@@ -114,18 +114,25 @@ bool RenderManager::initialize()
     // Coin3D is usually already registered via auto-registration in Coin3DEngine.cpp
 
     // 创建默认引擎 / Create default engine
+    Base::Console().log("RenderManager::initialize: Creating default engine...\n");
     _currentEngine = factory.createDefault();
     if (_currentEngine) {
         _currentBackend = _currentEngine->getType();
+        Base::Console().log("RenderManager::initialize: Created engine type: %d\n", 
+                            static_cast<int>(_currentBackend));
+        
         if (_currentEngine->initialize()) {
             _initialized = true;
-            Base::Console().log("RenderManager::initialize: Initialized with backend: %s\n",
-                                _currentEngine->getName().c_str());
+            Base::Console().log("RenderManager::initialize: Initialized with backend: %s (type: %d)\n",
+                                _currentEngine->getName().c_str(),
+                                static_cast<int>(_currentBackend));
         } else {
             Base::Console().error("RenderManager::initialize: Failed to initialize default engine\n");
+            _currentBackend = Render::BackendType::None;
         }
     } else {
         Base::Console().warning("RenderManager::initialize: No default engine available\n");
+        _currentBackend = Render::BackendType::None;
         // 即使没有引擎也标记为已初始化（允许后续注册）
         // Mark as initialized even without engine (allows later registration)
         _initialized = true;

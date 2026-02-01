@@ -2300,7 +2300,8 @@ MDIView* Document::createView(const Base::Type& typeId, CreateViewMode mode)
     std::list<MDIView*> theViews = this->getMDIViewsOfType(typeId);
     
     // Check if requesting View3DInventor - select implementation based on backend
-    if (typeId == View3DInventor::getClassTypeId()) {
+    // Note: This auto-switching only applies in Normal mode, not when forcing Coin3D
+    if (typeId == View3DInventor::getClassTypeId() && mode != CreateViewMode::ForceCoin3D) {
         Base::Console().log("Document::createView: View3DInventor requested\n");
 
         // Get current render backend from RenderManager
@@ -2310,19 +2311,27 @@ MDIView* Document::createView(const Base::Type& typeId, CreateViewMode mode)
         Base::Console().log("Document::createView: Current backend: %d\n",
                            static_cast<int>(backend));
 
-        // TEMPORARILY DISABLED: OsgVerse backend auto-selection
-        // This was causing crashes when loading documents
-        // TODO: Re-enable once OsgVerse backend is fully stable
-#if 0
         // If OsgVerse backend is active, create View3DOsgVerse instead
         if (backend == Gui::Render::BackendType::OsgVerse) {
             Base::Console().log("Document::createView: Creating View3DOsgVerse for OsgVerse backend\n");
             return createView(View3DOsgVerse::getClassTypeId(), mode);
         }
-#endif
+        // If no backend is selected, try OsgVerse first (default)
+        else if (backend == Gui::Render::BackendType::None) {
+            Base::Console().log("Document::createView: No backend selected, trying OsgVerse as default\n");
+            try {
+                return createView(View3DOsgVerse::getClassTypeId(), mode);
+            }
+            catch (const std::exception& e) {
+                Base::Console().warning("Document::createView: Failed to create OsgVerse view: %s, falling back to Coin3D\n", e.what());
+            }
+        }
 
-        // Always use Coin3D (View3DInventor) for now
+        // Fall back to Coin3D (View3DInventor)
         Base::Console().log("Document::createView: Creating View3DInventor for Coin3D backend\n");
+    }
+    else if (typeId == View3DInventor::getClassTypeId() && mode == CreateViewMode::ForceCoin3D) {
+        Base::Console().log("Document::createView: Forcing Coin3D view creation (bypassing auto-switch)\n");
     }
     
     // Handle View3DOsgVerse creation

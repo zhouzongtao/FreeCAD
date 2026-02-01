@@ -71,7 +71,8 @@ class TransactionViewProvider;
 enum class CreateViewMode
 {
     Normal,
-    Clone
+    Clone,
+    ForceCoin3D  // Force creation of Coin3D view, bypass auto-switching
 };
 
 /** The Gui Document

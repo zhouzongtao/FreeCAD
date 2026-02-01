@@ -35,8 +35,44 @@
 #include "MainWindow.h"
 #include "BitmapFactory.h"
 #include <Base/Console.h>
+#include <Base/Interpreter.h>
+#include <osg/Quat>
+#include <cmath>
 
 using namespace Gui;
+
+// Helper function to set camera from quaternion (matching NaviCube implementation)
+static void setCameraParamsFromQuat(Gui::View3D::CameraParams& params, const osg::Quat& quat)
+{
+    osg::Vec3d eye(params.position.x, params.position.y, params.position.z);
+    osg::Vec3d center(params.target.x, params.target.y, params.target.z);
+    double distance = (eye - center).length();
+
+    // Ensure minimum distance to avoid numerical issues
+    if (distance < 0.1) {
+        distance = 10.0;  // Default reasonable distance
+    }
+
+    // quat is world-to-camera, so we need inverse (camera-to-world) to transform camera vectors to world
+    osg::Quat camToWorld = quat.inverse();
+
+    // Default forward is -Z (0, 0, -1) in OpenGL convention
+    // Transform from camera space to world space
+    osg::Vec3d forward = camToWorld * osg::Vec3d(0, 0, -1);
+    forward.normalize();
+
+    osg::Vec3d newUp = camToWorld * osg::Vec3d(0, 1, 0);
+    newUp.normalize();
+
+    osg::Vec3d newEye = center - forward * distance;
+
+    params.position.x = newEye.x();
+    params.position.y = newEye.y();
+    params.position.z = newEye.z();
+    params.upVector.x = newUp.x();
+    params.upVector.y = newUp.y();
+    params.upVector.z = newUp.z();
+}
 
 TYPESYSTEM_SOURCE_ABSTRACT(Gui::View3DOsgVerse, Gui::View3DBase)
 
@@ -147,13 +183,60 @@ bool View3DOsgVerse::onMsg(const char* pMsg, const char** ppReturn)
         _viewer->resetCamera();
         return true;
     }
-    else if (strcmp(pMsg, "ViewBottom") == 0 ||
-             strcmp(pMsg, "ViewFront") == 0 ||
-             strcmp(pMsg, "ViewLeft") == 0 ||
-             strcmp(pMsg, "ViewRear") == 0 ||
-             strcmp(pMsg, "ViewRight") == 0 ||
-             strcmp(pMsg, "ViewTop") == 0) {
-        // TODO: Implement standard views
+    else if (strcmp(pMsg, "ViewBottom") == 0) {
+        // Bottom view: looking up from below (rotate 180° around X)
+        Gui::View3D::CameraParams params = _viewer->getCamera();
+        osg::Quat rot(1, 0, 0, 0);  // {1, 0, 0, 0} = 180° around X
+        setCameraParamsFromQuat(params, rot);
+        _viewer->setCamera(params);
+        _viewer->viewAll();
+        return true;
+    }
+    else if (strcmp(pMsg, "ViewFront") == 0) {
+        // Front view: looking from front (rotate 90° around X)
+        Gui::View3D::CameraParams params = _viewer->getCamera();
+        float root = std::sqrt(2.0f) / 2.0f;
+        osg::Quat rot(root, 0, 0, root);  // {root, 0, 0, root} = 90° around X
+        setCameraParamsFromQuat(params, rot);
+        _viewer->setCamera(params);
+        _viewer->viewAll();
+        return true;
+    }
+    else if (strcmp(pMsg, "ViewLeft") == 0) {
+        // Left view: looking from left
+        Gui::View3D::CameraParams params = _viewer->getCamera();
+        osg::Quat rot(-0.5, 0.5, 0.5, -0.5);
+        setCameraParamsFromQuat(params, rot);
+        _viewer->setCamera(params);
+        _viewer->viewAll();
+        return true;
+    }
+    else if (strcmp(pMsg, "ViewRear") == 0) {
+        // Rear view: looking from behind
+        Gui::View3D::CameraParams params = _viewer->getCamera();
+        float root = std::sqrt(2.0f) / 2.0f;
+        osg::Quat rot(0, root, root, 0);
+        setCameraParamsFromQuat(params, rot);
+        _viewer->setCamera(params);
+        _viewer->viewAll();
+        return true;
+    }
+    else if (strcmp(pMsg, "ViewRight") == 0) {
+        // Right view: looking from right
+        Gui::View3D::CameraParams params = _viewer->getCamera();
+        osg::Quat rot(0.5, 0.5, 0.5, 0.5);
+        setCameraParamsFromQuat(params, rot);
+        _viewer->setCamera(params);
+        _viewer->viewAll();
+        return true;
+    }
+    else if (strcmp(pMsg, "ViewTop") == 0) {
+        // Top view: looking down from above
+        Gui::View3D::CameraParams params = _viewer->getCamera();
+        osg::Quat rot(0, 0, 0, 1);  // Identity = no rotation
+        setCameraParamsFromQuat(params, rot);
+        _viewer->setCamera(params);
+        _viewer->viewAll();
         return true;
     }
     else if (strcmp(pMsg, "ViewAxo") == 0) {
@@ -274,4 +357,17 @@ void View3DOsgVerse::resizeEvent(QResizeEvent* event)
     if (_viewer) {
         _viewer->resize(event->size().width(), event->size().height());
     }
+}
+
+
+//===========================================================================
+// Python interface
+//===========================================================================
+
+PyObject* View3DOsgVerse::getPyObject()
+{
+    // Use base class implementation which creates MDIViewPy
+    // This provides basic view functionality through Python
+    // TODO: Create View3DOsgVersePy for full API support
+    return View3DBase::getPyObject();
 }

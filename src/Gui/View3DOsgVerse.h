@@ -134,6 +134,12 @@ public:
      * @brief Dump view information
      */
     void dump();
+    
+    /**
+     * @brief Get Python object for this view
+     * @return Python object
+     */
+    PyObject* getPyObject() override;
 
 protected:
     /**

@@ -113,7 +113,20 @@ RenderEngine::Ptr RenderEngineFactory::create(BackendType type)
 
 RenderEngine::Ptr RenderEngineFactory::createDefault()
 {
-    // 尝试创建默认类型 / Try to create default type
+    // 使用 selectBestEngine 自动选择最佳引擎
+    // Use selectBestEngine to automatically select the best engine
+    BackendType bestType = selectBestEngine();
+    
+    if (bestType != BackendType::None) {
+        auto engine = create(bestType);
+        if (engine) {
+            Base::Console().log("RenderEngineFactory: Using best engine: %d\n", static_cast<int>(bestType));
+            return engine;
+        }
+    }
+
+    // 如果自动选择失败，尝试默认类型
+    // If auto-selection fails, try default type
     auto engine = create(_defaultType);
     if (engine) {
         return engine;
@@ -122,7 +135,7 @@ RenderEngine::Ptr RenderEngineFactory::createDefault()
     // 如果默认类型失败，尝试其他已注册的引擎
     // If default type fails, try other registered engines
     for (const auto& [type, creator] : _creators) {
-        if (type != _defaultType) {
+        if (type != _defaultType && type != bestType) {
             engine = creator();
             if (engine) {
                 FC_WARN("RenderEngineFactory: Default engine unavailable, using type " << static_cast<int>(type));
@@ -190,31 +203,29 @@ BackendInfo RenderEngineFactory::getEngineInfo(BackendType type) const
 BackendType RenderEngineFactory::selectBestEngine() const
 {
     // 优先级顺序 / Priority order:
-    // 1. 如果有 OsgVerse 且支持 PBR，优先选择（更好的视觉效果）
-    // 2. 否则使用 Coin3D（最稳定）
-    // 3. 最后返回 None（无可用引擎）
+    // 1. OsgVerse（如果可用）
+    // 2. Coin3D（向后兼容）
+    // 3. None（无可用引擎）
 
-    // 检查 OsgVerse 是否可用且支持 PBR / Check if OsgVerse is available and supports PBR
+    Base::Console().log("RenderEngineFactory::selectBestEngine: Selecting best engine...\n");
+
+    // 优先使用 OsgVerse / Prefer OsgVerse
     auto osgIt = _creators.find(BackendType::OsgVerse);
     if (osgIt != _creators.end()) {
-        try {
-            if (auto engine = osgIt->second()) {
-                auto info = engine->getInfo();
-                if (info.supportsPBR) {
-                    return BackendType::OsgVerse;
-                }
-            }
-        }
-        catch (...) {
-            // OsgVerse 创建失败，继续检查 / OsgVerse creation failed, continue checking
-        }
+        Base::Console().log("RenderEngineFactory::selectBestEngine: OsgVerse is available, using as default\n");
+        return BackendType::OsgVerse;
+    }
+    else {
+        Base::Console().log("RenderEngineFactory::selectBestEngine: OsgVerse is NOT available\n");
     }
 
     // 检查 Coin3D 是否可用 / Check if Coin3D is available
     if (_creators.find(BackendType::Coin3D) != _creators.end()) {
+        Base::Console().log("RenderEngineFactory::selectBestEngine: Using Coin3D as default\n");
         return BackendType::Coin3D;
     }
 
+    Base::Console().warning("RenderEngineFactory::selectBestEngine: No engines available!\n");
     return BackendType::None;
 }
 
