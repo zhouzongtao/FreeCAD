@@ -111,15 +111,11 @@ OsgVerseWidget::~OsgVerseWidget()
 
 void OsgVerseWidget::initializeGL()
 {
-    Base::Console().warning("OsgVerseWidget::initializeGL called, widget size: %d x %d\n", 
-                           width(), height());
-    
     // Viewer is already created in constructor
     // Now realize it (needs OpenGL context)
     if (_viewer.valid() && !_viewer->isRealized()) {
         try {
             _viewer->realize();
-            Base::Console().warning("OsgVerseWidget: Viewer realized successfully\n");
         }
         catch (const std::exception& e) {
             Base::Console().error("OsgVerseWidget: Failed to realize viewer: %s\n", e.what());
@@ -131,15 +127,10 @@ void OsgVerseWidget::initializeGL()
     int pixelWidth = width() * dpr;
     int pixelHeight = height() * dpr;
     
-    Base::Console().warning("OsgVerseWidget: Device pixel ratio: %.2f, pixel size: %d x %d\n",
-                           dpr, pixelWidth, pixelHeight);
-    
     // Update the viewport to match actual widget size
     if (_graphicsWindow.valid()) {
         _graphicsWindow->getEventQueue()->windowResize(0, 0, pixelWidth, pixelHeight);
         _graphicsWindow->resized(0, 0, pixelWidth, pixelHeight);
-        Base::Console().warning("OsgVerseWidget: GraphicsWindow resized to %d x %d\n",
-                               pixelWidth, pixelHeight);
     }
     
     if (_viewer.valid()) {
@@ -149,16 +140,11 @@ void OsgVerseWidget::initializeGL()
         // Update projection matrix with actual aspect ratio
         double aspectRatio = static_cast<double>(pixelWidth) / static_cast<double>(pixelHeight);
         camera->setProjectionMatrixAsPerspective(30.0, aspectRatio, 1.0, 1000.0);
-        
-        Base::Console().warning("OsgVerseWidget: Camera viewport set to %d x %d, aspect: %.2f\n",
-                               pixelWidth, pixelHeight, aspectRatio);
     }
 }
 
 void OsgVerseWidget::resizeGL(int width, int height)
 {
-    Base::Console().warning("OsgVerseWidget::resizeGL called: %d x %d\n", width, height);
-    
     // Get actual pixel size (considering high DPI)
     qreal dpr = devicePixelRatio();
     int pixelWidth = width * dpr;
@@ -178,9 +164,6 @@ void OsgVerseWidget::resizeGL(int width, int height)
         // Update projection matrix to maintain aspect ratio
         double aspectRatio = static_cast<double>(pixelWidth) / static_cast<double>(pixelHeight);
         camera->setProjectionMatrixAsPerspective(30.0, aspectRatio, 1.0, 1000.0);
-        
-        Base::Console().warning("OsgVerseWidget: Viewport updated to %d x %d (DPR: %.2f)\n", 
-                               pixelWidth, pixelHeight, dpr);
     }
     
     // Force update

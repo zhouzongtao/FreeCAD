@@ -387,17 +387,6 @@ void OsgVerseViewer::viewAll()
     if (_widget) {
         osgViewer::Viewer* viewer = _widget->getViewer();
         if (viewer) {
-            Base::Console().warning("OsgVerseViewer::viewAll() called - calling viewer->home()\n");
-            
-            // Get current home position before calling home()
-            osgGA::CameraManipulator* manipulator = viewer->getCameraManipulator();
-            if (manipulator) {
-                osg::Vec3d eye, center, up;
-                manipulator->getHomePosition(eye, center, up);
-                Base::Console().warning("  Current home position - eye: (%.2f, %.2f, %.2f)\n",
-                                       eye.x(), eye.y(), eye.z());
-            }
-            
             viewer->home();
             render();
         }
