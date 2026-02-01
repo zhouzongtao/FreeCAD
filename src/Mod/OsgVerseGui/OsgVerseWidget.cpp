@@ -543,9 +543,6 @@ void OsgVerseWidget::handleSingleClickSelection(const QPoint& pos)
                 const char* docName = doc->getName();
                 const char* objName = obj->getNameInDocument();
 
-                Base::Console().log("OsgVerseWidget: Click selection - doc=%s, obj=%s\n",
-                    docName, objName);
-
                 // Check if Ctrl is pressed for additive selection
                 Qt::KeyboardModifiers modifiers = QGuiApplication::keyboardModifiers();
                 bool additive = modifiers & Qt::ControlModifier;
@@ -564,7 +561,6 @@ void OsgVerseWidget::handleSingleClickSelection(const QPoint& pos)
         Qt::KeyboardModifiers modifiers = QGuiApplication::keyboardModifiers();
         if (!(modifiers & Qt::ControlModifier)) {
             Gui::Selection().clearSelection();
-            Base::Console().log("OsgVerseWidget: Click on empty space - selection cleared\n");
         }
     }
 }
