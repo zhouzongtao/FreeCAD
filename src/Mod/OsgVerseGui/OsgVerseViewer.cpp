@@ -124,33 +124,67 @@ OsgVerseViewer::OsgVerseViewer(QWidget* parent)
         // Set initial background color
         setBackgroundColor(_backgroundColor);
         
-        // Add headlight (directional light that follows camera)
-        osg::ref_ptr<osg::Light> light = new osg::Light();
-        light->setLightNum(0);
-        // Directional light from camera direction (w=0 means directional)
-        light->setPosition(osg::Vec4(0.0f, 0.0f, 1.0f, 0.0f));
-        light->setAmbient(osg::Vec4(0.3f, 0.3f, 0.3f, 1.0f));
-        light->setDiffuse(osg::Vec4(1.0f, 1.0f, 1.0f, 1.0f));
-        light->setSpecular(osg::Vec4(0.5f, 0.5f, 0.5f, 1.0f));
-
-        osg::ref_ptr<osg::LightSource> lightSource = new osg::LightSource();
-        lightSource->setLight(light.get());
-        lightSource->setLocalStateSetModes(osg::StateAttribute::ON);
-        // Use RELATIVE_RF so light follows camera (headlight mode)
-        lightSource->setReferenceFrame(osg::LightSource::RELATIVE_RF);
-        _sceneRoot->addChild(lightSource.get());
-
-        // Enable lighting and GL_LIGHT0
+        // Setup multi-light system for better illumination
         osg::StateSet* stateSet = _sceneRoot->getOrCreateStateSet();
+        
+        // Light 0: Main headlight (follows camera)
+        osg::ref_ptr<osg::Light> light0 = new osg::Light();
+        light0->setLightNum(0);
+        // Directional light from camera direction
+        light0->setPosition(osg::Vec4(0.0f, 0.0f, 1.0f, 0.0f));
+        light0->setAmbient(osg::Vec4(0.3f, 0.3f, 0.3f, 1.0f));  // Reduced ambient
+        light0->setDiffuse(osg::Vec4(0.6f, 0.6f, 0.6f, 1.0f));  // Reduced main light intensity
+        light0->setSpecular(osg::Vec4(0.2f, 0.2f, 0.2f, 1.0f)); // Reduced specular
+
+        osg::ref_ptr<osg::LightSource> lightSource0 = new osg::LightSource();
+        lightSource0->setLight(light0.get());
+        lightSource0->setLocalStateSetModes(osg::StateAttribute::ON);
+        lightSource0->setReferenceFrame(osg::LightSource::RELATIVE_RF);
+        _sceneRoot->addChild(lightSource0.get());
+
+        // Light 1: Fill light from upper right (fixed position)
+        osg::ref_ptr<osg::Light> light1 = new osg::Light();
+        light1->setLightNum(1);
+        // Directional light from upper right
+        light1->setPosition(osg::Vec4(1.0f, 1.0f, 1.0f, 0.0f));
+        light1->setAmbient(osg::Vec4(0.0f, 0.0f, 0.0f, 1.0f));
+        light1->setDiffuse(osg::Vec4(0.4f, 0.4f, 0.4f, 1.0f));  // Increased fill light
+        light1->setSpecular(osg::Vec4(0.1f, 0.1f, 0.1f, 1.0f)); // Reduced specular
+
+        osg::ref_ptr<osg::LightSource> lightSource1 = new osg::LightSource();
+        lightSource1->setLight(light1.get());
+        lightSource1->setLocalStateSetModes(osg::StateAttribute::ON);
+        lightSource1->setReferenceFrame(osg::LightSource::ABSOLUTE_RF);
+        _sceneRoot->addChild(lightSource1.get());
+
+        // Light 2: Back light from lower left (fixed position)
+        osg::ref_ptr<osg::Light> light2 = new osg::Light();
+        light2->setLightNum(2);
+        // Directional light from lower left back
+        light2->setPosition(osg::Vec4(-1.0f, -1.0f, -0.5f, 0.0f));
+        light2->setAmbient(osg::Vec4(0.0f, 0.0f, 0.0f, 1.0f));
+        light2->setDiffuse(osg::Vec4(0.4f, 0.4f, 0.4f, 1.0f));  // Increased back light
+        light2->setSpecular(osg::Vec4(0.05f, 0.05f, 0.05f, 1.0f)); // Very low specular
+
+        osg::ref_ptr<osg::LightSource> lightSource2 = new osg::LightSource();
+        lightSource2->setLight(light2.get());
+        lightSource2->setLocalStateSetModes(osg::StateAttribute::ON);
+        lightSource2->setReferenceFrame(osg::LightSource::ABSOLUTE_RF);
+        _sceneRoot->addChild(lightSource2.get());
+
+        // Enable lighting and all three lights
         stateSet->setMode(GL_LIGHTING, osg::StateAttribute::ON);
         stateSet->setMode(GL_LIGHT0, osg::StateAttribute::ON);
+        stateSet->setMode(GL_LIGHT1, osg::StateAttribute::ON);
+        stateSet->setMode(GL_LIGHT2, osg::StateAttribute::ON);
+        
         // Normalize normals for proper lighting
         stateSet->setMode(GL_NORMALIZE, osg::StateAttribute::ON);
 
         // Enable two-sided lighting for better visibility
         osg::ref_ptr<osg::LightModel> lightModel = new osg::LightModel();
         lightModel->setTwoSided(true);
-        lightModel->setAmbientIntensity(osg::Vec4(0.2f, 0.2f, 0.2f, 1.0f));
+        lightModel->setAmbientIntensity(osg::Vec4(0.25f, 0.25f, 0.25f, 1.0f));  // Balanced global ambient
         lightModel->setLocalViewer(true);
         stateSet->setAttributeAndModes(lightModel.get(), osg::StateAttribute::ON);
         
