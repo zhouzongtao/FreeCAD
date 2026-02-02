@@ -62,6 +62,9 @@ using namespace OsgVerseGui;
 #define GEOM_LOG_ERROR(msg, ...) \
     Base::Console().error("[GeometryConverter] " msg "\n", ##__VA_ARGS__)
 
+#define GEOM_LOG_WARNING(msg, ...) \
+    Base::Console().warning("[GeometryConverter] " msg "\n", ##__VA_ARGS__)
+
 #ifdef _DEBUG
     #define GEOM_LOG_DEBUG(msg, ...) \
         Base::Console().log("[GeometryConverter] " msg "\n", ##__VA_ARGS__)
@@ -91,7 +94,7 @@ osg::ref_ptr<osg::Geode> GeometryConverter::convertShape(
     osg::ref_ptr<osg::Geometry> geometry = convertToGeometry(shape, options, stats);
     
     if (!geometry) {
-        GEOM_LOG_ERROR("Failed to convert shape to geometry");
+        GEOM_LOG_WARNING("Failed to convert shape to geometry");
         return nullptr;
     }
     
@@ -123,12 +126,12 @@ osg::ref_ptr<osg::Geometry> GeometryConverter::convertToGeometry(
     int faceCount = 0;
 
     if (!extractGeometryDataWithOptions(shape, vertices, normals, indices, faceCount, options)) {
-        GEOM_LOG_ERROR("Failed to extract geometry data");
+        GEOM_LOG_WARNING("Failed to extract geometry data");
         return nullptr;
     }
-    
+
     if (vertices.empty() || indices.empty()) {
-        GEOM_LOG_ERROR("No geometry data extracted");
+        GEOM_LOG_WARNING("No geometry data extracted");
         return nullptr;
     }
     
@@ -275,7 +278,7 @@ bool GeometryConverter::extractGeometryDataWithOptions(
         }
 
         if (faceCount == 0) {
-            GEOM_LOG_ERROR("No faces found in shape");
+            GEOM_LOG_WARNING("No faces found in shape (may be a line, point, or sketch)");
             return false;
         }
 

@@ -45,6 +45,8 @@ using Gui::View3D::SelectionMode;
 using Gui::View3D::RenderMode;
 using Gui::View3D::CameraParams;
 using Gui::View3D::PickResult;
+using Gui::View3D::BackgroundGradient;
+using Gui::View3D::BackgroundGradientType;
 namespace Render = Gui::Render;
 
 //===========================================================================
@@ -505,6 +507,45 @@ Base::Color CoinViewer::getBackgroundColor() const
         return Base::Color(qcolor.redF(), qcolor.greenF(), qcolor.blueF(), qcolor.alphaF());
     }
     return Base::Color(0.2f, 0.2f, 0.3f, 1.0f);
+}
+
+void CoinViewer::setBackgroundGradient(const BackgroundGradient& gradient)
+{
+    _backgroundGradient = gradient;
+
+    if (!_coinViewer) {
+        return;
+    }
+
+    switch (gradient.type) {
+        case BackgroundGradientType::None:
+            _coinViewer->setGradientBackground(View3DInventorViewer::NoGradient);
+            break;
+        case BackgroundGradientType::Linear:
+            _coinViewer->setGradientBackgroundColor(
+                SbColor(gradient.bottomColor.r, gradient.bottomColor.g, gradient.bottomColor.b),
+                SbColor(gradient.topColor.r, gradient.topColor.g, gradient.topColor.b));
+            _coinViewer->setGradientBackground(View3DInventorViewer::LinearGradient);
+            break;
+        case BackgroundGradientType::Radial:
+            _coinViewer->setGradientBackgroundColor(
+                SbColor(gradient.topColor.r, gradient.topColor.g, gradient.topColor.b),
+                SbColor(gradient.bottomColor.r, gradient.bottomColor.g, gradient.bottomColor.b));
+            _coinViewer->setGradientBackground(View3DInventorViewer::RadialGradient);
+            break;
+        case BackgroundGradientType::Corner:
+            // Coin3D does not support corner gradient; fall back to linear
+            _coinViewer->setGradientBackgroundColor(
+                SbColor(gradient.bottomLeftColor.r, gradient.bottomLeftColor.g, gradient.bottomLeftColor.b),
+                SbColor(gradient.topRightColor.r, gradient.topRightColor.g, gradient.topRightColor.b));
+            _coinViewer->setGradientBackground(View3DInventorViewer::LinearGradient);
+            break;
+    }
+}
+
+BackgroundGradient CoinViewer::getBackgroundGradient() const
+{
+    return _backgroundGradient;
 }
 
 void CoinViewer::setBacklightEnabled(bool enabled)

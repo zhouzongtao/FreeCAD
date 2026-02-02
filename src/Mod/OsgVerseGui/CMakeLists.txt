@@ -17,6 +17,8 @@ set(OsgVerseGui_SRCS
     OsgVersePostProcess.cpp
     OsgVerseNaviCube.h
     OsgVerseNaviCube.cpp
+    OsgVerseBackground.h
+    OsgVerseBackground.cpp
 )
 
 # Create shared library

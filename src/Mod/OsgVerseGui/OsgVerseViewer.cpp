@@ -7,6 +7,7 @@
 #include "GeometryConverter.h"
 #include "OsgVersePostProcess.h"
 #include "OsgVerseNaviCube.h"
+#include "OsgVerseBackground.h"
 #include <Base/Console.h>
 #include <Gui/ViewProvider.h>
 #include <Gui/ViewProviderDocumentObject.h>
@@ -123,6 +124,23 @@ OsgVerseViewer::OsgVerseViewer(QWidget* parent)
         
         // Set initial background color
         setBackgroundColor(_backgroundColor);
+
+        // Create background gradient renderer
+        _background = std::make_unique<OsgVerseBackground>();
+        _background->setSolidColor(_backgroundColor);
+
+        // Add background camera to scene root (renders before main scene due to PRE_RENDER order)
+        // The background camera uses ABSOLUTE_RF so it's not affected by scene transforms
+        if (_background->getCamera()) {
+            _sceneRoot->addChild(_background->getCamera());
+        }
+
+        // Set default linear gradient (matches Coin3D default)
+        Gui::View3D::BackgroundGradient defaultGradient;
+        defaultGradient.type = Gui::View3D::BackgroundGradientType::Linear;
+        defaultGradient.topColor = Base::Color(0.4f, 0.4f, 0.6f);     // Light blue-gray
+        defaultGradient.bottomColor = Base::Color(0.1f, 0.1f, 0.2f);  // Dark blue-gray
+        setBackgroundGradient(defaultGradient);
         
         // Setup multi-light system for better illumination
         osg::StateSet* stateSet = _sceneRoot->getOrCreateStateSet();
@@ -254,22 +272,32 @@ void OsgVerseViewer::resize(int width, int height)
         _widget->resize(width, height);
     }
 
-    // Update FPS camera projection for new size
-    if (_fpsCamera.valid() && width > 0 && height > 0) {
-        _fpsCamera->setProjectionMatrix(osg::Matrix::ortho2D(0, width, 0, height));
+    // Get actual pixel size (considering high DPI)
+    qreal dpr = _widget ? _widget->devicePixelRatio() : 1.0;
+    int pixelWidth = static_cast<int>(width * dpr);
+    int pixelHeight = static_cast<int>(height * dpr);
+
+    // Update FPS camera projection for new size (use pixel size)
+    if (_fpsCamera.valid() && pixelWidth > 0 && pixelHeight > 0) {
+        _fpsCamera->setProjectionMatrix(osg::Matrix::ortho2D(0, pixelWidth, 0, pixelHeight));
 
         // Update text positions
         if (_fpsText.valid()) {
-            _fpsText->setPosition(osg::Vec3(10.0f, static_cast<float>(height) - 25.0f, 0.0f));
+            _fpsText->setPosition(osg::Vec3(10.0f, static_cast<float>(pixelHeight) - 25.0f, 0.0f));
         }
         if (_statsText.valid()) {
-            _statsText->setPosition(osg::Vec3(10.0f, static_cast<float>(height) - 50.0f, 0.0f));
+            _statsText->setPosition(osg::Vec3(10.0f, static_cast<float>(pixelHeight) - 50.0f, 0.0f));
         }
     }
 
-    // Update NaviCube for new size
-    if (_naviCube && width > 0 && height > 0) {
-        _naviCube->resize(width, height);
+    // Update NaviCube for new size (use pixel size)
+    if (_naviCube && pixelWidth > 0 && pixelHeight > 0) {
+        _naviCube->resize(pixelWidth, pixelHeight);
+    }
+
+    // Update background for new size (use pixel size)
+    if (_background && pixelWidth > 0 && pixelHeight > 0) {
+        _background->resize(pixelWidth, pixelHeight);
     }
 }
 
@@ -1855,7 +1883,12 @@ void OsgVerseViewer::clearHiddenLineMode()
 void OsgVerseViewer::setBackgroundColor(const Base::Color& color)
 {
     _backgroundColor = color;
-    
+
+    // Update background gradient renderer
+    if (_background) {
+        _background->setSolidColor(color);
+    }
+
     if (_widget) {
         osgViewer::Viewer* viewer = _widget->getViewer();
         if (viewer) {
@@ -1869,6 +1902,43 @@ void OsgVerseViewer::setBackgroundColor(const Base::Color& color)
 Base::Color OsgVerseViewer::getBackgroundColor() const
 {
     return _backgroundColor;
+}
+
+void OsgVerseViewer::setBackgroundGradient(const Gui::View3D::BackgroundGradient& gradient)
+{
+    _backgroundGradient = gradient;
+
+    if (_background) {
+        _background->setGradient(gradient);
+
+        // When using gradient, disable camera clear color
+        // The background shader will handle the background rendering
+        if (_widget && gradient.type != Gui::View3D::BackgroundGradientType::None) {
+            osgViewer::Viewer* viewer = _widget->getViewer();
+            if (viewer) {
+                // Set clear mask to only clear depth buffer, not color
+                viewer->getCamera()->setClearMask(GL_DEPTH_BUFFER_BIT);
+            }
+            _background->setEnabled(true);
+        }
+        else if (_widget) {
+            // Restore normal clear behavior for solid color
+            osgViewer::Viewer* viewer = _widget->getViewer();
+            if (viewer) {
+                viewer->getCamera()->setClearMask(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+                osg::Vec4 bgColor(_backgroundColor.r, _backgroundColor.g, _backgroundColor.b, 1.0f);
+                viewer->getCamera()->setClearColor(bgColor);
+            }
+            _background->setEnabled(false);
+        }
+
+        render();
+    }
+}
+
+Gui::View3D::BackgroundGradient OsgVerseViewer::getBackgroundGradient() const
+{
+    return _backgroundGradient;
 }
 
 void OsgVerseViewer::setBacklightEnabled(bool enabled)
@@ -2863,7 +2933,7 @@ osg::ref_ptr<osg::Node> OsgVerseViewer::createNodeForViewProvider(Gui::ViewProvi
         osg::ref_ptr<osg::Geode> geode = GeometryConverter::convertShape(shape, options, &stats);
 
         if (!geode) {
-            Base::Console().error("OsgVerseViewer: GeometryConverter failed\n");
+            Base::Console().warning("OsgVerseViewer: GeometryConverter returned null (shape may have no faces)\n");
             return nullptr;
         }
 

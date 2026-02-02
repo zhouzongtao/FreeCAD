@@ -119,6 +119,8 @@ public:
     RenderMode getRenderMode() const override;
     void setBackgroundColor(const Base::Color& color) override;
     Base::Color getBackgroundColor() const override;
+    void setBackgroundGradient(const BackgroundGradient& gradient) override;
+    BackgroundGradient getBackgroundGradient() const override;
     void setBacklightEnabled(bool enabled) override;
     bool isBacklightEnabled() const override;
     void setAmbientIntensity(float intensity) override;
@@ -172,6 +174,7 @@ private:
     // 内部使用现有的 View3DInventorViewer
     View3DInventorViewer* _coinViewer;
     float _ambientIntensity{0.2f};  ///< Ambient light intensity
+    BackgroundGradient _backgroundGradient;  ///< Background gradient settings
 
     // 辅助方法：转换选择模式
     int convertSelectionMode(SelectionMode mode);
