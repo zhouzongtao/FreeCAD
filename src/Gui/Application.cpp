@@ -538,10 +538,9 @@ Application::Application(bool GUIenabled)
             "The FreeCADGui module also provides a set of functions to work with so called\n"
             "workbenches.");
 
-        // TEMPORARILY DISABLED: Render abstraction layer initialization
-        // This was causing crashes when loading documents
-        // TODO: Re-enable once render abstraction is fully stable
-#if 0
+        // Render abstraction layer initialization
+        // Re-enabled after fixing backend registration crashes
+#if 1
         // Initialize RenderManager before creating/accessing FreeCADGui module
         // This ensures OsgVerse engine is registered and available
         Base::Console().log("Application: Initializing RenderManager...\n");
@@ -809,8 +808,8 @@ Application::Application(bool GUIenabled)
 #endif
 
     if (GUIenabled) {
-        // TEMPORARILY DISABLED: RenderManager initialization
-#if 0
+        // RenderManager initialization - Re-enabled after fixing crashes
+#if 1
         // Initialize RenderManager
         Base::Console().log("Application: Initializing RenderManager...\n");
         try {
@@ -2425,8 +2424,8 @@ void Application::initApplication()
         setCategoryFilterRules();
         old_qtmsg_handler = qInstallMessageHandler(messageHandler);
 
-        // TEMPORARILY DISABLED: RenderManager initialization
-#if 0
+        // RenderManager initialization - Re-enabled after fixing crashes
+#if 1
         // Initialize RenderManager BEFORE setting init = true
         // This ensures it runs on first call to initApplication()
         Base::Console().log("Application::initApplication: Initializing RenderManager...\n");
