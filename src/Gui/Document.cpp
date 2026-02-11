@@ -69,8 +69,11 @@
 #include "Tree.h"
 #include "View3DBase.h"
 #include "View3DInventor.h"
+#ifdef RENDER_HAS_OSGVERSE_BACKEND
 #include "View3DOsgVerse.h"
+#endif
 #include "View3DInventorViewer.h"
+#include "View3D/ViewerFactory.h"
 #include "ViewProviderDocumentObject.h"
 #include "ViewProviderDocumentObjectGroup.h"
 #include "WaitCursor.h"
@@ -1056,6 +1059,7 @@ void Document::slotNewObject(const App::DocumentObject& Obj)
                 continue;
             }
 
+#ifdef RENDER_HAS_OSGVERSE_BACKEND
             // Handle View3DOsgVerse (OsgVerse backend)
             auto osgVerseView = dynamic_cast<View3DOsgVerse*>(*vIt);
             if (osgVerseView) {
@@ -1064,6 +1068,7 @@ void Document::slotNewObject(const App::DocumentObject& Obj)
                     viewer->addViewProvider(pcProvider);
                 }
             }
+#endif
         }
 
         // adding to the tree
@@ -1112,6 +1117,7 @@ void Document::slotDeletedObject(const App::DocumentObject& Obj)
                 continue;
             }
 
+#ifdef RENDER_HAS_OSGVERSE_BACKEND
             // Handle View3DOsgVerse (OsgVerse backend)
             auto osgVerseView = dynamic_cast<View3DOsgVerse*>(*vIt);
             if (osgVerseView) {
@@ -1120,6 +1126,7 @@ void Document::slotDeletedObject(const App::DocumentObject& Obj)
                     viewer->removeViewProvider(viewProvider);
                 }
             }
+#endif
         }
 
         // removing from tree
@@ -1176,6 +1183,7 @@ void Document::slotChangedObject(const App::DocumentObject& Obj, const App::Prop
                                                    strcmp(propName, "ShapeColor") == 0 ||
                                                    strcmp(propName, "Transparency") == 0);
             if (isShapeChange || isAppearanceChange) {
+#ifdef RENDER_HAS_OSGVERSE_BACKEND
                 for (auto* view : d->baseViews) {
                     auto* osgVerseView = dynamic_cast<View3DOsgVerse*>(view);
                     if (osgVerseView) {
@@ -1185,6 +1193,7 @@ void Document::slotChangedObject(const App::DocumentObject& Obj, const App::Prop
                         }
                     }
                 }
+#endif
             }
         }
         catch (const Base::MemoryException& e) {
@@ -2311,21 +2320,32 @@ MDIView* Document::createView(const Base::Type& typeId, CreateViewMode mode)
         Base::Console().log("Document::createView: Current backend: %d\n",
                            static_cast<int>(backend));
 
+#ifdef RENDER_HAS_OSGVERSE_BACKEND
         // If OsgVerse backend is active, create View3DOsgVerse instead
+        // But first check if OsgVerse viewer backend is registered
         if (backend == Gui::Render::BackendType::OsgVerse) {
-            Base::Console().log("Document::createView: Creating View3DOsgVerse for OsgVerse backend\n");
-            return createView(View3DOsgVerse::getClassTypeId(), mode);
+            if (View3D::ViewerFactory::isRegistered(Gui::Render::BackendType::OsgVerse)) {
+                Base::Console().log("Document::createView: Creating View3DOsgVerse for OsgVerse backend\n");
+                return createView(View3DOsgVerse::getClassTypeId(), mode);
+            } else {
+                Base::Console().warning("Document::createView: OsgVerse backend is active but viewer not registered, falling back to Coin3D\n");
+            }
         }
         // If no backend is selected, try OsgVerse first (default)
         else if (backend == Gui::Render::BackendType::None) {
-            Base::Console().log("Document::createView: No backend selected, trying OsgVerse as default\n");
-            try {
-                return createView(View3DOsgVerse::getClassTypeId(), mode);
-            }
-            catch (const std::exception& e) {
-                Base::Console().warning("Document::createView: Failed to create OsgVerse view: %s, falling back to Coin3D\n", e.what());
+            if (View3D::ViewerFactory::isRegistered(Gui::Render::BackendType::OsgVerse)) {
+                Base::Console().log("Document::createView: No backend selected, trying OsgVerse as default\n");
+                try {
+                    return createView(View3DOsgVerse::getClassTypeId(), mode);
+                }
+                catch (const std::exception& e) {
+                    Base::Console().warning("Document::createView: Failed to create OsgVerse view: %s, falling back to Coin3D\n", e.what());
+                }
+            } else {
+                Base::Console().log("Document::createView: OsgVerse viewer not registered, using Coin3D\n");
             }
         }
+#endif
 
         // Fall back to Coin3D (View3DInventor)
         Base::Console().log("Document::createView: Creating View3DInventor for Coin3D backend\n");
@@ -2333,10 +2353,17 @@ MDIView* Document::createView(const Base::Type& typeId, CreateViewMode mode)
     else if (typeId == View3DInventor::getClassTypeId() && mode == CreateViewMode::ForceCoin3D) {
         Base::Console().log("Document::createView: Forcing Coin3D view creation (bypassing auto-switch)\n");
     }
-    
+
+#ifdef RENDER_HAS_OSGVERSE_BACKEND
     // Handle View3DOsgVerse creation
     if (typeId == View3DOsgVerse::getClassTypeId()) {
         Base::Console().log("Document::createView: Creating View3DOsgVerse\n");
+
+        // Check if OsgVerse viewer backend is registered
+        if (!View3D::ViewerFactory::isRegistered(Gui::Render::BackendType::OsgVerse)) {
+            Base::Console().error("Document::createView: OsgVerse viewer backend not registered, cannot create View3DOsgVerse\n");
+            throw std::runtime_error("OsgVerse viewer backend not registered");
+        }
 
         QOpenGLWidget* shareWidget = nullptr;
         // Get existing OsgVerse views for sharing
@@ -2350,11 +2377,11 @@ MDIView* Document::createView(const Base::Type& typeId, CreateViewMode mode)
         }
 
         auto view3D = new View3DOsgVerse(this, getMainWindow(), shareWidget);
-        
+
         // Attach view providers
         std::map<const App::DocumentObject*, ViewProviderDocumentObject*>::const_iterator It1;
         std::vector<App::DocumentObject*> child_vps;
-        
+
         auto* viewer = view3D->getViewerInterface();
         if (viewer) {
             for (It1 = d->_ViewProviderMap.begin(); It1 != d->_ViewProviderMap.end(); ++It1) {
@@ -2362,9 +2389,9 @@ MDIView* Document::createView(const Base::Type& typeId, CreateViewMode mode)
                 std::vector<App::DocumentObject*> children = It1->second->claimChildren3D();
                 child_vps.insert(child_vps.end(), children.begin(), children.end());
             }
-            
+
             std::map<std::string, ViewProvider*>::const_iterator It2;
-            for (It2 = d->_ViewProviderMapAnnotation.begin(); 
+            for (It2 = d->_ViewProviderMapAnnotation.begin();
                  It2 != d->_ViewProviderMapAnnotation.end(); ++It2) {
                 viewer->addViewProvider(It2->second);
                 std::vector<App::DocumentObject*> children = It2->second->claimChildren3D();
@@ -2393,11 +2420,12 @@ MDIView* Document::createView(const Base::Type& typeId, CreateViewMode mode)
             getMainWindow()->addWindow(view3D);
         }
 
-        Base::Console().log("Document::createView: View3DOsgVerse created successfully, returning %p\n", 
+        Base::Console().log("Document::createView: View3DOsgVerse created successfully, returning %p\n",
                            static_cast<void*>(view3D));
         return view3D;
     }
-    
+#endif
+
     if (typeId == View3DInventor::getClassTypeId()) {
         Base::Console().log("Document::createView: Creating View3DInventor\n");
 

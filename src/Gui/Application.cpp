@@ -106,7 +106,9 @@
 #include "View3DViewerPy.h"
 #include "View3DBase.h"
 #include "View3DInventor.h"
+#ifdef RENDER_HAS_OSGVERSE_BACKEND
 #include "View3DOsgVerse.h"
+#endif
 #include "View3D/ViewerFactory.h"
 #include "View3D/Backends/Coin/CoinViewer.h"
 #include "ViewProviderAnnotation.h"
@@ -566,6 +568,26 @@ Application::Application(bool GUIenabled)
                 }
             );
             Base::Console().log("Application: Coin3D viewer registered\n");
+
+#ifdef RENDER_HAS_OSGVERSE_BACKEND
+            // Try to import OsgVerseGui module to register OsgVerse backend
+            // This is done via Python import to avoid hard dependency
+            Base::Console().log("Application: Attempting to load OsgVerseGui module...\n");
+            try {
+                Base::PyGILStateLocker lock;
+                PyObject* osgVerseModule = PyImport_ImportModule("OsgVerseGui");
+                if (osgVerseModule) {
+                    Base::Console().log("Application: OsgVerseGui module loaded successfully\n");
+                    Py_DECREF(osgVerseModule);
+                } else {
+                    PyErr_Clear();
+                    Base::Console().warning("Application: OsgVerseGui module not available\n");
+                }
+            }
+            catch (const std::exception& e) {
+                Base::Console().warning("Application: Failed to load OsgVerseGui module: %s\n", e.what());
+            }
+#endif
         }
         catch (const std::exception& e) {
             Base::Console().error("Application: Failed to register viewer backends: %s\n", e.what());
@@ -2416,7 +2438,9 @@ void Application::initTypes()
     Gui::MDIView                                ::init();
     Gui::View3DBase                             ::init();
     Gui::View3DInventor                         ::init();
+#ifdef RENDER_HAS_OSGVERSE_BACKEND
     Gui::View3DOsgVerse                         ::init();
+#endif
     Gui::AbstractSplitView                      ::init();
     Gui::SplitView3DInventor                    ::init();
     Gui::TextDocumentEditorView                 ::init();
