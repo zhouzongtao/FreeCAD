@@ -9,6 +9,8 @@
 
 #include <QColor>
 #include <QPoint>
+#include <QTimer>
+#include <QObject>
 
 #include <map>
 #include <vector>
@@ -19,6 +21,9 @@ class QOpenGLFramebufferObject;
 class QOpenGLTexture;
 
 namespace OsgVerseGui {
+
+// Animation duration in milliseconds
+constexpr double DEFAULT_ANIMATION_DURATION = 300.0;
 
 class OsgVerseViewer;
 
@@ -36,7 +41,9 @@ class OsgVerseViewer;
  * Uses color-based picking for face selection.
  * This implementation mirrors the Coin3D NaviCube for visual consistency.
  */
-class OsgVerseNaviCube {
+class OsgVerseNaviCube : public QObject {
+    Q_OBJECT
+
 public:
     /**
      * @brief Corner position for the NaviCube
@@ -457,6 +464,56 @@ private:
     int _viewWidth{0};
     int _viewHeight{0};
     float _devicePixelRatio{1.0f};
+
+    // Camera animation
+    struct CameraAnimation {
+        bool active{false};
+        osg::Vec3d startEye;
+        osg::Vec3d startUp;
+        osg::Vec3d targetEye;
+        osg::Vec3d targetUp;
+        osg::Vec3d center;
+        qint64 startTime{0};
+        double duration{0.0};
+    };
+    CameraAnimation _cameraAnimation;
+    QTimer* _animationTimer{nullptr};
+
+    //-----------------------------------------------------------------------
+    // Animation methods
+    //-----------------------------------------------------------------------
+
+    /**
+     * @brief Start camera animation to target orientation
+     */
+    void startCameraAnimation(const osg::Vec3d& targetEye,
+                             const osg::Vec3d& targetUp,
+                             const osg::Vec3d& center);
+
+    /**
+     * @brief Stop camera animation
+     */
+    void stopCameraAnimation();
+
+    /**
+     * @brief Update camera animation (called by timer)
+     */
+    void updateCameraAnimation();
+
+    /**
+     * @brief Easing function for smooth animation
+     */
+    static double easeInOutCubic(double t);
+
+    /**
+     * @brief Linear interpolation between two Vec3d
+     */
+    static osg::Vec3d lerp(const osg::Vec3d& a, const osg::Vec3d& b, double t);
+
+    /**
+     * @brief Spherical linear interpolation between two Vec3d (for up vectors)
+     */
+    static osg::Vec3d slerp(const osg::Vec3d& a, const osg::Vec3d& b, double t);
 };
 
 } // namespace OsgVerseGui

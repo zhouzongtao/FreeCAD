@@ -63,16 +63,25 @@ public:
      * @brief 转换选项
      */
     struct OsgVerseGuiExport ConversionOptions {
-        double deflection = 0.1;        ///< 三角剖分精度（越小越精细）
-        double angle = 0.5;             ///< 角度偏差（弧度）
-        bool computeNormals = true;     ///< 是否计算法线
-        bool relative = false;          ///< 是否使用相对精度
-        bool perVertexNormals = true;   ///< 使用每顶点法线（更精确的曲面法线）
-        bool smoothNormals = false;     ///< 平滑法线（共享顶点使用平均法线）
-        double smoothAngle = 45.0;      ///< 平滑角度阈值（度），超过此角度不平滑
-        QualityLevel quality = QualityLevel::Normal; ///< 质量预设
+        double deflection;              ///< 三角剖分精度（越小越精细）
+        double angle;                   ///< 角度偏差（弧度）
+        bool computeNormals;            ///< 是否计算法线
+        bool relative;                  ///< 是否使用相对精度
+        bool perVertexNormals;          ///< 使用每顶点法线（更精确的曲面法线）
+        bool smoothNormals;             ///< 平滑法线（共享顶点使用平均法线）
+        double smoothAngle;             ///< 平滑角度阈值（度），超过此角度不平滑
+        QualityLevel quality;           ///< 质量预设
 
-        ConversionOptions() = default;
+        ConversionOptions()
+            : deflection(0.1)
+            , angle(0.5)
+            , computeNormals(true)
+            , relative(false)
+            , perVertexNormals(true)
+            , smoothNormals(false)
+            , smoothAngle(45.0)
+            , quality(QualityLevel::Normal)
+        {}
 
         /**
          * @brief 创建低精度选项（快速预览）
@@ -116,12 +125,17 @@ public:
      * @brief 转换结果统计
      */
     struct ConversionStats {
-        int vertexCount = 0;      ///< 顶点数
-        int triangleCount = 0;    ///< 三角形数
-        int faceCount = 0;        ///< Face 数
-        double conversionTime = 0.0; ///< 转换时间（秒）
-        
-        ConversionStats() = default;
+        int vertexCount;              ///< 顶点数
+        int triangleCount;            ///< 三角形数
+        int faceCount;                ///< Face 数
+        double conversionTime;        ///< 转换时间（秒）
+
+        ConversionStats()
+            : vertexCount(0)
+            , triangleCount(0)
+            , faceCount(0)
+            , conversionTime(0.0)
+        {}
     };
     
     /**

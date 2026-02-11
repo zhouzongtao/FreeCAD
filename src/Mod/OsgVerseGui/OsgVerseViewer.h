@@ -4,6 +4,7 @@
 #define OSGVERSEGUI_VIEWER_H
 
 #include "PreCompiled.h"
+#include "OsgVerseBackground.h"
 #include <Gui/View3D/IViewer3D.h>
 #include <osg/ref_ptr>
 #include <osg/Group>
@@ -173,6 +174,8 @@ public:
     Gui::View3D::RenderMode getRenderMode() const override;
     void setBackgroundColor(const Base::Color& color) override;
     Base::Color getBackgroundColor() const override;
+    void setBackgroundGradient(const Gui::View3D::BackgroundGradient& gradient) override;
+    Gui::View3D::BackgroundGradient getBackgroundGradient() const override;
     void setBacklightEnabled(bool enabled) override;
     bool isBacklightEnabled() const override;
     void setAmbientIntensity(float intensity) override;
@@ -507,6 +510,10 @@ private:
     // NaviCube
     std::unique_ptr<OsgVerseNaviCube> _naviCube;              ///< Navigation cube
     bool _naviCubeEnabled{true};                              ///< NaviCube enabled flag
+
+    // Background
+    std::unique_ptr<OsgVerseBackground> _background;          ///< Background renderer
+    Gui::View3D::BackgroundGradient _backgroundGradient;      ///< Background gradient settings
 
     /**
      * @brief Create the FPS display HUD

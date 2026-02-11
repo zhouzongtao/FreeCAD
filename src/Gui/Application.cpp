@@ -597,6 +597,27 @@ Application::Application(bool GUIenabled)
         }
 #endif
 
+#ifdef RENDER_HAS_OSGVERSE_BACKEND
+        // Try to import OsgVerseGui module to register OsgVerse backend
+        // This is done via Python import to avoid hard dependency
+        // Note: This is outside the #if 0 block above so it will actually execute
+        Base::Console().log("Application: Attempting to load OsgVerseGui module...\n");
+        try {
+            Base::PyGILStateLocker lock;
+            PyObject* osgVerseModule = PyImport_ImportModule("OsgVerseGui");
+            if (osgVerseModule) {
+                Base::Console().log("Application: OsgVerseGui module loaded successfully\n");
+                Py_DECREF(osgVerseModule);
+            } else {
+                PyErr_Clear();
+                Base::Console().warning("Application: OsgVerseGui module not available\n");
+            }
+        }
+        catch (const std::exception& e) {
+            Base::Console().warning("Application: Failed to load OsgVerseGui module: %s\n", e.what());
+        }
+#endif
+
         // if this returns a valid pointer then the 'FreeCADGui' Python module was loaded,
         // otherwise the executable was launched
         PyObject* modules = PyImport_GetModuleDict();
