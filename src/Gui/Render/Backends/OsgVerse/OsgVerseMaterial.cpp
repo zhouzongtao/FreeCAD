@@ -36,6 +36,7 @@
 #endif
 
 #include "OsgVerseMaterial.h"
+#include "OsgVerseShaderManager.h"
 #include <Base/Console.h>
 
 using namespace Gui::Render;
@@ -639,6 +640,37 @@ void OsgVerseMaterial::updateStateSet()
     setBlendMode(_blendMode);
     setDepthTest(_depthTest);
     setDepthWrite(_depthWrite);
+
+    // 应用shader / Apply shader
+    auto& shaderMgr = OsgVerseShaderManager::instance();
+    shaderMgr.applyShader(_stateSet.get(), _shaderType);
+}
+
+//-----------------------------------------------------------------------
+// Shader相关方法 / Shader Related Methods
+//-----------------------------------------------------------------------
+
+void OsgVerseMaterial::setShaderType(ShaderType type)
+{
+    _shaderType = type;
+
+    // 更新shader / Update shader
+    auto& shaderMgr = OsgVerseShaderManager::instance();
+    shaderMgr.applyShader(_stateSet.get(), type);
+
+    Base::Console().log("OsgVerseMaterial: Shader type set to %d\n", static_cast<int>(type));
+}
+
+void OsgVerseMaterial::setPBREnabled(bool enabled)
+{
+    _pbrEnabled = enabled;
+
+    // 根据PBR启用状态切换shader / Switch shader based on PBR enabled state
+    if (enabled) {
+        setShaderType(ShaderType::PBR);
+    } else {
+        setShaderType(ShaderType::Standard);
+    }
 }
 
 //===========================================================================

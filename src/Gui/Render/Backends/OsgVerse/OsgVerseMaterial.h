@@ -35,6 +35,7 @@
 #include <FCGlobal.h>
 #include "../../Core/RenderTypes.h"
 #include "../../Core/RenderNode.h"
+#include "OsgVerseShaderManager.h"  // 添加shader管理器头文件
 
 namespace Gui {
 namespace Render {
@@ -300,6 +301,24 @@ public:
      */
     void reset();
 
+    /**
+     * @brief 设置shader类型 / Set shader type
+     *
+     * @param type Shader类型 / Shader type
+     */
+    void setShaderType(ShaderType type);
+
+    /**
+     * @brief 获取shader类型 / Get shader type
+     */
+    ShaderType getShaderType() const { return _shaderType; }
+
+    /**
+     * @brief 启用/禁用PBR渲染 / Enable/disable PBR rendering
+     */
+    void setPBREnabled(bool enabled);
+    bool isPBREnabled() const { return _pbrEnabled; }
+
 private:
     /**
      * @brief 更新 StateSet / Update StateSet
@@ -342,6 +361,10 @@ private:
     BlendMode _blendMode{BlendMode::Opaque};
     bool _depthTest{true};
     bool _depthWrite{true};
+
+    // Shader相关 / Shader related
+    ShaderType _shaderType{ShaderType::PBR};  // 默认使用PBR
+    bool _pbrEnabled{true};
 };
 
 /**

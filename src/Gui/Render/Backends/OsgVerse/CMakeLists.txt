@@ -56,6 +56,7 @@ if(BUILD_WITH_OSGVERSE)
         OsgVerseGraphicsWindow.h
         OsgVersePickingService.h
         OsgVerseSelection.h
+        OsgVerseShaderManager.h
     )
 
     # 收集源文件 / Collect source files
@@ -70,6 +71,7 @@ if(BUILD_WITH_OSGVERSE)
         OsgVerseGraphicsWindow.cpp
         OsgVersePickingService.cpp
         OsgVerseSelection.cpp
+        OsgVerseShaderManager.cpp
     )
 
     # 添加到 FreeCADGui 库 / Add to FreeCADGui library
