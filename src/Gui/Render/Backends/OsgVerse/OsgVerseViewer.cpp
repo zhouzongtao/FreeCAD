@@ -518,15 +518,16 @@ void OsgVerseViewer::ViewerWidget::mousePressEvent(QMouseEvent* event)
         float x = static_cast<float>(event->position().x());
         float y = static_cast<float>(event->position().y());
         unsigned int button = 0;
-        
+
         switch (event->button()) {
             case Qt::LeftButton: button = 1; break;
             case Qt::MiddleButton: button = 2; break;
             case Qt::RightButton: button = 3; break;
             default: break;
         }
-        
+
         _graphicsWindow->getEventQueue()->mouseButtonPress(x, y, button);
+        event->accept();
     }
     update();
 }
@@ -537,15 +538,16 @@ void OsgVerseViewer::ViewerWidget::mouseReleaseEvent(QMouseEvent* event)
         float x = static_cast<float>(event->position().x());
         float y = static_cast<float>(event->position().y());
         unsigned int button = 0;
-        
+
         switch (event->button()) {
             case Qt::LeftButton: button = 1; break;
             case Qt::MiddleButton: button = 2; break;
             case Qt::RightButton: button = 3; break;
             default: break;
         }
-        
+
         _graphicsWindow->getEventQueue()->mouseButtonRelease(x, y, button);
+        event->accept();
     }
     update();
 }
@@ -557,6 +559,7 @@ void OsgVerseViewer::ViewerWidget::mouseMoveEvent(QMouseEvent* event)
             static_cast<float>(event->position().x()),
             static_cast<float>(event->position().y())
         );
+        event->accept();
     }
     update();
 }
@@ -564,10 +567,21 @@ void OsgVerseViewer::ViewerWidget::mouseMoveEvent(QMouseEvent* event)
 void OsgVerseViewer::ViewerWidget::wheelEvent(QWheelEvent* event)
 {
     if (_graphicsWindow.valid()) {
+        // 获取滚轮增量 / Get wheel delta
         int delta = event->angleDelta().y();
+
+        // 确定滚动方向 / Determine scroll direction
         osgGA::GUIEventAdapter::ScrollingMotion motion = delta > 0 ?
             osgGA::GUIEventAdapter::SCROLL_UP : osgGA::GUIEventAdapter::SCROLL_DOWN;
-        _graphicsWindow->getEventQueue()->mouseScroll(motion);
+
+        // 获取鼠标位置 / Get mouse position
+        QPointF pos = event->position();
+
+        // 发送滚轮事件到OSG / Send wheel event to OSG
+        _graphicsWindow->getEventQueue()->mouseScroll2D(pos.x(), pos.y(), motion);
+
+        // 接受事件 / Accept event
+        event->accept();
     }
     update();
 }
