@@ -23,6 +23,9 @@
 #ifndef GUI_VIEW3DOSGVERSE_H
 #define GUI_VIEW3DOSGVERSE_H
 
+// Only provide this class when OsgVerse backend is available
+#ifdef RENDER_HAS_OSGVERSE_BACKEND
+
 #include <memory>
 #include <QWidget>
 
@@ -152,5 +155,7 @@ private:
 };
 
 } // namespace Gui
+
+#endif // RENDER_HAS_OSGVERSE_BACKEND
 
 #endif // GUI_VIEW3DOSGVERSE_H

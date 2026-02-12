@@ -80,7 +80,9 @@
 #include "Utilities.h"
 #include "View3DInventor.h"
 #include "View3DInventorViewer.h"
+#ifdef RENDER_HAS_OSGVERSE_BACKEND
 #include "View3DOsgVerse.h"
+#endif
 #include "ViewParams.h"
 #include "ViewProviderGeometryObject.h"
 #include "WaitCursor.h"
@@ -2302,14 +2304,20 @@ StdCmdViewCreateOsgVerse::StdCmdViewCreateOsgVerse()
 
 void StdCmdViewCreateOsgVerse::activated(int iMsg)
 {
+#ifdef RENDER_HAS_OSGVERSE_BACKEND
     Q_UNUSED(iMsg);
     getActiveGuiDocument()->createView(View3DOsgVerse::getClassTypeId());
     getActiveGuiDocument()->getActiveView()->viewAll();
+#endif
 }
 
 bool StdCmdViewCreateOsgVerse::isActive()
 {
+#ifdef RENDER_HAS_OSGVERSE_BACKEND
     return (getActiveGuiDocument() != nullptr);
+#else
+    return false;
+#endif
 }
 
 //===========================================================================

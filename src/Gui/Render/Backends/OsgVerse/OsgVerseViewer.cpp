@@ -29,6 +29,7 @@
 #include <QKeyEvent>
 #include <QOpenGLContext>
 #include <QSurfaceFormat>
+#include <QApplication>
 #endif
 
 #include "OsgVerseViewer.h"

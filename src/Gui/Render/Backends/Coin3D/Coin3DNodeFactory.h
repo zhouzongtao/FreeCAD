@@ -26,6 +26,11 @@
 #include <FCGlobal.h>
 #include "../../Core/RenderNodeFactory.h"
 
+// Forward declarations for Coin3D types used in the factory
+#include <Inventor/nodes/SoNode.h>
+#include <Inventor/nodes/SoGroup.h>
+#include <Inventor/nodes/SoSeparator.h>
+
 namespace Gui {
 namespace Render {
 
@@ -93,17 +98,17 @@ public:
      * @param ownsNode 是否拥有节点所有权 / Whether to take ownership
      * @return 包装后的 RenderNode / Wrapped RenderNode
      */
-    std::shared_ptr<RenderNode> wrapCoinNode(class SoNode* node, bool ownsNode = false);
+    std::shared_ptr<RenderNode> wrapCoinNode(SoNode* node, bool ownsNode = false);
 
     /**
      * @brief 从现有 SoSeparator 创建包装器 / Create wrapper from existing SoSeparator
      */
-    std::shared_ptr<RenderNode> wrapCoinSeparator(class SoSeparator* sep, bool ownsNode = false);
+    std::shared_ptr<RenderNode> wrapCoinSeparator(SoSeparator* sep, bool ownsNode = false);
 
     /**
-     * @brief 从现有 SoGroup 创建包装器 / Create wrapper from existing SoGroup
+     * @brief 从现�� SoGroup 创建包装器 / Create wrapper from existing SoGroup
      */
-    std::shared_ptr<RenderNode> wrapCoinGroup(class SoGroup* group, bool ownsNode = false);
+    std::shared_ptr<RenderNode> wrapCoinGroup(SoGroup* group, bool ownsNode = false);
 };
 
 /**

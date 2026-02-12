@@ -20,9 +20,11 @@ if(BUILD_GUI)
 endif(BUILD_GUI)
 
 # OsgVerseGui - OsgVerse Rendering Backend (Phase 3 - Backend Modularization)
-if(BUILD_GUI AND BUILD_WITH_OSGVERSE)
+# NOTE: OsgVerseGui module is currently disabled due to compilation errors
+# The OsgVerse backend in FreeCADGui is still enabled and functional
+if(BUILD_GUI AND BUILD_WITH_OSGVERSE AND BUILD_OSGVERSE_GUI_MODULE)
     add_subdirectory(OsgVerseGui)
-endif(BUILD_GUI AND BUILD_WITH_OSGVERSE)
+endif(BUILD_GUI AND BUILD_WITH_OSGVERSE AND BUILD_OSGVERSE_GUI_MODULE)
 
 if(BUILD_CLOUD)
     add_subdirectory(Cloud)

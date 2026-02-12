@@ -20,6 +20,9 @@
  *                                                                         *
  ***************************************************************************/
 
+// Only compile this file when OsgVerse backend is available
+#ifdef RENDER_HAS_OSGVERSE_BACKEND
+
 #include "PreCompiled.h"
 
 #ifndef _PreComp_
@@ -363,3 +366,5 @@ PyObject* View3DOsgVerse::getPyObject()
     // TODO: Create View3DOsgVersePy for full API support
     return View3DBase::getPyObject();
 }
+
+#endif // RENDER_HAS_OSGVERSE_BACKEND

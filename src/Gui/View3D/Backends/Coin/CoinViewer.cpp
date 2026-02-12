@@ -29,12 +29,15 @@
 #include <Gui/Navigation/NavigationStyle.h>
 #include <Gui/Render/Core/RenderTypes.h>
 #include <Base/Console.h>
+#include <Gui/Inventor/SoFCBackgroundGradient.h>
 
 #include <Inventor/nodes/SoNode.h>
 #include <Inventor/nodes/SoCamera.h>
 #include <Inventor/nodes/SoOrthographicCamera.h>
 #include <Inventor/nodes/SoPerspectiveCamera.h>
 #include <Inventor/SoDB.h>
+#include <Inventor/SoPickedPoint.h>
+#include <QOpenGLWidget>
 
 #include <cmath>
 #include <algorithm>

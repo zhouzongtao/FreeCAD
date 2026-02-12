@@ -1,6 +1,12 @@
+#!/usr/bin/env python
+# -*- coding: utf-8 -*-
+
 """
 How to switch to OsgVerse view
 This script demonstrates how to switch to OsgVerse rendering backend in FreeCAD
+
+使用方法 / Usage:
+./build/debug/bin/FreeCAD --console /Users/zhouzongtao/repository/FreeCAD/switch_to_osgverse_ascii.py
 """
 
 import FreeCAD

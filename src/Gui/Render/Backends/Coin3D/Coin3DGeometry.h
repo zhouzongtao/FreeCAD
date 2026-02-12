@@ -42,6 +42,7 @@ class SoTriangleStripSet;
 class SoVertexProperty;
 class SoShape;
 class SoCallbackAction;
+class SoDrawStyle;
 
 namespace Gui {
 namespace Render {
@@ -98,7 +99,7 @@ public:
 
 protected:
     /// 绘制样式节点 / Draw style node
-    class SoDrawStyle* _drawStyle{nullptr};
+    SoDrawStyle* _drawStyle{nullptr};
 };
 
 //-------------------------------------------------------------------------

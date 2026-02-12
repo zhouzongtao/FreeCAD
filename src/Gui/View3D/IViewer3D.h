@@ -125,6 +125,30 @@ enum class RenderMode {
 };
 
 /**
+ * @brief 背景渐变类型
+ */
+enum class BackgroundGradientType {
+    None,   ///< 无渐变（纯色）
+    Linear, ///< 线性渐变（从上到下）
+    Radial, ///< 径向渐变（从中心到边缘）
+    Corner  ///< 角落渐变（四角双线性插值）
+};
+
+/**
+ * @brief 背景渐变参数
+ */
+struct BackgroundGradient {
+    BackgroundGradientType type{BackgroundGradientType::None};  ///< 渐变类型
+    Base::Color topColor{0.4f, 0.4f, 0.6f};                     ///< 顶部颜色（线性渐变）/ 中心颜色（径向渐变）
+    Base::Color bottomColor{0.1f, 0.1f, 0.2f};                  ///< 底部颜色（线性渐变）/ 边缘颜色（径向渐变）
+    Base::Color topLeftColor{0.4f, 0.4f, 0.6f};                 ///< 左上角颜色（角落渐变）
+    Base::Color topRightColor{0.4f, 0.4f, 0.6f};                ///< 右上角颜色（角落渐变）
+    Base::Color bottomLeftColor{0.1f, 0.1f, 0.2f};              ///< 左下角颜色（角落渐变）
+    Base::Color bottomRightColor{0.1f, 0.1f, 0.2f};             ///< 右下角颜色（角落渐变）
+    float midPoint{0.5f};                                        ///< 渐变中点（0.0-1.0）
+};
+
+/**
  * @brief 3D 视图渲染器抽象接口
  * 
  * 定义所有 3D 渲染器必须实现的接口，支持不同的渲染后端
@@ -354,6 +378,16 @@ public:
      * @brief 获取背景颜色
      */
     virtual Base::Color getBackgroundColor() const = 0;
+
+    /**
+     * @brief 设置背景渐变
+     */
+    virtual void setBackgroundGradient(const BackgroundGradient& gradient) = 0;
+
+    /**
+     * @brief 获取背景渐变
+     */
+    virtual BackgroundGradient getBackgroundGradient() const = 0;
 
     /**
      * @brief 设置是否启用背光
