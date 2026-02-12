@@ -29,4 +29,7 @@
 // Include common FreeCAD headers
 #include <FCGlobal.h>
 
+// Include Qt headers
+#include <QApplication>
+
 #endif // GUI_RENDER_BACKENDS_OSGVERSE_PRECOMPILED_H

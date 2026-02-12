@@ -131,7 +131,7 @@ public:
     /**
      * @brief Fit all objects in view
      */
-    void viewAll();
+    void viewAll() override;
     
     /**
      * @brief Dump view information

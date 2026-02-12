@@ -1588,7 +1588,7 @@ void OsgVerseViewer::addViewProvider(Gui::ViewProvider* vp)
         // Shape may not be computed yet - store nullptr and skip adding to scene
         // The node will be added when updateViewProvider is called with valid geometry
         _vpNodes[vp] = nullptr;
-        Base::Console().Log("OsgVerseViewer: ViewProvider %s has no geometry yet, deferring scene addition\n",
+        Base::Console().log("OsgVerseViewer: ViewProvider %s has no geometry yet, deferring scene addition\n",
                           vp->getTypeId().getName());
         return;
     }
@@ -1647,7 +1647,7 @@ void OsgVerseViewer::updateViewProvider(Gui::ViewProvider* vp)
     if (!newNode) {
         // Geometry still not available - store nullptr and skip scene addition
         _vpNodes[vp] = nullptr;
-        Base::Console().Log("OsgVerseViewer: ViewProvider %s still has no geometry after update\n",
+        Base::Console().log("OsgVerseViewer: ViewProvider %s still has no geometry after update\n",
                           vp->getTypeId().getName());
         render();
         return;

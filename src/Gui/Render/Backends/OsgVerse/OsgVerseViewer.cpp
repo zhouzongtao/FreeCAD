@@ -515,8 +515,8 @@ void OsgVerseViewer::ViewerWidget::resizeGL(int width, int height)
 void OsgVerseViewer::ViewerWidget::mousePressEvent(QMouseEvent* event)
 {
     if (_graphicsWindow.valid()) {
-        float x = static_cast<float>(event->x());
-        float y = static_cast<float>(event->y());
+        float x = static_cast<float>(event->position().x());
+        float y = static_cast<float>(event->position().y());
         unsigned int button = 0;
         
         switch (event->button()) {
@@ -534,8 +534,8 @@ void OsgVerseViewer::ViewerWidget::mousePressEvent(QMouseEvent* event)
 void OsgVerseViewer::ViewerWidget::mouseReleaseEvent(QMouseEvent* event)
 {
     if (_graphicsWindow.valid()) {
-        float x = static_cast<float>(event->x());
-        float y = static_cast<float>(event->y());
+        float x = static_cast<float>(event->position().x());
+        float y = static_cast<float>(event->position().y());
         unsigned int button = 0;
         
         switch (event->button()) {
@@ -554,8 +554,8 @@ void OsgVerseViewer::ViewerWidget::mouseMoveEvent(QMouseEvent* event)
 {
     if (_graphicsWindow.valid()) {
         _graphicsWindow->getEventQueue()->mouseMotion(
-            static_cast<float>(event->x()), 
-            static_cast<float>(event->y())
+            static_cast<float>(event->position().x()),
+            static_cast<float>(event->position().y())
         );
     }
     update();
