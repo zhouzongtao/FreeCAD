@@ -1585,8 +1585,12 @@ void OsgVerseViewer::addViewProvider(Gui::ViewProvider* vp)
     osg::ref_ptr<osg::Node> node = createNodeForViewProvider(vp);
 
     if (!node) {
-        // Shape may not be computed yet, use placeholder
-        node = createPlaceholderSphere();
+        // Shape may not be computed yet - store nullptr and skip adding to scene
+        // The node will be added when updateViewProvider is called with valid geometry
+        _vpNodes[vp] = nullptr;
+        Base::Console().Log("OsgVerseViewer: ViewProvider %s has no geometry yet, deferring scene addition\n",
+                          vp->getTypeId().getName());
+        return;
     }
 
     // Set UserData for picking - allows finding ViewProvider from picked node
@@ -1609,7 +1613,10 @@ void OsgVerseViewer::removeViewProvider(Gui::ViewProvider* vp)
 
     auto it = _vpNodes.find(vp);
     if (it != _vpNodes.end()) {
-        _sceneRoot->removeChild(it->second.get());
+        // Remove node from scene if it exists (may be nullptr if geometry was never available)
+        if (it->second.valid()) {
+            _sceneRoot->removeChild(it->second.get());
+        }
         _vpNodes.erase(it);
         render();
     }
@@ -1628,15 +1635,22 @@ void OsgVerseViewer::updateViewProvider(Gui::ViewProvider* vp)
         return;
     }
 
-    // Remove old node
+    // Remove old node if it exists
     osg::ref_ptr<osg::Node> oldNode = it->second;
-    _sceneRoot->removeChild(oldNode.get());
+    if (oldNode.valid()) {
+        _sceneRoot->removeChild(oldNode.get());
+    }
 
     // Create new node with updated geometry
     osg::ref_ptr<osg::Node> newNode = createNodeForViewProvider(vp);
 
     if (!newNode) {
-        newNode = createPlaceholderSphere();
+        // Geometry still not available - store nullptr and skip scene addition
+        _vpNodes[vp] = nullptr;
+        Base::Console().Log("OsgVerseViewer: ViewProvider %s still has no geometry after update\n",
+                          vp->getTypeId().getName());
+        render();
+        return;
     }
 
     // Set UserData for picking
@@ -2998,22 +3012,6 @@ osg::ref_ptr<osg::Node> OsgVerseViewer::createNodeForViewProvider(Gui::ViewProvi
         Base::Console().error("OsgVerseViewer: Unknown exception\n");
         return nullptr;
     }
-}
-
-osg::ref_ptr<osg::Node> OsgVerseViewer::createPlaceholderSphere()
-{
-    osg::ref_ptr<osg::Geode> geode = new osg::Geode();
-    
-    // Create a green sphere (radius 1.0)
-    osg::ref_ptr<osg::Sphere> sphere = new osg::Sphere(osg::Vec3(0, 0, 0), 1.0f);
-    osg::ref_ptr<osg::ShapeDrawable> drawable = new osg::ShapeDrawable(sphere.get());
-    drawable->setColor(osg::Vec4(0.0f, 1.0f, 0.0f, 1.0f));  // Bright green
-    
-    geode->addDrawable(drawable.get());
-    
-    Base::Console().log("OsgVerseViewer: Created placeholder sphere (radius=1.0, green)\n");
-    
-    return geode;
 }
 
 void OsgVerseViewer::applyMaterial(osg::Node* node, const Base::Color& color)

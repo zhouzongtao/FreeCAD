@@ -357,12 +357,7 @@ private:
      * @brief Create a scene node for a ViewProvider
      */
     osg::ref_ptr<osg::Node> createNodeForViewProvider(Gui::ViewProvider* vp);
-    
-    /**
-     * @brief Create a placeholder sphere for objects without geometry
-     */
-    osg::ref_ptr<osg::Node> createPlaceholderSphere();
-    
+
     /**
      * @brief Apply material to a node
      */
