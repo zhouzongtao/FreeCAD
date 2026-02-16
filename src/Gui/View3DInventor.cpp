@@ -77,8 +77,11 @@
 #include "WaitCursor.h"
 
 #include "Utilities.h"
+#include "Render/Core/RenderTypes.h"
+#include "View3D/Backends/Coin/CoinViewer.h"
 
 using namespace Gui;
+namespace Render = Gui::Render;
 
 void GLOverlayWidget::paintEvent(QPaintEvent*)
 {
@@ -122,30 +125,30 @@ View3DInventor::View3DInventor(
         smoothing = true;
     }
 
-    // Use ViewerFactory to create the renderer
-    // This allows for future backend switching while maintaining backward compatibility
+    // View3DInventor is specifically for Coin3D rendering
+    // We must directly request Coin3D backend, not use createDefault()
+    // which uses the current RenderManager backend setting
     try {
-        Base::Console().log("View3DInventor: Creating viewer using ViewerFactory\n");
-        
-        // Create viewer using factory (gets current backend from RenderManager)
-        auto viewer = View3D::ViewerFactory::createDefault(this, sharewidget);
-        
-        // For backward compatibility, we need to extract the View3DInventorViewer
-        // from the CoinViewer wrapper
+        Base::Console().log("View3DInventor: Creating Coin3D viewer using ViewerFactory\n");
+
+        // Create viewer using factory with explicit Coin3D backend type
+        auto viewer = View3D::ViewerFactory::create(Render::BackendType::Coin3D, this, sharewidget);
+
+        // Extract the View3DInventorViewer from the CoinViewer wrapper
         auto* coinViewer = dynamic_cast<View3D::Coin::CoinViewer*>(viewer.get());
         if (coinViewer) {
             _viewer = coinViewer->getCoinViewer();
             viewer.release();  // Release ownership, _viewer now manages the object
-            
-            Base::Console().log("View3DInventor: Successfully created viewer via factory\n");
+
+            Base::Console().log("View3DInventor: Successfully created Coin3D viewer via factory\n");
         }
         else {
-            // This shouldn't happen if Coin3D is the default backend
+            // This shouldn't happen if Coin3D backend is properly registered
             Base::Console().warning(
                 "View3DInventor: ViewerFactory did not return CoinViewer, "
                 "falling back to direct creation\n"
             );
-            
+
             if (glformat) {
                 _viewer = new View3DInventorViewer(f, this, sharewidget);
             }
@@ -160,7 +163,7 @@ View3DInventor::View3DInventor(
             "View3DInventor: ViewerFactory failed: %s, falling back to direct creation\n",
             e.what()
         );
-        
+
         if (glformat) {
             _viewer = new View3DInventorViewer(f, this, sharewidget);
         }

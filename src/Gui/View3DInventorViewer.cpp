@@ -938,16 +938,33 @@ void View3DInventorViewer::addViewProvider(ViewProvider* pcProvider)
     SoSeparator* root = pcProvider->getRoot();
 
     if (root) {
-        if (pcProvider->canAddToSceneGraph()) {
+        bool canAdd = pcProvider->canAddToSceneGraph();
+        bool isPhysical = pcProvider->isPartOfPhysicalObject();
+        bool isVisible = pcProvider->isShow();
+
+        if (canAdd) {
             // Add to the physical object group if related to the physical object otherwise add to
             // the scene graph
-            if (pcProvider->isPartOfPhysicalObject()) {
+            if (isPhysical) {
                 objectGroup->addChild(root);
             }
             else {
                 pcViewProviderRoot->addChild(root);
             }
+
+            // Ensure display mode is properly set
+            const char* defaultMode = pcProvider->getDefaultDisplayMode();
+            if (defaultMode) {
+                pcProvider->setDisplayMode(defaultMode);
+            }
+
+            // Ensure ViewProvider is visible
+            // This is needed for opened documents where visibility wasn't properly restored
+            if (!isVisible) {
+                pcProvider->show();
+            }
         }
+
         _ViewProviderMap[root] = pcProvider;
     }
 

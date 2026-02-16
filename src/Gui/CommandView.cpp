@@ -2341,9 +2341,11 @@ void StdCmdViewCreateCoin3D::activated(int iMsg)
 {
     Q_UNUSED(iMsg);
     // 强制创建 Coin3D 视图（View3DInventor），绕过自动切换逻辑
-    getActiveGuiDocument()->createView(View3DInventor::getClassTypeId(), 
-                                       Gui::CreateViewMode::ForceCoin3D);
-    getActiveGuiDocument()->getActiveView()->viewAll();
+    MDIView* newView = getActiveGuiDocument()->createView(View3DInventor::getClassTypeId(),
+                                                           Gui::CreateViewMode::ForceCoin3D);
+    if (newView && newView->isDerivedFrom<View3DInventor>()) {
+        static_cast<View3DInventor*>(newView)->viewAll();
+    }
 }
 
 bool StdCmdViewCreateCoin3D::isActive()
