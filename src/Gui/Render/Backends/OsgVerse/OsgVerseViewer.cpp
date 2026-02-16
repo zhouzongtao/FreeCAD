@@ -30,9 +30,13 @@
 #include <QOpenGLContext>
 #include <QSurfaceFormat>
 #include <QApplication>
+#include <fstream>
 #endif
 
 #include "OsgVerseViewer.h"
+#include "OsgVerseLight.h"
+#include "OsgVerseNaviCube.h"
+#include "OsgVerseShaderManager.h"
 #include <osgViewer/Viewer>
 #include <osgViewer/GraphicsWindow>
 #include <osgGA/TrackballManipulator>
@@ -40,8 +44,29 @@
 #include <osg/Camera>
 #include <osg/Light>
 #include <osg/LightSource>
+#include <osg/ComputeBoundsVisitor>
 #include <osgDB/WriteFile>
+#include <osg/Geode>
+#include <osg/ShapeDrawable>
+#include <osg/Material>
+#include <osg/MatrixTransform>
+#include <osg/Uniform>
 #include <Base/Console.h>
+#include <Gui/ViewProvider.h>
+#include <Gui/ViewProviderDocumentObject.h>
+#include <App/DocumentObject.h>
+#include <App/Property.h>
+#include <App/PropertyStandard.h>
+
+// Shape geometry display via App-level ComplexGeoData interface
+// (No direct Part module dependency — uses virtual dispatch at runtime)
+#include <App/GeoFeature.h>
+#include <App/PropertyGeo.h>
+#include <App/ComplexGeoData.h>
+// OSG arrays for geometry creation
+#include <osg/Array>
+#include <osg/PrimitiveSet>
+#include <osg/Geometry>
 
 using namespace Gui::Render;
 
@@ -61,16 +86,46 @@ OsgVerseViewer::OsgVerseViewer()
 
 OsgVerseViewer::~OsgVerseViewer()
 {
-    if (_viewer) {
-        _viewer->setDone(true);
-        delete _viewer;
-        _viewer = nullptr;
+    Base::Console().log("OsgVerseViewer: Destructor called\n");
+
+    // First, clear all ViewProviders and their nodes from the scene graph
+    // This must be done before destroying the viewer to avoid dangling references
+    if (_engine) {
+        osg::Group* sceneRoot = _engine->getOsgSceneRoot();
+        if (sceneRoot) {
+            // Remove all children from scene root
+            sceneRoot->removeChildren(0, sceneRoot->getNumChildren());
+            Base::Console().log("OsgVerseViewer: Cleared scene root children\n");
+        }
     }
 
+    // Clear all ViewProvider mappings
+    _viewProviders.clear();
+    _nodeToVPMap.clear();
+    _vpToNodeMap.clear();
+    Base::Console().log("OsgVerseViewer: Cleared ViewProvider mappings\n");
+
+    // Stop viewer before destroying
+    if (_viewer) {
+        _viewer->setDone(true);
+        Base::Console().log("OsgVerseViewer: Set viewer done flag\n");
+    }
+
+    // Delete widget (which contains the GraphicsWindow)
     if (_widget) {
         delete _widget;
         _widget = nullptr;
+        Base::Console().log("OsgVerseViewer: Widget deleted\n");
     }
+
+    // Finally delete the viewer
+    if (_viewer) {
+        delete _viewer;
+        _viewer = nullptr;
+        Base::Console().log("OsgVerseViewer: Viewer deleted\n");
+    }
+
+    Base::Console().log("OsgVerseViewer: Destructor complete\n");
 }
 
 //-----------------------------------------------------------------------
@@ -107,7 +162,16 @@ void OsgVerseViewer::render()
 {
     ensureInitialized();
     if (_viewer) {
-        _viewer->frame();
+        // 更新相机动画（如果正在动画中）
+        // Update camera animation (if animating)
+        if (_animationEnabled && !_animationComplete && _viewer->getFrameStamp()) {
+            updateCameraAnimation(_viewer->getFrameStamp()->getReferenceTime());
+        }
+        // NaviCube is now drawn in ViewerWidget::paintGL() where OpenGL context is active
+        // NaviCube现在在ViewerWidget::paintGL()中绘制，那里OpenGL上下文是激活的
+        if (_widget) {
+            _widget->update();  // Triggers paintGL()
+        }
     }
 }
 
@@ -148,29 +212,94 @@ void OsgVerseViewer::setCamera(const CameraParams& params)
 {
     _cameraParams = params;
 
-    if (_viewer) {
-        osg::Camera* camera = _viewer->getCamera();
-        if (camera) {
-            // Set projection matrix
-            double fovy = params.fieldOfView;
-            double aspectRatio = params.aspectRatio;
-            double nearPlane = params.nearPlane;
-            double farPlane = params.farPlane;
+    if (!_viewer) return;
 
-            camera->setProjectionMatrixAsPerspective(fovy, aspectRatio, nearPlane, farPlane);
+    // 设置投影矩阵 / Set projection matrix
+    osg::Camera* camera = _viewer->getCamera();
+    if (camera) {
+        camera->setProjectionMatrixAsPerspective(
+            params.fieldOfView, params.aspectRatio, params.nearPlane, params.farPlane);
+    }
 
-            // Set view matrix
-            osg::Vec3d eye(params.position.x, params.position.y, params.position.z);
-            osg::Vec3d center(params.target.x, params.target.y, params.target.z);
-            osg::Vec3d up(params.upVector.x, params.upVector.y, params.upVector.z);
+    // 核心策略：通过Manipulator设置Camera，不要直接设置Camera的ViewMatrix
+    // Manipulator是Camera的唯一控制者，这样就不会有"打架"问题
+    // Core strategy: Set camera THROUGH the Manipulator, never set Camera ViewMatrix directly.
+    // Manipulator is the sole controller of Camera, so there is no "fighting" problem.
+    osgGA::TrackballManipulator* manipulator =
+        dynamic_cast<osgGA::TrackballManipulator*>(_viewer->getCameraManipulator());
 
-            camera->setViewMatrixAsLookAt(eye, center, up);
-        }
+    if (manipulator) {
+        osg::Vec3d eye(params.position.x, params.position.y, params.position.z);
+        osg::Vec3d center(params.target.x, params.target.y, params.target.z);
+        osg::Vec3d up(params.upVector.x, params.upVector.y, params.upVector.z);
+
+        // 直接设置Manipulator的内部状态
+        // Directly set Manipulator's internal state
+        manipulator->setCenter(center);
+
+        osg::Vec3d direction = eye - center;
+        double distance = direction.length();
+        if (distance < 1e-6) distance = 1.0;
+        manipulator->setDistance(distance);
+
+        // 从eye/center/up计算旋转四元数
+        // Calculate rotation quaternion from eye/center/up
+        osg::Matrixd viewMatrix;
+        viewMatrix.makeLookAt(eye, center, up);
+        osg::Matrixd rotMatrix = viewMatrix;
+        rotMatrix.setTrans(0, 0, 0);
+        manipulator->setRotation(rotMatrix.getRotate().inverse());
     }
 }
 
 CameraParams OsgVerseViewer::getCamera() const
 {
+    // 始终从Manipulator读取最新状态（Manipulator是Camera的唯一控制者）
+    // Always read the latest state from Manipulator (Manipulator is the sole controller of Camera)
+    if (_viewer) {
+        osgGA::TrackballManipulator* manipulator =
+            dynamic_cast<osgGA::TrackballManipulator*>(_viewer->getCameraManipulator());
+
+        if (manipulator) {
+            osg::Vec3d center = manipulator->getCenter();
+            double distance = manipulator->getDistance();
+            osg::Quat rotation = manipulator->getRotation();
+
+            // 从Manipulator内部状态计算eye和up
+            // Calculate eye and up from Manipulator internal state
+            // TrackballManipulator的默认视线方向是(0, 0, -distance)，然后应用rotation
+            osg::Vec3d defaultDir(0.0, 0.0, distance);
+            osg::Vec3d offset = rotation * defaultDir;
+            osg::Vec3d eye = center + offset;
+
+            osg::Vec3d defaultUp(0.0, 1.0, 0.0);
+            osg::Vec3d up = rotation * defaultUp;
+
+            CameraParams& params = const_cast<CameraParams&>(_cameraParams);
+            params.position.x = static_cast<float>(eye.x());
+            params.position.y = static_cast<float>(eye.y());
+            params.position.z = static_cast<float>(eye.z());
+            params.target.x = static_cast<float>(center.x());
+            params.target.y = static_cast<float>(center.y());
+            params.target.z = static_cast<float>(center.z());
+            params.upVector.x = static_cast<float>(up.x());
+            params.upVector.y = static_cast<float>(up.y());
+            params.upVector.z = static_cast<float>(up.z());
+        }
+
+        // 获取投影参数 / Get projection parameters
+        osg::Camera* camera = _viewer->getCamera();
+        if (camera) {
+            CameraParams& projParams = const_cast<CameraParams&>(_cameraParams);
+            double fovy, aspectRatio, zNear, zFar;
+            camera->getProjectionMatrixAsPerspective(fovy, aspectRatio, zNear, zFar);
+            projParams.fieldOfView = static_cast<float>(fovy);
+            projParams.aspectRatio = static_cast<float>(aspectRatio);
+            projParams.nearPlane = static_cast<float>(zNear);
+            projParams.farPlane = static_cast<float>(zFar);
+        }
+    }
+
     return _cameraParams;
 }
 
@@ -193,8 +322,126 @@ void OsgVerseViewer::fitAll()
 
 void OsgVerseViewer::fitSelection()
 {
-    // TODO: Implement fit to selection
-    fitAll();
+    Base::Console().log("OsgVerseViewer::fitSelection: Fitting to selection...\n");
+
+    if (!_engine || !_viewer) {
+        Base::Console().warning("OsgVerseViewer::fitSelection: Engine or viewer not initialized\n");
+        return;
+    }
+
+    // 获取场景根节点
+    // Get scene root node
+    osg::Group* sceneRoot = _engine->getOsgSceneRoot();
+    if (!sceneRoot) {
+        Base::Console().warning("OsgVerseViewer::fitSelection: Scene root is null\n");
+        return;
+    }
+
+    // 查找选中的节点（带有 Selection 名称或特殊标记的节点）
+    // Find selected nodes (nodes with Selection name or special markers)
+
+    // 遍历场景查找选中物体
+    // Traverse scene to find selected objects
+    class FindSelectedNodes : public osg::NodeVisitor {
+    public:
+        FindSelectedNodes() : osg::NodeVisitor(), _hasSelection(false) {
+            setTraversalMode(osg::NodeVisitor::TRAVERSE_ALL_CHILDREN);
+        }
+
+        void apply(osg::Node& node) override {
+            // 检查是否是 OsgVerseSelectionRoot 或带有 "Selected" 标记的节点
+            // Check if it's OsgVerseSelectionRoot or node with "Selected" marker
+            if (node.asGroup()) {
+                std::string name = node.getName();
+                if (name.find("Selection") != std::string::npos ||
+                    name.find("Selected") != std::string::npos) {
+                    osg::BoundingBox* bbox = dynamic_cast<osg::BoundingBox*>(&node);
+                    if (bbox) {
+                        // 获取边界框
+                        // Get bounding box
+                        selectedBounds.expandBy(bbox->_min);
+                        selectedBounds.expandBy(bbox->_max);
+                        _hasSelection = true;
+                    } else {
+                        // 对于普通节点，计算其包围盒
+                        // For normal nodes, calculate their bounding box
+                        osg::ComputeBoundsVisitor cb;
+                        node.accept(cb);
+                        if (cb.getBoundingBox().valid()) {
+                            selectedBounds.expandBy(cb.getBoundingBox()._min);
+                            selectedBounds.expandBy(cb.getBoundingBox()._max);
+                            _hasSelection = true;
+                        }
+                    }
+                }
+            }
+            traverse(node);
+        }
+
+        bool hasSelection() const { return _hasSelection; }
+        osg::BoundingBox getBounds() const { return selectedBounds; }
+
+    private:
+        osg::BoundingBox selectedBounds;
+        bool _hasSelection;
+    };
+
+    FindSelectedNodes finder;
+    sceneRoot->accept(finder);
+
+    if (finder.hasSelection()) {
+        osg::BoundingBox bounds = finder.getBounds();
+
+        if (bounds.valid()) {
+            // 计算包围盒的中心和大小
+            // Calculate bounding box center and size
+            osg::Vec3 center = bounds.center();
+            osg::Vec3 size = bounds._max - bounds._min;
+
+            // 计算相机应该放置的位置
+            // Calculate where camera should be positioned
+            // 相机位置 = 中心 + 尺寸向量 * 缩放因子 + 偏移向量
+            // Camera position = center + size vector * scale factor + offset vector
+            float scaleFactor = 2.0f;  // 缩放因子，决定相机距离
+            osg::Vec3 offset(0.0f, -1.0f, 0.5f);  // 从斜上方观察
+
+            osg::Vec3 eye = center + osg::Vec3(size.x() * offset.x(),
+                                                   size.y() * offset.y(),
+                                                   size.z() * offset.z()) * scaleFactor;
+            osg::Vec3 target = center;
+            osg::Vec3 up(0.0f, 0.0f, 1.0f);
+
+            // 设置相机
+            // Set camera
+            osg::Camera* camera = _viewer->getCamera();
+            if (camera) {
+                camera->setViewMatrixAsLookAt(eye, target, up);
+
+                // 调整视场角以适应选中物体的大小
+                // Adjust FOV to fit selected object size
+                float maxDimension = std::max({size.x(), size.y(), size.z()});
+                float fov = std::min(60.0f, std::max(30.0f, maxDimension * 5.0f));
+                camera->setProjectionMatrixAsPerspective(fov,
+                                                                 _cameraParams.aspectRatio,
+                                                                 _cameraParams.nearPlane,
+                                                                 _cameraParams.farPlane);
+
+                Base::Console().log("OsgVerseViewer::fitSelection: Fitted to selection\n");
+                Base::Console().log("OsgVerseViewer::fitSelection: Center (%.2f, %.2f, %.2f)\n",
+                                   center.x(), center.y(), center.z());
+            }
+        } else {
+            Base::Console().warning("OsgVerseViewer::fitSelection: Invalid bounding box\n");
+            // 降级到 fitAll
+            // Fallback to fitAll
+            fitAll();
+        }
+    } else {
+        Base::Console().log("OsgVerseViewer::fitSelection: No selection found, fitting to all\n");
+        // 没有选中物体，降级到 fitAll
+        // No selection found, fallback to fitAll
+        fitAll();
+    }
 }
 
 //-----------------------------------------------------------------------
@@ -204,7 +451,28 @@ void OsgVerseViewer::fitSelection()
 void OsgVerseViewer::setAmbientIntensity(float intensity)
 {
     _ambientIntensity = intensity;
-    // TODO: Update scene lighting
+
+    // Update scene lighting
+    if (_engine && _engine->getOsgSceneRoot()) {
+        osg::Group* sceneRoot = _engine->getOsgSceneRoot();
+
+        // Find and update SunLight (first LightSource)
+        for (unsigned int i = 0; i < sceneRoot->getNumChildren(); ++i) {
+            osg::Node* node = sceneRoot->getChild(i);
+            osg::LightSource* ls = dynamic_cast<osg::LightSource*>(node);
+            if (ls && ls->getLight() && ls->getName() == "SunLight") {
+                // Get current ambient color from light manager
+                auto& lightManager = OsgVerseLightManager::instance();
+                Color ambientColor = lightManager.getAmbientColor();
+
+                // Update ambient light with new intensity
+                ls->getLight()->setAmbient(osg::Vec4(ambientColor.r * _ambientIntensity,
+                                                       ambientColor.g * _ambientIntensity,
+                                                       ambientColor.b * _ambientIntensity, 1.0f));
+                break;
+            }
+        }
+    }
 }
 
 float OsgVerseViewer::getAmbientIntensity() const
@@ -215,7 +483,63 @@ float OsgVerseViewer::getAmbientIntensity() const
 void OsgVerseViewer::setBacklightEnabled(bool enabled)
 {
     _backlightEnabled = enabled;
-    // TODO: Update backlight
+
+    // Update backlight
+    if (_engine && _engine->getOsgSceneRoot()) {
+        osg::Group* sceneRoot = _engine->getOsgSceneRoot();
+
+        if (_backlightEnabled) {
+            // Check if BackLight already exists
+            bool hasBackLight = false;
+            for (unsigned int i = 0; i < sceneRoot->getNumChildren(); ++i) {
+                osg::Node* node = sceneRoot->getChild(i);
+                if (node && dynamic_cast<osg::LightSource*>(node) && node->getName() == "BackLight") {
+                    hasBackLight = true;
+                    // Enable GL_LIGHT1
+                    osg::StateSet* stateSet = sceneRoot->getOrCreateStateSet();
+                    stateSet->setMode(GL_LIGHT1, osg::StateAttribute::ON);
+                    break;
+                }
+            }
+
+            // Create BackLight if it doesn't exist
+            if (!hasBackLight) {
+                osg::Light* backLight = new osg::Light();
+                backLight->setLightNum(1);  // GL_LIGHT1
+
+                osg::Vec3 backDir(0.0f, 1.0f, 0.0f);
+                backLight->setPosition(osg::Vec4(backDir.x(), backDir.y(), backDir.z(), 0.0f));
+
+                float backIntensity = 0.3f;
+                backLight->setDiffuse(osg::Vec4(backIntensity, backIntensity, backIntensity, 1.0f));
+                backLight->setSpecular(osg::Vec4(0.0f, 0.0f, 0.0f, 1.0f));
+                backLight->setAmbient(osg::Vec4(0.0f, 0.0f, 0.0f, 1.0f));
+
+                osg::LightSource* backLightSource = new osg::LightSource();
+                backLightSource->setLight(backLight);
+                backLightSource->setLocalStateSetModes(osg::StateAttribute::ON);
+                backLightSource->setName("BackLight");
+
+                sceneRoot->addChild(backLightSource);
+
+                // Enable GL_LIGHT1 in StateSet
+                osg::StateSet* stateSet = sceneRoot->getOrCreateStateSet();
+                stateSet->setMode(GL_LIGHT1, osg::StateAttribute::ON);
+            }
+        } else {
+            // Remove BackLight if it exists
+            for (int i = sceneRoot->getNumChildren() - 1; i >= 0; --i) {
+                osg::Node* node = sceneRoot->getChild(i);
+                if (node && dynamic_cast<osg::LightSource*>(node) && node->getName() == "BackLight") {
+                    sceneRoot->removeChild(i);
+                    // Disable GL_LIGHT1 in StateSet
+                    osg::StateSet* stateSet = sceneRoot->getOrCreateStateSet();
+                    stateSet->setMode(GL_LIGHT1, osg::StateAttribute::OFF);
+                    break;
+                }
+            }
+        }
+    }
 }
 
 bool OsgVerseViewer::isBacklightEnabled() const
@@ -250,13 +574,22 @@ void OsgVerseViewer::resize(int width, int height)
 
 void OsgVerseViewer::onResize(int width, int height)
 {
+    // width/height here are logical pixels; convert to physical for OSG
+    float dpr = 1.0f;
+    if (_widget) {
+        dpr = _widget->devicePixelRatio();
+    }
+    const int physW = static_cast<int>(width * dpr);
+    const int physH = static_cast<int>(height * dpr);
+
     if (_graphicsWindow.valid()) {
-        _graphicsWindow->resized(0, 0, width, height);
+        _graphicsWindow->resized(0, 0, physW, physH);
     }
 
     if (_viewer) {
         osg::Camera* camera = _viewer->getCamera();
         if (camera) {
+            camera->setViewport(0, 0, physW, physH);
             double aspectRatio = static_cast<double>(width) / static_cast<double>(height);
             camera->setProjectionMatrixAsPerspective(
                 _cameraParams.fieldOfView,
@@ -407,9 +740,9 @@ void OsgVerseViewer::initializeWidget()
     if (_widget) {
         return;
     }
-    
+
     Base::Console().log("OsgVerseViewer::initializeWidget: Creating widget...\n");
-    _widget = new ViewerWidget(_viewer, _graphicsWindow.get());
+    _widget = new ViewerWidget(this, _viewer, _graphicsWindow.get());
     Base::Console().log("OsgVerseViewer::initializeWidget: Widget created successfully\n");
 }
 
@@ -425,12 +758,22 @@ void OsgVerseViewer::setupDefaultCamera()
     }
 
     // Set default camera parameters
-    _cameraParams.position = Vec3f(0.0f, -10.0f, 5.0f);
-    _cameraParams.target = Vec3f(0.0f, 0.0f, 0.0f);
-    _cameraParams.upVector = Vec3f(0.0f, 0.0f, 1.0f);
-    _cameraParams.fieldOfView = 45.0f;
-    _cameraParams.aspectRatio = 1.333f;
-    _cameraParams.nearPlane = 0.1f;
+    // 设置更合适的默认相机参数，便于查看 3D 场景
+    // Set more suitable default camera parameters for better 3D scene viewing
+
+    // 相机位置：放在 Y 轴后方，稍向下方偏右
+    // Camera position: placed back on right side, slightly downward
+    // 视线方向：看向原点方向，从斜上方观察
+    // Camera target: 放在原点
+    // 视场角：更宽的视野（60 度）
+    // 近裁剪面：足够远，能容纳场景中的物体
+
+    _cameraParams.position = Vec3f(0.0f, -8.0f, 12.0f);  // 后退 8 单位，上方 12 单位
+    _cameraParams.target = Vec3f(0.0f, 0.0f, 0.0f);        // 看向原点
+    _cameraParams.upVector = Vec3f(0.0f, 1.0f, 0.0f);       // Y 轴向上
+    _cameraParams.fieldOfView = 60.0f;                          // 60 度视场角（更宽）
+    _cameraParams.aspectRatio = 1.333f;                        // 宽高比
+    _cameraParams.nearPlane = 0.1f;                             // 近裁剪面距离（100mm）
     _cameraParams.farPlane = 1000.0f;
 
     // Apply camera parameters
@@ -447,17 +790,143 @@ void OsgVerseViewer::setupDefaultCamera()
 
 void OsgVerseViewer::setupDefaultLighting()
 {
-    // TODO: Setup default scene lighting
+    Base::Console().log("OsgVerseViewer::setupDefaultLighting: Setting up default lighting...\n");
+
+    // 确保引擎和查看器已初始化
+    // Ensure engine and viewer are initialized
+    if (!_engine || !_viewer) {
+        Base::Console().warning("OsgVerseViewer::setupDefaultLighting: Engine or viewer not initialized\n");
+        return;
+    }
+
+    // 获取 OSG 场景根节点
+    // Get OSG scene root node
+    osg::Group* sceneRoot = _engine->getOsgSceneRoot();
+    if (!sceneRoot) {
+        Base::Console().warning("OsgVerseViewer::setupDefaultLighting: Scene root is null\n");
+        return;
+    }
+
+    // 创建光源管理器默认光源
+    // Create default lights in light manager
+    auto& lightManager = OsgVerseLightManager::instance();
+    lightManager.createDefaultLights();
+
+    // 从光源管理器获取默认光源并添加到场景
+    // Get default lights from light manager and add to scene
+    std::shared_ptr<OsgVerseLight> sunLight = lightManager.getLight("Sun");
+    if (sunLight) {
+        // 创建 OSG LightSource 节点
+        // Create OSG LightSource node
+        osg::Light* osgLight = new osg::Light();
+        osgLight->setLightNum(0);  // GL_LIGHT0
+
+        // 设置光源颜色和��度
+        // Set light color and intensity
+        Color lightColor = sunLight->getColor();
+        float intensity = sunLight->getIntensity();
+        osgLight->setDiffuse(osg::Vec4(lightColor.r * intensity,
+                                       lightColor.g * intensity,
+                                       lightColor.b * intensity, 1.0f));
+        osgLight->setSpecular(osg::Vec4(lightColor.r * intensity,
+                                        lightColor.g * intensity,
+                                        lightColor.b * intensity, 1.0f));
+
+        // 设置方向光方向
+        // Set directional light direction
+        osg::Vec3 dir = sunLight->getDirection();
+        osgLight->setPosition(osg::Vec4(dir.x(), dir.y(), dir.z(), 0.0f));  // w=0 表示方向光
+
+        // 创建 LightSource 并添加到场景
+        // Create LightSource and add to scene
+        osg::LightSource* lightSource = new osg::LightSource();
+        lightSource->setLight(osgLight);
+        lightSource->setLocalStateSetModes(osg::StateAttribute::ON);  // 启用光源
+        lightSource->setName("SunLight");
+
+        // 添加到场景根节点
+        // Add to scene root
+        sceneRoot->addChild(lightSource);
+
+        Base::Console().log("OsgVerseViewer::setupDefaultLighting: Sun light added to scene\n");
+    }
+
+    // 设置环境光
+    // Set ambient light
+    Color ambientColor = lightManager.getAmbientColor();
+    if (sceneRoot->getNumChildren() > 0) {
+        osg::Node* firstChild = sceneRoot->getChild(0);
+        if (firstChild && dynamic_cast<osg::LightSource*>(firstChild)) {
+            osg::LightSource* ls = dynamic_cast<osg::LightSource*>(firstChild);
+            if (ls && ls->getLight()) {
+                ls->getLight()->setAmbient(osg::Vec4(ambientColor.r * _ambientIntensity,
+                                                      ambientColor.g * _ambientIntensity,
+                                                      ambientColor.b * _ambientIntensity, 1.0f));
+                Base::Console().log("OsgVerseViewer::setupDefaultLighting: Ambient light set (%.2f, %.2f, %.2f)\n",
+                                  ambientColor.r * _ambientIntensity,
+                                  ambientColor.g * _ambientIntensity,
+                                  ambientColor.b * _ambientIntensity);
+            }
+        }
+    }
+
+    // 如果启用了背光，添加背光
+    // Add backlight if enabled
+    if (_backlightEnabled) {
+        osg::Light* backLight = new osg::Light();
+        backLight->setLightNum(1);  // GL_LIGHT1
+
+        // 背光从相机后方照射
+        // Backlight comes from behind the camera
+        osg::Vec3 backDir(0.0f, 1.0f, 0.0f);  // 从后方照射
+        backLight->setPosition(osg::Vec4(backDir.x(), backDir.y(), backDir.z(), 0.0f));
+
+        // 较弱的背光强度
+        // Weaker backlight intensity
+        float backIntensity = 0.3f;
+        backLight->setDiffuse(osg::Vec4(backIntensity, backIntensity, backIntensity, 1.0f));
+        backLight->setSpecular(osg::Vec4(0.0f, 0.0f, 0.0f, 1.0f));  // 无镜面反射
+        backLight->setAmbient(osg::Vec4(0.0f, 0.0f, 0.0f, 1.0f));    // 无环境光
+
+        osg::LightSource* backLightSource = new osg::LightSource();
+        backLightSource->setLight(backLight);
+        backLightSource->setLocalStateSetModes(osg::StateAttribute::ON);
+        backLightSource->setName("BackLight");
+
+        sceneRoot->addChild(backLightSource);
+
+        Base::Console().log("OsgVerseViewer::setupDefaultLighting: Back light added to scene\n");
+    }
+
+    // 确保场景根节点的 StateSet 启用光照
+    // Ensure scene root StateSet has lighting enabled
+    osg::StateSet* stateSet = sceneRoot->getOrCreateStateSet();
+    stateSet->setMode(GL_LIGHTING, osg::StateAttribute::ON);
+    stateSet->setMode(GL_LIGHT0, osg::StateAttribute::ON);
+    if (_backlightEnabled) {
+        stateSet->setMode(GL_LIGHT1, osg::StateAttribute::ON);
+    }
+
+    // Apply GLSL 1.20 Phong shader globally on the scene root.
+    // Child geometry inherits this shader and overrides u_baseColor per-object.
+    OsgVerseShaderManager::instance().applyShader(stateSet, ShaderType::Standard);
+
+    // Default base color uniform (child geometry overrides this per-object)
+    stateSet->addUniform(new osg::Uniform("u_baseColor", osg::Vec4(0.8f, 0.8f, 0.9f, 1.0f)));
+
+    Base::Console().log("OsgVerseViewer::setupDefaultLighting: Default lighting setup complete\n");
 }
 
 //===========================================================================
 // ViewerWidget Implementation
 //===========================================================================
 
-OsgVerseViewer::ViewerWidget::ViewerWidget(osgViewer::Viewer* viewer, 
+OsgVerseViewer::ViewerWidget::ViewerWidget(OsgVerseViewer* osgVerseViewer,
+                                            osgViewer::Viewer* viewer,
                                             osgViewer::GraphicsWindowEmbedded* graphicsWindow,
                                             QWidget* parent)
     : QOpenGLWidget(parent)
+    , _osgVerseViewer(osgVerseViewer)
     , _viewer(viewer)
     , _graphicsWindow(graphicsWindow)
     , _firstFrame(true)
@@ -473,13 +942,31 @@ OsgVerseViewer::ViewerWidget::ViewerWidget(osgViewer::Viewer* viewer,
     setMouseTracking(true);
     setFocusPolicy(Qt::StrongFocus);
     setMinimumSize(320, 240);
-    
+
     Base::Console().log("OsgVerseViewer::ViewerWidget: Constructor completed\n");
 }
 
 OsgVerseViewer::ViewerWidget::~ViewerWidget()
 {
-    // Cleanup is handled by osg::ref_ptr
+    Base::Console().log("OsgVerseViewer::ViewerWidget: Destructor called\n");
+
+    // Release OpenGL resources while context is still valid
+    // QOpenGLWidget::makeCurrent() is available here
+    makeCurrent();
+
+    // Stop the OSG viewer first to prevent further rendering
+    if (_viewer) {
+        _viewer->setDone(false);  // Don't delete viewer here, just stop it
+    }
+
+    // Release GraphicsWindow
+    if (_graphicsWindow.valid()) {
+        _graphicsWindow->close();
+        _graphicsWindow = nullptr;
+    }
+
+    doneCurrent();
+    Base::Console().log("OsgVerseViewer::ViewerWidget: Destructor complete\n");
 }
 
 void OsgVerseViewer::ViewerWidget::initializeGL()
@@ -498,25 +985,54 @@ void OsgVerseViewer::ViewerWidget::paintGL()
             Base::Console().log("OsgVerseViewer::ViewerWidget::paintGL: Set default FBO ID: %u\n", defaultFboId);
         }
         _viewer->frame();
+
+        // Draw NaviCube AFTER main scene (so it appears on top)
+        // OpenGL context is active here
+        if (_osgVerseViewer && _osgVerseViewer->_naviCube && _osgVerseViewer->_naviCubeEnabled) {
+            _osgVerseViewer->_naviCube->draw();
+        }
     }
 }
 
 void OsgVerseViewer::ViewerWidget::resizeGL(int width, int height)
 {
+    // On HiDPI/Retina displays, the framebuffer is larger than logical pixels.
+    // resizeGL receives logical size, but OSG viewport needs physical pixels.
+    const float dpr = devicePixelRatio();
+    const int physW = static_cast<int>(width * dpr);
+    const int physH = static_cast<int>(height * dpr);
+
     if (_graphicsWindow.valid()) {
-        _graphicsWindow->getEventQueue()->windowResize(this->x(), this->y(), width, height);
-        _graphicsWindow->resized(this->x(), this->y(), width, height);
+        _graphicsWindow->getEventQueue()->windowResize(this->x(), this->y(), physW, physH);
+        _graphicsWindow->resized(this->x(), this->y(), physW, physH);
     }
-    
+
+    if (_viewer) {
+        osg::Camera* camera = _viewer->getCamera();
+        if (camera) {
+            camera->setViewport(0, 0, physW, physH);
+        }
+    }
+
     // Paint once to avoid flicker (like OsgVerse qt_viewer example)
     paintGL();
 }
 
 void OsgVerseViewer::ViewerWidget::mousePressEvent(QMouseEvent* event)
 {
+    // Check NaviCube first - it has priority for mouse events
+    if (_osgVerseViewer && _osgVerseViewer->_naviCube &&
+        _osgVerseViewer->_naviCubeEnabled &&
+        _osgVerseViewer->_naviCube->handleMouseEvent(event)) {
+        event->accept();
+        update();
+        return;
+    }
+
     if (_graphicsWindow.valid()) {
-        float x = static_cast<float>(event->position().x());
-        float y = static_cast<float>(event->position().y());
+        const float dpr = devicePixelRatio();
+        float x = static_cast<float>(event->position().x()) * dpr;
+        float y = static_cast<float>(event->position().y()) * dpr;
         unsigned int button = 0;
 
         switch (event->button()) {
@@ -534,9 +1050,19 @@ void OsgVerseViewer::ViewerWidget::mousePressEvent(QMouseEvent* event)
 
 void OsgVerseViewer::ViewerWidget::mouseReleaseEvent(QMouseEvent* event)
 {
+    // Check NaviCube first
+    if (_osgVerseViewer && _osgVerseViewer->_naviCube &&
+        _osgVerseViewer->_naviCubeEnabled &&
+        _osgVerseViewer->_naviCube->handleMouseEvent(event)) {
+        event->accept();
+        update();
+        return;
+    }
+
     if (_graphicsWindow.valid()) {
-        float x = static_cast<float>(event->position().x());
-        float y = static_cast<float>(event->position().y());
+        const float dpr = devicePixelRatio();
+        float x = static_cast<float>(event->position().x()) * dpr;
+        float y = static_cast<float>(event->position().y()) * dpr;
         unsigned int button = 0;
 
         switch (event->button()) {
@@ -554,10 +1080,22 @@ void OsgVerseViewer::ViewerWidget::mouseReleaseEvent(QMouseEvent* event)
 
 void OsgVerseViewer::ViewerWidget::mouseMoveEvent(QMouseEvent* event)
 {
+    // Check NaviCube first
+    if (_osgVerseViewer && _osgVerseViewer->_naviCube &&
+        _osgVerseViewer->_naviCubeEnabled &&
+        _osgVerseViewer->_naviCube->handleMouseEvent(event)) {
+        event->accept();
+        update();
+        return;
+    }
+
+    // 正常处理场景鼠标移动
+    // Handle normal scene mouse movement
     if (_graphicsWindow.valid()) {
+        const float dpr = devicePixelRatio();
         _graphicsWindow->getEventQueue()->mouseMotion(
-            static_cast<float>(event->position().x()),
-            static_cast<float>(event->position().y())
+            static_cast<float>(event->position().x()) * dpr,
+            static_cast<float>(event->position().y()) * dpr
         );
         event->accept();
     }
@@ -567,20 +1105,13 @@ void OsgVerseViewer::ViewerWidget::mouseMoveEvent(QMouseEvent* event)
 void OsgVerseViewer::ViewerWidget::wheelEvent(QWheelEvent* event)
 {
     if (_graphicsWindow.valid()) {
-        // 获取滚轮增量 / Get wheel delta
         int delta = event->angleDelta().y();
 
-        // 确定滚动方向 / Determine scroll direction
         osgGA::GUIEventAdapter::ScrollingMotion motion = delta > 0 ?
             osgGA::GUIEventAdapter::SCROLL_UP : osgGA::GUIEventAdapter::SCROLL_DOWN;
 
-        // 获取鼠标位置 / Get mouse position
-        QPointF pos = event->position();
+        _graphicsWindow->getEventQueue()->mouseScroll(motion);
 
-        // 发送滚轮事件到OSG / Send wheel event to OSG
-        _graphicsWindow->getEventQueue()->mouseScroll2D(pos.x(), pos.y(), motion);
-
-        // 接受事件 / Accept event
         event->accept();
     }
     update();
@@ -651,6 +1182,18 @@ void OsgVerseViewer::ensureInitialized()
         setupDefaultLighting();
         Base::Console().log("OsgVerseViewer: Default lighting set up\n");
 
+        // 创建 NaviCube
+        // Create NaviCube
+        Base::Console().log("OsgVerseViewer: Creating NaviCube...\n");
+        try {
+            _naviCube = std::make_unique<OsgVerseNaviCube>(this);
+            Base::Console().log("OsgVerseViewer: NaviCube created successfully\n");
+        } catch (const std::exception& e) {
+            Base::Console().error("OsgVerseViewer: Failed to create NaviCube: %s\n", e.what());
+            // NaviCube 创建失败不应阻止整个初始化
+            // NaviCube creation failure should not block overall initialization
+        }
+
         _initialized = true;
         Base::Console().log("OsgVerseViewer: Lazy initialization completed successfully\n");
     }
@@ -685,4 +1228,568 @@ bool OsgVerseViewer::checkPrerequisites()
 
     Base::Console().log("OsgVerseViewer: Prerequisites check passed\n");
     return true;
+}
+
+//===========================================================================
+// 相机动画和预设视角实现 / Camera Animation and Preset Views Implementation
+//===========================================================================
+
+void OsgVerseViewer::setPresetView(PresetView view)
+{
+    ensureInitialized();
+
+    if (!_viewer || !_viewer->getCamera()) {
+        Base::Console().warning("OsgVerseViewer::setPresetView: Viewer or camera not initialized\n");
+        return;
+    }
+
+    osg::Camera* camera = _viewer->getCamera();
+    if (!camera) {
+        Base::Console().warning("OsgVerseViewer::setPresetView: Failed to get camera\n");
+        return;
+    }
+
+    // 获取场景包围盒用于计算相机位置
+    // Get scene bounding box for camera position calculation
+    osg::BoundingBox sceneBounds;
+    if (_engine && _engine->getOsgSceneRoot()) {
+        osg::ComputeBoundsVisitor boundsVisitor;
+        _engine->getOsgSceneRoot()->accept(boundsVisitor);
+        sceneBounds = boundsVisitor.getBoundingBox();
+    }
+
+    // 如果场景为空，使用默认包围盒
+    // If scene is empty, use default bounding box
+    if (!sceneBounds.valid()) {
+        sceneBounds.set(-10, -10, -10, 10, 10, 10);
+    }
+
+    osg::Vec3d center = sceneBounds.center();
+    double radius = sceneBounds.radius();
+
+    // 根据预设视角设置相机位置
+    // Set camera position based on preset view
+    osg::Vec3d eye;
+    osg::Vec3d target = center;
+    osg::Vec3d up(0, 0, 1);
+
+    switch (view) {
+        case PresetView::Top:
+            // 从上方俯视 / View from top
+            eye = osg::Vec3d(center.x(), center.y(), center.z() + radius * 2.5);
+            up = osg::Vec3d(0, 1, 0);  // Y 轴向上
+            break;
+
+        case PresetView::Bottom:
+            // 从下方仰视 / View from bottom
+            eye = osg::Vec3d(center.x(), center.y(), center.z() - radius * 2.5);
+            up = osg::Vec3d(0, 1, 0);
+            break;
+
+        case PresetView::Front:
+            // 从前方正视 / View from front (Y- direction)
+            eye = osg::Vec3d(center.x(), center.y() - radius * 2.5, center.z());
+            break;
+
+        case PresetView::Right:
+            // 从右方右视 / View from right (X+ direction)
+            eye = osg::Vec3d(center.x() + radius * 2.5, center.y(), center.z());
+            break;
+
+        case PresetView::Left:
+            // 从左方左视 / View from left (X- direction)
+            eye = osg::Vec3d(center.x() - radius * 2.5, center.y(), center.z());
+            break;
+
+        case PresetView::Rear:
+            // 从后方后视 / View from rear (Y+ direction)
+            eye = osg::Vec3d(center.x(), center.y() + radius * 2.5, center.z());
+            break;
+
+        case PresetView::Iso: {
+            // 等轴测视角 / Isometric view
+            // 从斜上方观察，45度角
+            double isoDistance = radius * 3.0;
+            double isoAngle = M_PI / 4.0;  // 45 degrees
+            eye = osg::Vec3d(
+                center.x() + isoDistance * std::cos(isoAngle),
+                center.y() - isoDistance * std::sin(isoAngle),
+                center.z() + isoDistance * 0.5
+            );
+            break;
+        }
+
+        case PresetView::Default:
+        default:
+            // ��认视角 / Default view
+            eye = osg::Vec3d(center.x(), center.y() - radius * 2.0, center.z() + radius * 0.5);
+            break;
+    }
+
+    // 更新预设视角状态
+    // Update preset view state
+    _presetView = view;
+
+    // 如果启用了动画，使用平滑过渡
+    // If animation is enabled, use smooth transition
+    if (_animationEnabled) {
+        // Convert osg::Vec3d to Vec3d
+        Vec3d eyeVec(eye.x(), eye.y(), eye.z());
+        Vec3d targetVec(target.x(), target.y(), target.z());
+        startCameraAnimation(eyeVec, targetVec);
+    } else {
+        // 直接设置相机位置
+        // Set camera position directly
+        camera->setViewMatrixAsLookAt(eye, target, up);
+        _cameraParams.position = Vec3f(static_cast<float>(eye.x()), static_cast<float>(eye.y()), static_cast<float>(eye.z()));
+        _cameraParams.target = Vec3f(static_cast<float>(target.x()), static_cast<float>(target.y()), static_cast<float>(target.z()));
+        _cameraParams.up = Vec3f(static_cast<float>(up.x()), static_cast<float>(up.y()), static_cast<float>(up.z()));
+    }
+
+    Base::Console().log("OsgVerseViewer: Switched to preset view %d\n", static_cast<int>(view));
+}
+
+void OsgVerseViewer::saveCurrentViewAsPreset(const std::string& name)
+{
+    if (name.empty()) {
+        Base::Console().warning("OsgVerseViewer::saveCurrentViewAsPreset: Empty name provided\n");
+        return;
+    }
+
+    // 保存当前相机参数
+    // Save current camera parameters
+    _savedViewParams[name] = getCamera();
+
+    // 添加到名称列表（如果不存在）
+    // Add to name list (if not exists)
+    auto it = std::find(_savedViewNames.begin(), _savedViewNames.end(), name);
+    if (it == _savedViewNames.end()) {
+        _savedViewNames.push_back(name);
+    }
+
+    Base::Console().log("OsgVerseViewer: Saved view preset '%s'\n", name.c_str());
+}
+
+void OsgVerseViewer::switchToPresetView(const std::string& name)
+{
+    auto it = _savedViewParams.find(name);
+    if (it == _savedViewParams.end()) {
+        Base::Console().warning("OsgVerseViewer::switchToPresetView: View preset '%s' not found\n", name.c_str());
+        return;
+    }
+
+    // 加载保存的相机参数
+    // Load saved camera parameters
+    const CameraParams& params = it->second;
+
+    if (_animationEnabled) {
+        // 使用动画过渡到保存的视角
+        // Use animation to transition to saved view
+        Vec3d eye(params.position.x, params.position.y, params.position.z);
+        Vec3d target(params.target.x, params.target.y, params.target.z);
+        startCameraAnimation(eye, target);
+    } else {
+        // 直接设置相机参数
+        // Set camera parameters directly
+        setCamera(params);
+    }
+
+    _presetView = PresetView::User;
+    Base::Console().log("OsgVerseViewer: Switched to saved view '%s'\n", name.c_str());
+}
+
+std::string OsgVerseViewer::getPresetViewName() const
+{
+    switch (_presetView) {
+        case PresetView::Top: return "Top";
+        case PresetView::Bottom: return "Bottom";
+        case PresetView::Front: return "Front";
+        case PresetView::Right: return "Right";
+        case PresetView::Left: return "Left";
+        case PresetView::Rear: return "Rear";
+        case PresetView::Iso: return "Iso";
+        case PresetView::User: return "User";
+        case PresetView::Default:
+        default: return "Default";
+    }
+}
+
+//===========================================================================
+// 相机动画内部实现 / Camera Animation Internal Implementation
+//===========================================================================
+
+void OsgVerseViewer::startCameraAnimation(const Vec3d& targetEye, const Vec3d& targetCenter)
+{
+    if (!_viewer || !_viewer->getCamera()) {
+        return;
+    }
+
+    // 保存当前相机位置作为动画起点
+    // Save current camera position as animation start point
+    osg::Vec3d eye, center, up;
+    _viewer->getCamera()->getViewMatrixAsLookAt(eye, center, up);
+
+    // 设置动画目标
+    // Set animation target
+    _animationTarget.eye = targetEye;
+    _animationTarget.center = targetCenter;
+    _animationTarget.distance = (targetEye - targetCenter).Length();
+
+    // 记录开始时间
+    // Record start time
+    _animationStartTime = _viewer->getFrameStamp()->getReferenceTime();
+    _animationComplete = false;
+
+    Base::Console().log("OsgVerseViewer: Starting camera animation (duration: %.2f seconds)\n", _animationDuration);
+}
+
+void OsgVerseViewer::updateCameraAnimation(double currentTime)
+{
+    if (_animationComplete || !_animationEnabled) {
+        return;
+    }
+
+    if (!_viewer || !_viewer->getCamera()) {
+        return;
+    }
+
+    // 计算动画进度 (0.0 到 1.0)
+    // Calculate animation progress (0.0 to 1.0)
+    double elapsed = currentTime - _animationStartTime;
+    double progress = elapsed / static_cast<double>(_animationDuration);
+
+    if (progress >= 1.0) {
+        // 动画完成
+        // Animation complete
+        progress = 1.0;
+        _animationComplete = true;
+        _isAnimating = false;
+    } else {
+        _isAnimating = true;
+    }
+
+    // 使用平滑缓动函数 (ease-in-out)
+    // Use smooth easing function (ease-in-out)
+    double t = progress;
+    double easedT = t * t * (3.0 - 2.0 * t);  // Smoothstep
+
+    // 获取当前相机位置
+    // Get current camera position
+    osg::Vec3d startEye, startCenter, up;
+    _viewer->getCamera()->getViewMatrixAsLookAt(startEye, startCenter, up);
+
+    // 转换目标位置为 osg::Vec3d
+    // Convert target positions to osg::Vec3d
+    osg::Vec3d targetEye(_animationTarget.eye.x, _animationTarget.eye.y, _animationTarget.eye.z);
+    osg::Vec3d targetCenter(_animationTarget.center.x, _animationTarget.center.y, _animationTarget.center.z);
+
+    // 插值计算新的相机位置
+    // Interpolate new camera position
+    osg::Vec3d currentEye = startEye + (targetEye - startEye) * easedT;
+    osg::Vec3d currentCenter = startCenter + (targetCenter - startCenter) * easedT;
+
+    // 应用新的相机位置
+    // Apply new camera position
+    _viewer->getCamera()->setViewMatrixAsLookAt(currentEye, currentCenter, up);
+
+    // 更新相机参数
+    // Update camera parameters
+    _cameraParams.position = Vec3f(static_cast<float>(currentEye.x()), static_cast<float>(currentEye.y()), static_cast<float>(currentEye.z()));
+    _cameraParams.target = Vec3f(static_cast<float>(currentCenter.x()), static_cast<float>(currentCenter.y()), static_cast<float>(currentCenter.z()));
+
+    // 如果动画完成，触发事件回调
+    // Trigger event callback if animation complete
+    if (_animationComplete && _eventCallback) {
+        // _eventCallback(RenderEvent::CameraAnimationComplete);  // TODO: Define RenderEvent enum
+    }
+}
+
+void OsgVerseViewer::stopCameraAnimation()
+{
+    _animationComplete = true;
+    _isAnimating = false;
+    Base::Console().log("OsgVerseViewer: Camera animation stopped\n");
+}
+
+//===========================================================================
+// ViewProvider 管理 / ViewProvider Management
+//===========================================================================
+
+void OsgVerseViewer::addViewProvider(Gui::ViewProvider* vp)
+{
+    if (!vp) {
+        Base::Console().warning("OsgVerseViewer::addViewProvider: Null ViewProvider\n");
+        return;
+    }
+
+    // 检查是否已存在
+    // Check if already exists
+    if (_viewProviders.find(vp) != _viewProviders.end()) {
+        Base::Console().log("OsgVerseViewer::addViewProvider: ViewProvider already exists\n");
+        return;
+    }
+
+    // 尝试获取对象名称
+    // Try to get object name
+    std::string objName = "ViewProvider";
+    if (auto* vpDoc = dynamic_cast<Gui::ViewProviderDocumentObject*>(vp)) {
+        if (vpDoc->getObject()) {
+            objName = vpDoc->getObject()->getNameInDocument();
+        }
+    }
+
+    Base::Console().log("OsgVerseViewer::addViewProvider: Adding ViewProvider for %s\n", objName.c_str());
+
+    // 添加到集合
+    // Add to set
+    _viewProviders.insert(vp);
+
+    // 创建OSG节点
+    // Create OSG node
+    osg::ref_ptr<osg::Group> vpGroup = new osg::Group();
+    vpGroup->setName(objName);
+
+    // 尝试获取几何体
+    // Try to get geometry
+    bool hasGeometry = false;
+
+    // Get geometry via App-level ComplexGeoData interface (no Part module link dependency)
+    // Uses virtual dispatch: Part::TopoShape::getFaces() does BRepMesh tessellation at runtime
+    if (auto* vpDoc = dynamic_cast<Gui::ViewProviderDocumentObject*>(vp)) {
+        App::DocumentObject* obj = vpDoc->getObject();
+        if (obj) {
+            // Check for "Shape" property (present on Part::Feature and derived objects)
+            App::Property* shapeProp = obj->getPropertyByName("Shape");
+            auto* geoDataProp = dynamic_cast<App::PropertyComplexGeoData*>(shapeProp);
+
+            if (geoDataProp) {
+                const Data::ComplexGeoData* geoData = geoDataProp->getComplexData();
+                if (geoData) {
+                    Base::Console().log("OsgVerseViewer::addViewProvider: Getting mesh for %s via ComplexGeoData\n", objName.c_str());
+
+                    try {
+                        // Get tessellated faces from the shape
+                        // Part::TopoShape::getFaces() calls BRepMesh_IncrementalMesh internally
+                        std::vector<Base::Vector3d> points;
+                        std::vector<Data::ComplexGeoData::Facet> facets;
+                        double accuracy = geoData->getAccuracy();
+                        geoData->getFaces(points, facets, accuracy);
+
+                        if (!points.empty() && !facets.empty()) {
+                            // Build OSG vertex array
+                            osg::ref_ptr<osg::Vec3Array> vertexArray = new osg::Vec3Array(points.size());
+                            for (size_t i = 0; i < points.size(); i++) {
+                                (*vertexArray)[i] = osg::Vec3(
+                                    static_cast<float>(points[i].x),
+                                    static_cast<float>(points[i].y),
+                                    static_cast<float>(points[i].z));
+                            }
+
+                            // Build OSG index array
+                            osg::ref_ptr<osg::DrawElementsUInt> indexArray =
+                                new osg::DrawElementsUInt(osg::PrimitiveSet::TRIANGLES, facets.size() * 3);
+                            for (size_t i = 0; i < facets.size(); i++) {
+                                (*indexArray)[i * 3 + 0] = facets[i].I1;
+                                (*indexArray)[i * 3 + 1] = facets[i].I2;
+                                (*indexArray)[i * 3 + 2] = facets[i].I3;
+                            }
+
+                            // Compute per-vertex normals from triangle faces
+                            osg::ref_ptr<osg::Vec3Array> normalArray = new osg::Vec3Array(points.size());
+                            for (size_t i = 0; i < points.size(); i++) {
+                                (*normalArray)[i] = osg::Vec3(0.0f, 0.0f, 0.0f);
+                            }
+                            for (size_t i = 0; i < facets.size(); i++) {
+                                const osg::Vec3& v0 = (*vertexArray)[facets[i].I1];
+                                const osg::Vec3& v1 = (*vertexArray)[facets[i].I2];
+                                const osg::Vec3& v2 = (*vertexArray)[facets[i].I3];
+                                osg::Vec3 edge1 = v1 - v0;
+                                osg::Vec3 edge2 = v2 - v0;
+                                osg::Vec3 faceNormal = edge1 ^ edge2;  // cross product
+                                // Accumulate face normal to each vertex (area-weighted)
+                                (*normalArray)[facets[i].I1] += faceNormal;
+                                (*normalArray)[facets[i].I2] += faceNormal;
+                                (*normalArray)[facets[i].I3] += faceNormal;
+                            }
+                            for (size_t i = 0; i < points.size(); i++) {
+                                osg::Vec3& n = (*normalArray)[i];
+                                float len = n.length();
+                                if (len > 1e-7f) {
+                                    n /= len;
+                                } else {
+                                    n = osg::Vec3(0.0f, 0.0f, 1.0f);
+                                }
+                            }
+
+                            // Get diffuse color from ViewProvider's ShapeAppearance
+                            float transparency = 0.0f;
+
+                            // Default FreeCAD-like color (light steel blue)
+                            osg::Vec4 diffuseColor(0.8f, 0.8f, 0.9f, 1.0f);
+
+                            {
+                                // New FreeCAD: color is in ShapeAppearance (PropertyMaterialList)
+                                auto* matListProp = dynamic_cast<App::PropertyMaterialList*>(
+                                    vp->getPropertyByName("ShapeAppearance"));
+                                if (matListProp) {
+                                    const Base::Color& c = matListProp->getDiffuseColor();
+                                    diffuseColor = osg::Vec4(c.r, c.g, c.b, 1.0f);
+                                    transparency = matListProp->getTransparency();
+                                    if (transparency > 0.0f) {
+                                        diffuseColor.a() = 1.0f - transparency;
+                                    }
+                                    Base::Console().log("OsgVerseViewer::addViewProvider: ShapeAppearance color = (%.2f, %.2f, %.2f)\n",
+                                                       c.r, c.g, c.b);
+                                } else {
+                                    Base::Console().log("OsgVerseViewer::addViewProvider: No ShapeAppearance, using default\n");
+                                }
+                            }
+
+                            // Create OSG Geometry
+                            osg::ref_ptr<osg::Geometry> geometry = new osg::Geometry();
+                            geometry->setVertexArray(vertexArray.get());
+                            geometry->setNormalArray(normalArray.get());
+                            geometry->setNormalBinding(osg::Geometry::BIND_PER_VERTEX);
+                            geometry->addPrimitiveSet(indexArray.get());
+
+                            // Set up StateSet with material and shader uniform
+                            osg::StateSet* stateSet = geometry->getOrCreateStateSet();
+
+                            // Pass base color to shader via osg::Uniform (most reliable on macOS)
+                            stateSet->addUniform(new osg::Uniform("u_baseColor", diffuseColor));
+
+                            // Also set osg::Material for fixed-function fallback
+                            osg::ref_ptr<osg::Material> material = new osg::Material();
+                            material->setDiffuse(osg::Material::FRONT_AND_BACK, diffuseColor);
+                            material->setAmbient(osg::Material::FRONT_AND_BACK,
+                                                osg::Vec4(diffuseColor.r() * 0.3f,
+                                                          diffuseColor.g() * 0.3f,
+                                                          diffuseColor.b() * 0.3f, 1.0f));
+                            material->setSpecular(osg::Material::FRONT_AND_BACK,
+                                                 osg::Vec4(0.4f, 0.4f, 0.4f, 1.0f));
+                            material->setShininess(osg::Material::FRONT_AND_BACK, 40.0f);
+                            if (transparency > 0.0f) {
+                                material->setAlpha(osg::Material::FRONT_AND_BACK, 1.0f - transparency);
+                            }
+                            material->setColorMode(osg::Material::OFF);
+
+                            stateSet->setAttributeAndModes(material.get(),
+                                osg::StateAttribute::ON | osg::StateAttribute::OVERRIDE);
+                            stateSet->setMode(GL_LIGHTING, osg::StateAttribute::ON);
+
+                            if (transparency > 0.0f) {
+                                stateSet->setMode(GL_BLEND, osg::StateAttribute::ON);
+                                stateSet->setRenderingHint(osg::StateSet::TRANSPARENT_BIN);
+                            }
+
+                            osg::ref_ptr<osg::Geode> geode = new osg::Geode();
+                            geode->addDrawable(geometry.get());
+                            vpGroup->addChild(geode);
+                            hasGeometry = true;
+
+                            Base::Console().log("OsgVerseViewer::addViewProvider: Converted %s: %zu vertices, %zu triangles\n",
+                                               objName.c_str(), points.size(), facets.size());
+                        }
+                    } catch (const std::exception& e) {
+                        Base::Console().error("OsgVerseViewer::addViewProvider: Exception: %s\n", e.what());
+                    } catch (...) {
+                        Base::Console().error("OsgVerseViewer::addViewProvider: Unknown exception during geometry conversion\n");
+                    }
+                }
+            }
+        }
+    }
+
+    // 如果没有几何体，创建一个默认的小球
+    // If no geometry, create a default sphere
+    if (!hasGeometry) {
+        Base::Console().log("OsgVerseViewer::addViewProvider: No geometry found, creating default sphere\n");
+        osg::ref_ptr<osg::Sphere> sphere = new osg::Sphere(osg::Vec3(0,0,0), 5.0f);
+        osg::ref_ptr<osg::ShapeDrawable> drawable = new osg::ShapeDrawable(sphere);
+        drawable->setColor(osg::Vec4(0.8f, 0.8f, 0.8f, 1.0f));
+        
+        osg::ref_ptr<osg::Geode> geode = new osg::Geode();
+        geode->addDrawable(drawable);
+        vpGroup->addChild(geode);
+    }
+
+    // 添加到场景图
+    // Add to scene graph
+    if (_engine) {
+        osg::Group* sceneRoot = _engine->getOsgSceneRoot();
+        if (sceneRoot) {
+            sceneRoot->addChild(vpGroup);
+            Base::Console().log("OsgVerseViewer::addViewProvider: Added to scene graph\n");
+        }
+    }
+
+    // 保存映射
+    // Save mapping
+    _vpToNodeMap[vp] = vpGroup;
+    _nodeToVPMap[vpGroup.get()] = vp;
+
+    Base::Console().log("OsgVerseViewer::addViewProvider: Complete\n");
+}
+
+void OsgVerseViewer::removeViewProvider(Gui::ViewProvider* vp)
+{
+    if (!vp) {
+        return;
+    }
+
+    Base::Console().log("OsgVerseViewer::removeViewProvider: Removing ViewProvider\n");
+
+    // 从场景图中移除节点
+    // Remove node from scene graph
+    auto it = _vpToNodeMap.find(vp);
+    if (it != _vpToNodeMap.end()) {
+        osg::Node* node = it->second.get();
+
+        if (_engine) {
+            osg::Group* sceneRoot = _engine->getOsgSceneRoot();
+            if (sceneRoot) {
+                // Check if node is still a child before removing
+                int index = sceneRoot->getChildIndex(node);
+                if (index >= 0 && index < static_cast<int>(sceneRoot->getNumChildren())) {
+                    sceneRoot->removeChild(node);
+                    Base::Console().log("OsgVerseViewer::removeViewProvider: Removed node from scene root\n");
+                }
+            }
+        }
+
+        // 清理映射
+        // Clean up mappings
+        _nodeToVPMap.erase(node);
+        _vpToNodeMap.erase(it);
+    }
+
+    // 从集合中移除
+    // Remove from set
+    _viewProviders.erase(vp);
+
+    Base::Console().log("OsgVerseViewer::removeViewProvider: Removal complete\n");
+}
+
+void OsgVerseViewer::updateViewProvider(Gui::ViewProvider* vp)
+{
+    if (!vp) {
+        return;
+    }
+
+    Base::Console().log("OsgVerseViewer::updateViewProvider: Updating ViewProvider\n");
+
+    // 简单实现：先删除再添加
+    // Simple implementation: remove and re-add
+    removeViewProvider(vp);
+    addViewProvider(vp);
+}
+
+bool OsgVerseViewer::hasViewProvider(Gui::ViewProvider* vp) const
+{
+    return _viewProviders.find(vp) != _viewProviders.end();
+}
+
+std::vector<Gui::ViewProvider*> OsgVerseViewer::getViewProviders() const
+{
+    return std::vector<Gui::ViewProvider*>(_viewProviders.begin(), _viewProviders.end());
 }

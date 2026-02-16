@@ -249,110 +249,60 @@ std::string OsgVerseShaderManager::readShaderFile(const std::string& filename)
 
 osg::Program* OsgVerseShaderManager::createStandardShader()
 {
-    Base::Console().log("OsgVerseShaderManager: Creating standard Phong shader\n");
+    Base::Console().log("OsgVerseShaderManager: Creating standard Phong shader (GLSL 1.20)\n");
 
-    // 标准Phong顶点着色器 / Standard Phong vertex shader
-    const char* vertexSource = R"(
-        #version 330 core
+    // GLSL 1.20 Phong shader using a custom uniform u_baseColor for the material color.
+    // This is the most reliable approach on macOS GL 2.1 because:
+    // - gl_FrontMaterial might not be forwarded to shader on macOS
+    // - gl_Color (vertex colors) + BIND_OVERALL might not work with shaders
+    // - osg::Uniform is always reliably passed to the shader
+    const char* vertexSource =
+        "#version 120\n"
+        "varying vec3 vPosition;\n"
+        "varying vec3 vNormal;\n"
+        "void main() {\n"
+        "    gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex;\n"
+        "    vPosition = (gl_ModelViewMatrix * gl_Vertex).xyz;\n"
+        "    vNormal = normalize(gl_NormalMatrix * gl_Normal);\n"
+        "}\n";
 
-        // 输入属性 / Input attributes
-        in vec3 osg_Vertex;
-        in vec3 osg_Normal;
-        in vec4 osg_Color;
-        in vec2 osg_MultiTexCoord0;
-
-        // 输出到片段着色器 / Output to fragment shader
-        out vec3 vPosition;
-        out vec3 vNormal;
-        out vec4 vColor;
-        out vec2 vTexCoord;
-
-        // Uniforms
-        uniform mat4 osg_ModelViewProjectionMatrix;
-        uniform mat4 osg_ModelViewMatrix;
-        uniform mat3 osg_NormalMatrix;
-
-        void main()
-        {
-            // 变换顶点位置 / Transform vertex position
-            gl_Position = osg_ModelViewProjectionMatrix * vec4(osg_Vertex, 1.0);
-
-            // 视图空间位置 / View space position
-            vPosition = (osg_ModelViewMatrix * vec4(osg_Vertex, 1.0)).xyz;
-
-            // 变换法线 / Transform normal
-            vNormal = normalize(osg_NormalMatrix * osg_Normal);
-
-            // 传递颜色和纹理坐标 / Pass color and texture coordinates
-            vColor = osg_Color;
-            vTexCoord = osg_MultiTexCoord0;
-        }
-    )";
-
-    // 标准Phong片段着色器 / Standard Phong fragment shader
-    const char* fragmentSource = R"(
-        #version 330 core
-
-        // 输入 / Inputs
-        in vec3 vPosition;
-        in vec3 vNormal;
-        in vec4 vColor;
-        in vec2 vTexCoord;
-
-        // 输出 / Output
-        out vec4 FragColor;
-
-        // 材质参数 / Material parameters
-        uniform vec4 ambientColor;
-        uniform vec4 diffuseColor;
-        uniform vec4 specularColor;
-        uniform vec4 emissiveColor;
-        uniform float shininess;
-        uniform float opacity;
-
-        // 纹理 / Textures
-        uniform sampler2D baseColorTexture;
-        uniform bool hasBaseColorTexture;
-
-        // 光照参数 / Lighting parameters
-        uniform vec3 lightDirection;
-        uniform vec4 lightColor;
-        uniform float lightIntensity;
-
-        void main()
-        {
-            // 归一化法线 / Normalize normal
-            vec3 N = normalize(vNormal);
-            vec3 L = normalize(lightDirection);
-            vec3 V = normalize(-vPosition);
-            vec3 H = normalize(L + V);
-
-            // 基础颜色 / Base color
-            vec4 baseColor = diffuseColor;
-            if (hasBaseColorTexture) {
-                baseColor *= texture(baseColorTexture, vTexCoord);
-            }
-
-            // 环境光 / Ambient
-            vec3 ambient = ambientColor.rgb * baseColor.rgb;
-
-            // 漫反射 / Diffuse
-            float NdotL = max(dot(N, L), 0.0);
-            vec3 diffuse = NdotL * lightColor.rgb * baseColor.rgb * lightIntensity;
-
-            // 镜面反射 / Specular
-            float NdotH = max(dot(N, H), 0.0);
-            float spec = pow(NdotH, shininess);
-            vec3 specular = spec * specularColor.rgb * lightColor.rgb * lightIntensity;
-
-            // 自发光 / Emissive
-            vec3 emissive = emissiveColor.rgb;
-
-            // 最终颜色 / Final color
-            vec3 finalColor = ambient + diffuse + specular + emissive;
-            FragColor = vec4(finalColor, baseColor.a * opacity);
-        }
-    )";
+    const char* fragmentSource =
+        "#version 120\n"
+        "varying vec3 vPosition;\n"
+        "varying vec3 vNormal;\n"
+        "uniform vec4 u_baseColor;\n"
+        "void main() {\n"
+        "    vec3 N = normalize(vNormal);\n"
+        "    // Light direction from gl_LightSource[0] with hardcoded fallback\n"
+        "    vec3 lightPos = gl_LightSource[0].position.xyz;\n"
+        "    vec3 L;\n"
+        "    if (dot(lightPos, lightPos) > 0.001) {\n"
+        "        L = normalize(lightPos);\n"
+        "    } else {\n"
+        "        L = normalize(vec3(0.3, -0.5, 0.8));\n"
+        "    }\n"
+        "    vec3 V = normalize(-vPosition);\n"
+        "    vec3 H = normalize(L + V);\n"
+        "    vec4 baseColor = u_baseColor;\n"
+        "    // Ambient\n"
+        "    vec3 ambient = baseColor.rgb * 0.3;\n"
+        "    // Diffuse (Lambertian)\n"
+        "    float NdotL = max(dot(N, L), 0.0);\n"
+        "    vec3 diffuse = baseColor.rgb * NdotL * 0.7;\n"
+        "    // Specular (Blinn-Phong)\n"
+        "    float NdotH = max(dot(N, H), 0.0);\n"
+        "    float spec = pow(NdotH, 40.0);\n"
+        "    vec3 specular = vec3(0.3) * spec;\n"
+        "    // Backlight from gl_LightSource[1]\n"
+        "    vec3 backPos = gl_LightSource[1].position.xyz;\n"
+        "    float backContrib = 0.0;\n"
+        "    if (dot(backPos, backPos) > 0.001) {\n"
+        "        vec3 L1 = normalize(backPos);\n"
+        "        backContrib = max(dot(N, L1), 0.0) * 0.2;\n"
+        "    }\n"
+        "    vec3 backDiffuse = baseColor.rgb * backContrib;\n"
+        "    gl_FragColor = vec4(ambient + diffuse + specular + backDiffuse, baseColor.a);\n"
+        "}\n";
 
     return createProgram("StandardPhong", vertexSource, fragmentSource);
 }
@@ -444,9 +394,21 @@ osg::Program* OsgVerseShaderManager::createPBRShader()
         uniform bool hasEmissiveTexture;
 
         // 光照参数 / Lighting parameters
-        uniform vec3 lightDirection;
-        uniform vec4 lightColor;
-        uniform float lightIntensity;
+        const int MAX_LIGHTS = 8;
+
+        struct Light {
+            int type;              // 0=Directional, 1=Point, 2=Spot
+            vec3 color;            // 光源颜色*强度 / Light color * intensity
+            vec3 position;         // 位置（点光源和聚光灯）/ Position (point and spot)
+            vec3 direction;        // 方向（方向光和聚光灯）/ Direction (directional and spot)
+            vec3 attenuation;      // 衰减参数 (constant, linear, quadratic)
+            float range;           // 范围 / Range
+            vec2 coneAngles;       // 聚光灯锥角 (inner, outer) cosine values
+        };
+
+        uniform int u_numLights;
+        uniform Light u_lights[MAX_LIGHTS];
+        uniform vec3 u_ambientLight;
         uniform vec3 cameraPosition;
 
         // 常量 / Constants
@@ -497,6 +459,83 @@ osg::Program* OsgVerseShaderManager::createPBRShader()
             return F0 + (1.0 - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
         }
 
+        // 计算单个光源的贡献 / Calculate contribution from a single light
+        vec3 calculateLightContribution(Light light, vec3 N, vec3 V, vec3 albedo, float metallicValue, float roughnessValue, vec3 F0)
+        {
+            vec3 L;
+            float attenuation = 1.0;
+
+            // 根据光源类型计算光照方向和衰减 / Calculate light direction and attenuation based on light type
+            if (light.type == 0) {
+                // 方向光 / Directional light
+                L = normalize(-light.direction);
+            }
+            else if (light.type == 1) {
+                // 点光源 / Point light
+                vec3 lightVec = light.position - vWorldPos;
+                float distance = length(lightVec);
+                L = normalize(lightVec);
+
+                // 衰减计算 / Attenuation calculation
+                if (distance < light.range) {
+                    attenuation = 1.0 / (light.attenuation.x +
+                                        light.attenuation.y * distance +
+                                        light.attenuation.z * distance * distance);
+                } else {
+                    attenuation = 0.0;
+                }
+            }
+            else if (light.type == 2) {
+                // 聚光灯 / Spot light
+                vec3 lightVec = light.position - vWorldPos;
+                float distance = length(lightVec);
+                L = normalize(lightVec);
+
+                // 衰减计算 / Attenuation calculation
+                if (distance < light.range) {
+                    attenuation = 1.0 / (light.attenuation.x +
+                                        light.attenuation.y * distance +
+                                        light.attenuation.z * distance * distance);
+
+                    // 聚光灯锥形衰减 / Spot cone attenuation
+                    float theta = dot(L, normalize(-light.direction));
+                    float epsilon = light.coneAngles.x - light.coneAngles.y;
+                    float intensity = clamp((theta - light.coneAngles.y) / epsilon, 0.0, 1.0);
+                    attenuation *= intensity;
+                } else {
+                    attenuation = 0.0;
+                }
+            }
+
+            if (attenuation <= 0.0) {
+                return vec3(0.0);
+            }
+
+            vec3 H = normalize(V + L);
+
+            // Cook-Torrance BRDF
+            float NDF = DistributionGGX(N, H, roughnessValue);
+            float G = GeometrySmith(N, V, L, roughnessValue);
+            vec3 F = fresnelSchlick(max(dot(H, V), 0.0), F0);
+
+            vec3 numerator = NDF * G * F;
+            float denominator = 4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0) + 0.0001;
+            vec3 specular = numerator / denominator;
+
+            // 能量守恒 / Energy conservation
+            vec3 kS = F;
+            vec3 kD = vec3(1.0) - kS;
+            kD *= 1.0 - metallicValue;
+
+            // 漫反射 / Diffuse
+            float NdotL = max(dot(N, L), 0.0);
+            vec3 diffuse = kD * albedo / PI;
+
+            // 最终光照 / Final lighting
+            vec3 radiance = light.color * attenuation;
+            return (diffuse + specular) * radiance * NdotL;
+        }
+
         void main()
         {
             // 获取基础颜色 / Get base color
@@ -527,39 +566,21 @@ osg::Program* OsgVerseShaderManager::createPBRShader()
                 ao *= texture(occlusionTexture, vTexCoord).r;
             }
 
-            // 计算光照向量 / Calculate lighting vectors
+            // 计算视线向量 / Calculate view vector
             vec3 V = normalize(cameraPosition - vWorldPos);
-            vec3 L = normalize(lightDirection);
-            vec3 H = normalize(V + L);
 
             // 计算F0（表面反射率）/ Calculate F0 (surface reflectance)
             vec3 F0 = vec3(0.04);
             F0 = mix(F0, albedo.rgb, metallicValue);
 
-            // Cook-Torrance BRDF
-            float NDF = DistributionGGX(N, H, roughnessValue);
-            float G = GeometrySmith(N, V, L, roughnessValue);
-            vec3 F = fresnelSchlick(max(dot(H, V), 0.0), F0);
-
-            vec3 numerator = NDF * G * F;
-            float denominator = 4.0 * max(dot(N, V), 0.0) * max(dot(N, L), 0.0) + 0.0001;
-            vec3 specular = numerator / denominator;
-
-            // 能量守恒 / Energy conservation
-            vec3 kS = F;
-            vec3 kD = vec3(1.0) - kS;
-            kD *= 1.0 - metallicValue;
-
-            // 漫反射 / Diffuse
-            float NdotL = max(dot(N, L), 0.0);
-            vec3 diffuse = kD * albedo.rgb / PI;
-
-            // 最终光照 / Final lighting
-            vec3 radiance = lightColor.rgb * lightIntensity;
-            vec3 Lo = (diffuse + specular) * radiance * NdotL;
+            // 累积所有光源的贡献 / Accumulate contributions from all lights
+            vec3 Lo = vec3(0.0);
+            for (int i = 0; i < u_numLights && i < MAX_LIGHTS; ++i) {
+                Lo += calculateLightContribution(u_lights[i], N, V, albedo.rgb, metallicValue, roughnessValue, F0);
+            }
 
             // 环境光 / Ambient
-            vec3 ambient = vec3(0.03) * albedo.rgb * ao;
+            vec3 ambient = u_ambientLight * albedo.rgb * ao;
 
             // 自发光 / Emissive
             vec3 emissiveColor = emissive.rgb;
