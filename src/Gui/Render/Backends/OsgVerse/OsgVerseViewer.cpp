@@ -1529,12 +1529,15 @@ void OsgVerseViewer::addViewProvider(Gui::ViewProvider* vp)
         return;
     }
 
-    // 尝试获取对象名称
+    // 尝试获取对象名称 (getNameInDocument() can return nullptr during document restore)
     // Try to get object name
     std::string objName = "ViewProvider";
     if (auto* vpDoc = dynamic_cast<Gui::ViewProviderDocumentObject*>(vp)) {
         if (vpDoc->getObject()) {
-            objName = vpDoc->getObject()->getNameInDocument();
+            const char* name = vpDoc->getObject()->getNameInDocument();
+            if (name) {
+                objName = name;
+            }
         }
     }
 
@@ -1543,6 +1546,8 @@ void OsgVerseViewer::addViewProvider(Gui::ViewProvider* vp)
     // 添加到集合
     // Add to set
     _viewProviders.insert(vp);
+
+  try {  // Top-level try-catch to prevent crashes during document restore
 
     // 创建OSG节点
     // Create OSG node
@@ -1557,7 +1562,7 @@ void OsgVerseViewer::addViewProvider(Gui::ViewProvider* vp)
     // Uses virtual dispatch: Part::TopoShape::getFaces() does BRepMesh tessellation at runtime
     if (auto* vpDoc = dynamic_cast<Gui::ViewProviderDocumentObject*>(vp)) {
         App::DocumentObject* obj = vpDoc->getObject();
-        if (obj) {
+        if (obj && !obj->isRestoring()) {
             // Check for "Shape" property (present on Part::Feature and derived objects)
             App::Property* shapeProp = obj->getPropertyByName("Shape");
             auto* geoDataProp = dynamic_cast<App::PropertyComplexGeoData*>(shapeProp);
@@ -1631,7 +1636,7 @@ void OsgVerseViewer::addViewProvider(Gui::ViewProvider* vp)
                                 // New FreeCAD: color is in ShapeAppearance (PropertyMaterialList)
                                 auto* matListProp = dynamic_cast<App::PropertyMaterialList*>(
                                     vp->getPropertyByName("ShapeAppearance"));
-                                if (matListProp) {
+                                if (matListProp && matListProp->getSize() > 0) {
                                     const Base::Color& c = matListProp->getDiffuseColor();
                                     diffuseColor = osg::Vec4(c.r, c.g, c.b, 1.0f);
                                     transparency = matListProp->getTransparency();
@@ -1729,6 +1734,14 @@ void OsgVerseViewer::addViewProvider(Gui::ViewProvider* vp)
     _nodeToVPMap[vpGroup.get()] = vp;
 
     Base::Console().log("OsgVerseViewer::addViewProvider: Complete\n");
+
+  } catch (const std::exception& e) {
+    Base::Console().error("OsgVerseViewer::addViewProvider: CAUGHT exception for %s: %s\n",
+                          objName.c_str(), e.what());
+  } catch (...) {
+    Base::Console().error("OsgVerseViewer::addViewProvider: CAUGHT unknown exception for %s\n",
+                          objName.c_str());
+  }
 }
 
 void OsgVerseViewer::removeViewProvider(Gui::ViewProvider* vp)
