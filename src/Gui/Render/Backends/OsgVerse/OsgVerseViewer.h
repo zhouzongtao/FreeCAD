@@ -24,8 +24,12 @@
 #define GUI_RENDER_BACKENDS_OSGVERSE_OSGVERSEVIEWER_H
 
 #include <memory>
+#include <set>
+#include <map>
+#include <vector>
 #include <QOpenGLWidget>
 #include <osg/ref_ptr>
+#include <osg/Node>
 
 #include <FCGlobal.h>
 #include "../../Core/RenderViewer.h"
@@ -35,6 +39,15 @@
 namespace osgViewer {
     class Viewer;
     class GraphicsWindowEmbedded;
+}
+
+namespace osgGA {
+    class CameraManipulator;
+}
+
+// FreeCAD 前向声明 / FreeCAD forward declarations
+namespace Gui {
+    class ViewProvider;
 }
 
 namespace Gui {
@@ -130,6 +143,41 @@ public:
     void resetStats() const override;
 
     //-----------------------------------------------------------------------
+    // ViewProvider 管理 / ViewProvider Management
+    //-----------------------------------------------------------------------
+
+    /**
+     * @brief 添加 ViewProvider 到场景 / Add ViewProvider to scene
+     * @param vp ViewProvider 指针 / ViewProvider pointer
+     */
+    void addViewProvider(Gui::ViewProvider* vp);
+
+    /**
+     * @brief 从场景移除 ViewProvider / Remove ViewProvider from scene
+     * @param vp ViewProvider 指针 / ViewProvider pointer
+     */
+    void removeViewProvider(Gui::ViewProvider* vp);
+
+    /**
+     * @brief 更新 ViewProvider 的显示 / Update ViewProvider display
+     * @param vp ViewProvider 指针 / ViewProvider pointer
+     */
+    void updateViewProvider(Gui::ViewProvider* vp);
+
+    /**
+     * @brief 检查是否包含指定 ViewProvider / Check if contains ViewProvider
+     * @param vp ViewProvider 指针 / ViewProvider pointer
+     * @return 是否包含 / Whether contains
+     */
+    bool hasViewProvider(Gui::ViewProvider* vp) const;
+
+    /**
+     * @brief 获取所有 ViewProvider / Get all ViewProviders
+     * @return ViewProvider 列表 / ViewProvider list
+     */
+    std::vector<Gui::ViewProvider*> getViewProviders() const;
+
+    //-----------------------------------------------------------------------
     // 兼容性接口 / Compatibility Interface
     //-----------------------------------------------------------------------
 
@@ -159,6 +207,74 @@ public:
      * @brief 获取渲染引擎 / Get render engine
      */
     OsgVerseEngine* getEngine() const { return _engine.get(); }
+
+    //-----------------------------------------------------------------------
+    // 相机动画 / Camera Animation
+    //-----------------------------------------------------------------------
+
+    /**
+     * @brief 设置相机动画持续时间 / Set camera animation duration
+     */
+    void setAnimationDuration(float duration) { _animationDuration = duration; }
+
+    /**
+     * @brief 获取相机动画持续时间 / Get camera animation duration
+     */
+    float getAnimationDuration() const { return _animationDuration; }
+
+    /**
+     * @brief 启用/禁用相机动画 / Enable/disable camera animation
+     */
+    void setAnimationEnabled(bool enabled) { _animationEnabled = enabled; }
+
+    /**
+     * @brief 检查相机动画是否启用 / Check if camera animation is enabled
+     */
+    bool isAnimationEnabled() const { return _animationEnabled; }
+
+    //-----------------------------------------------------------------------
+    // 预设视角 / Preset Views
+    //-----------------------------------------------------------------------
+
+    /**
+     * @brief 预设视角枚举 / Preset view enumeration
+     */
+    enum class PresetView {
+        Default,    ///< 默认视角 / Default view
+        Top,       ///< 俯视 / Top view
+        Front,      ///< 正视 / Front view
+        Right,      ///< 右视 / Right view
+        Left,       ///< 左视 / Left view
+        Bottom,     ///< 底视 / Bottom view
+        Rear,       ///< 后视 / Rear view
+        Iso,        ///< 等轴测视角 / Isometric view
+        User        ///< 用户自定义视角 / User custom view
+    };
+
+    /**
+     * @brief 设置预设视角 / Set preset view
+     */
+    void setPresetView(PresetView view);
+
+    /**
+     * @brief 获取当前预设视角 / Get current preset view
+     */
+    PresetView getPresetView() const { return _presetView; }
+
+    /**
+     * @brief 保存当前视角为预设 / Save current view as preset
+     */
+    void saveCurrentViewAsPreset(const std::string& name);
+
+    /**
+     * @brief 切换到预设视角 / Switch to preset view
+     */
+    void switchToPresetView(const std::string& name);
+
+    /**
+     * @brief 获取预设视角名称 / Get preset view name
+     */
+    std::string getPresetViewName() const;
 
     /**
      * @brief 设置相机操纵器 / Set camera manipulator
@@ -227,6 +343,49 @@ private:
     bool _initializationFailed{false};          ///< 初始化是否失败 / Whether initialization failed
     bool _firstFrame{true};                     ///< 是否是第一帧 / Whether first frame
 
+    //-----------------------------------------------------------------------
+    // 相机动画内部方法 / Camera Animation Internal Methods
+    //-----------------------------------------------------------------------
+
+    /**
+     * @brief 启动相机动画 / Start camera animation
+     * @param targetEye 目标相机位置 / Target camera position
+     * @param targetCenter 目标中心点 / Target center point
+     */
+    void startCameraAnimation(const Vec3d& targetEye, const Vec3d& targetCenter);
+
+    /**
+     * @brief 更新相机动画 / Update camera animation
+     * @param currentTime 当前时间 / Current time
+     */
+    void updateCameraAnimation(double currentTime);
+
+    /**
+     * @brief 停止相机动画 / Stop camera animation
+     */
+    void stopCameraAnimation();
+
+    // 相机动画成员 / Camera animation members
+    float _animationDuration{1.0f};             ///< 动画持续时间（秒）/ Animation duration (seconds)
+    bool _animationEnabled{false};              ///< 动画是否启用 / Whether animation is enabled
+    Vec3d _animationTargetEye;          ///< 动画目标位置 / Animation target position
+    Vec3d _animationTargetCenter;       ///< 动画目标中心 / Animation target center
+    float _animationStartTime{0.0f};        ///< 动画开始时间 / Animation start time
+    bool _animationComplete{true};          ///< 动画是否完成 / Whether animation is complete
+
+    // 预设视角成员 / Preset view members
+    PresetView _presetView{PresetView::Default};  ///< 当前预设视角 / Current preset view
+    std::vector<std::string> _savedViewNames;    ///< 保存的视角名称列表 / Saved view names
+    std::map<std::string, CameraParams> _savedViewParams; ///< 保存的视角参数 / Saved view parameters
+
+    // 相机动画目标位置 / Camera animation target
+    struct CameraAnimationTarget {
+        Vec3d eye;
+        Vec3d center;
+        float distance;
+    };
+    CameraAnimationTarget _animationTarget;
+
     // 场景状态 / Scene state
     RenderNode::Ptr _sceneRoot;
     RenderMode _renderMode{RenderMode::Default};
@@ -244,6 +403,15 @@ private:
 
     // 事件回调 / Event callback
     EventCallback _eventCallback;
+
+    // ViewProvider 管理 / ViewProvider Management
+    std::set<Gui::ViewProvider*> _viewProviders;                       ///< ViewProvider 集合 / ViewProvider set
+    std::map<Gui::ViewProvider*, osg::ref_ptr<osg::Node>> _vpToNodeMap; ///< VP到OSG节点的映射 / VP to OSG node mapping
+    std::map<osg::Node*, Gui::ViewProvider*> _nodeToVPMap;            ///< OSG节点到VP的映射 / OSG node to VP mapping
+
+    // NaviCube
+    std::unique_ptr<class OsgVerseNaviCube> _naviCube;                ///< 导航立方体 / Navigation cube
+    bool _naviCubeEnabled{true};                                       ///< NaviCube是否启用 / Whether NaviCube is enabled
 };
 
 /**
@@ -256,7 +424,8 @@ class OsgVerseViewer::ViewerWidget : public QOpenGLWidget {
     Q_OBJECT
 
 public:
-    ViewerWidget(osgViewer::Viewer* viewer, 
+    ViewerWidget(OsgVerseViewer* osgVerseViewer,
+                 osgViewer::Viewer* viewer,
                  osgViewer::GraphicsWindowEmbedded* graphicsWindow,
                  QWidget* parent = nullptr);
     ~ViewerWidget() override;
@@ -279,6 +448,7 @@ protected:
     void keyReleaseEvent(QKeyEvent* event) override;
 
 private:
+    OsgVerseViewer* _osgVerseViewer;  ///< 指向外部OsgVerseViewer的指针 / Pointer to outer OsgVerseViewer
     osgViewer::Viewer* _viewer;
     osg::ref_ptr<osgViewer::GraphicsWindowEmbedded> _graphicsWindow;
     bool _firstFrame{true};

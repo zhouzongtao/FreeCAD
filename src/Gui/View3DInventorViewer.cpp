@@ -939,13 +939,12 @@ void View3DInventorViewer::addViewProvider(ViewProvider* pcProvider)
 
     if (root) {
         bool canAdd = pcProvider->canAddToSceneGraph();
-        bool isPhysical = pcProvider->isPartOfPhysicalObject();
         bool isVisible = pcProvider->isShow();
 
         if (canAdd) {
             // Add to the physical object group if related to the physical object otherwise add to
             // the scene graph
-            if (isPhysical) {
+            if (pcProvider->isPartOfPhysicalObject()) {
                 objectGroup->addChild(root);
             }
             else {

@@ -23,11 +23,23 @@ set(View3D_Coin_SRCS
     Backends/Coin/CoinViewer.cpp
 )
 
+# OsgVerse backend (if enabled)
+if(BUILD_WITH_OSGVERSE)
+    set(View3D_OsgVerse_SRCS
+        Backends/OsgVerse/OsgVerseViewerAdapter.h
+        Backends/OsgVerse/OsgVerseViewerAdapter.cpp
+        Backends/OsgVerse/PreCompiled.h
+        Backends/OsgVerse/PreCompiled.cpp
+    )
+    message(STATUS "View3D: Including OsgVerse backend sources")
+endif()
+
 # 添加到 FreeCADGui 目标
 target_sources(FreeCADGui PRIVATE
     ${View3D_SRCS}
     ${View3D_Interface_SRCS}
     ${View3D_Coin_SRCS}
+    ${View3D_OsgVerse_SRCS}
 )
 
 # 包含目录

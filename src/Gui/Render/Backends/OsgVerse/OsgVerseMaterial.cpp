@@ -37,6 +37,7 @@
 
 #include "OsgVerseMaterial.h"
 #include "OsgVerseShaderManager.h"
+#include "OsgVerseLight.h"
 #include <Base/Console.h>
 
 using namespace Gui::Render;
@@ -644,6 +645,10 @@ void OsgVerseMaterial::updateStateSet()
     // 应用shader / Apply shader
     auto& shaderMgr = OsgVerseShaderManager::instance();
     shaderMgr.applyShader(_stateSet.get(), _shaderType);
+
+    // 应用光源uniforms / Apply light uniforms
+    auto& lightMgr = OsgVerseLightManager::instance();
+    lightMgr.updateUniforms(_stateSet.get());
 }
 
 //-----------------------------------------------------------------------

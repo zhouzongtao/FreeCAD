@@ -86,46 +86,39 @@ OsgVerseViewer::OsgVerseViewer()
 
 OsgVerseViewer::~OsgVerseViewer()
 {
-    Base::Console().log("OsgVerseViewer: Destructor called\n");
-
-    // First, clear all ViewProviders and their nodes from the scene graph
-    // This must be done before destroying the viewer to avoid dangling references
+    // Shutdown engine FIRST (while viewer is still alive) to safely release scene root
     if (_engine) {
-        osg::Group* sceneRoot = _engine->getOsgSceneRoot();
-        if (sceneRoot) {
-            // Remove all children from scene root
-            sceneRoot->removeChildren(0, sceneRoot->getNumChildren());
-            Base::Console().log("OsgVerseViewer: Cleared scene root children\n");
-        }
+        _engine->shutdown();
     }
 
     // Clear all ViewProvider mappings
     _viewProviders.clear();
     _nodeToVPMap.clear();
     _vpToNodeMap.clear();
-    Base::Console().log("OsgVerseViewer: Cleared ViewProvider mappings\n");
 
-    // Stop viewer before destroying
+    // Stop viewer
     if (_viewer) {
         _viewer->setDone(true);
-        Base::Console().log("OsgVerseViewer: Set viewer done flag\n");
     }
 
-    // Delete widget (which contains the GraphicsWindow)
+    // Delete widget BEFORE the osg viewer — ViewerWidget's destructor accesses _viewer
     if (_widget) {
+        _widget->setParent(nullptr);
         delete _widget;
         _widget = nullptr;
-        Base::Console().log("OsgVerseViewer: Widget deleted\n");
     }
 
-    // Finally delete the viewer
+    // Delete the osg viewer
     if (_viewer) {
         delete _viewer;
         _viewer = nullptr;
-        Base::Console().log("OsgVerseViewer: Viewer deleted\n");
     }
 
-    Base::Console().log("OsgVerseViewer: Destructor complete\n");
+    // Reset engine (already shut down, destructor is safe now)
+    _engine.reset();
+
+    // Release graphics window
+    _graphicsWindow = nullptr;
 }
 
 //-----------------------------------------------------------------------
@@ -1562,7 +1555,7 @@ void OsgVerseViewer::addViewProvider(Gui::ViewProvider* vp)
     // Uses virtual dispatch: Part::TopoShape::getFaces() does BRepMesh tessellation at runtime
     if (auto* vpDoc = dynamic_cast<Gui::ViewProviderDocumentObject*>(vp)) {
         App::DocumentObject* obj = vpDoc->getObject();
-        if (obj && !obj->isRestoring()) {
+        if (obj) {
             // Check for "Shape" property (present on Part::Feature and derived objects)
             App::Property* shapeProp = obj->getPropertyByName("Shape");
             auto* geoDataProp = dynamic_cast<App::PropertyComplexGeoData*>(shapeProp);
@@ -1573,127 +1566,244 @@ void OsgVerseViewer::addViewProvider(Gui::ViewProvider* vp)
                     Base::Console().log("OsgVerseViewer::addViewProvider: Getting mesh for %s via ComplexGeoData\n", objName.c_str());
 
                     try {
-                        // Get tessellated faces from the shape
-                        // Part::TopoShape::getFaces() calls BRepMesh_IncrementalMesh internally
-                        std::vector<Base::Vector3d> points;
-                        std::vector<Data::ComplexGeoData::Facet> facets;
-                        double accuracy = geoData->getAccuracy();
-                        geoData->getFaces(points, facets, accuracy);
+                        // Get material list for color info
+                        auto* matListProp = dynamic_cast<App::PropertyMaterialList*>(
+                            vp->getPropertyByName("ShapeAppearance"));
+                        int matCount = (matListProp && matListProp->getSize() > 0) ? matListProp->getSize() : 0;
+                        unsigned long numFaces = geoData->countSubElements("Face");
 
-                        if (!points.empty() && !facets.empty()) {
-                            // Build OSG vertex array
-                            osg::ref_ptr<osg::Vec3Array> vertexArray = new osg::Vec3Array(points.size());
-                            for (size_t i = 0; i < points.size(); i++) {
-                                (*vertexArray)[i] = osg::Vec3(
-                                    static_cast<float>(points[i].x),
-                                    static_cast<float>(points[i].y),
-                                    static_cast<float>(points[i].z));
-                            }
+                        bool usePerFaceColor = (matCount > 1 && numFaces > 0);
 
-                            // Build OSG index array
-                            osg::ref_ptr<osg::DrawElementsUInt> indexArray =
-                                new osg::DrawElementsUInt(osg::PrimitiveSet::TRIANGLES, facets.size() * 3);
-                            for (size_t i = 0; i < facets.size(); i++) {
-                                (*indexArray)[i * 3 + 0] = facets[i].I1;
-                                (*indexArray)[i * 3 + 1] = facets[i].I2;
-                                (*indexArray)[i * 3 + 2] = facets[i].I3;
-                            }
+                        if (usePerFaceColor) {
+                            // === Per-face color path ===
+                            // Group faces by color, create separate geometry per color group
+                            // (gl_Color with BIND_PER_VERTEX is unreliable on macOS GL 2.1,
+                            //  so we use u_baseColor uniform per geometry instead)
+                            struct ColorGroup {
+                                osg::Vec4 color;
+                                std::vector<osg::Vec3> vertices;
+                                std::vector<osg::Vec3> normals;
+                                std::vector<unsigned int> indices;
+                            };
+                            std::vector<ColorGroup> colorGroups;
+                            // Map color (as 4 ints 0-255) to group index
+                            std::map<uint32_t, size_t> colorToGroup;
 
-                            // Compute per-vertex normals from triangle faces
-                            osg::ref_ptr<osg::Vec3Array> normalArray = new osg::Vec3Array(points.size());
-                            for (size_t i = 0; i < points.size(); i++) {
-                                (*normalArray)[i] = osg::Vec3(0.0f, 0.0f, 0.0f);
-                            }
-                            for (size_t i = 0; i < facets.size(); i++) {
-                                const osg::Vec3& v0 = (*vertexArray)[facets[i].I1];
-                                const osg::Vec3& v1 = (*vertexArray)[facets[i].I2];
-                                const osg::Vec3& v2 = (*vertexArray)[facets[i].I3];
-                                osg::Vec3 edge1 = v1 - v0;
-                                osg::Vec3 edge2 = v2 - v0;
-                                osg::Vec3 faceNormal = edge1 ^ edge2;  // cross product
-                                // Accumulate face normal to each vertex (area-weighted)
-                                (*normalArray)[facets[i].I1] += faceNormal;
-                                (*normalArray)[facets[i].I2] += faceNormal;
-                                (*normalArray)[facets[i].I3] += faceNormal;
-                            }
-                            for (size_t i = 0; i < points.size(); i++) {
-                                osg::Vec3& n = (*normalArray)[i];
-                                float len = n.length();
-                                if (len > 1e-7f) {
-                                    n /= len;
+                            auto colorKey = [](const osg::Vec4& c) -> uint32_t {
+                                return (uint32_t(c.r() * 255) << 24) | (uint32_t(c.g() * 255) << 16)
+                                     | (uint32_t(c.b() * 255) << 8)  | uint32_t(c.a() * 255);
+                            };
+
+                            for (unsigned long fi = 0; fi < numFaces; fi++) {
+                                std::vector<Base::Vector3d> facePoints, faceNormals;
+                                std::vector<Data::ComplexGeoData::Facet> faceFacets;
+
+                                try {
+                                    std::unique_ptr<Data::Segment> seg(geoData->getSubElement("Face", fi + 1));
+                                    if (!seg) continue;
+                                    geoData->getFacesFromSubElement(seg.get(), facePoints, faceNormals, faceFacets);
+                                } catch (...) {
+                                    continue;
+                                }
+                                if (facePoints.empty() || faceFacets.empty()) continue;
+
+                                // Get color for this face
+                                osg::Vec4 faceColor(0.8f, 0.8f, 0.9f, 1.0f);
+                                int colorIdx = (static_cast<int>(fi) < matCount) ? static_cast<int>(fi) : 0;
+                                if (matCount > 0) {
+                                    const Base::Color& c = matListProp->getDiffuseColor(colorIdx);
+                                    float trans = matListProp->getTransparency(colorIdx);
+                                    faceColor = osg::Vec4(c.r, c.g, c.b, 1.0f - trans);
+                                }
+
+                                // Find or create color group
+                                uint32_t key = colorKey(faceColor);
+                                size_t gi;
+                                auto it = colorToGroup.find(key);
+                                if (it != colorToGroup.end()) {
+                                    gi = it->second;
                                 } else {
-                                    n = osg::Vec3(0.0f, 0.0f, 1.0f);
+                                    gi = colorGroups.size();
+                                    colorToGroup[key] = gi;
+                                    colorGroups.push_back({faceColor, {}, {}, {}});
+                                }
+                                ColorGroup& grp = colorGroups[gi];
+
+                                unsigned int baseIdx = static_cast<unsigned int>(grp.vertices.size());
+                                bool hasNormals = (faceNormals.size() == facePoints.size());
+                                for (size_t i = 0; i < facePoints.size(); i++) {
+                                    grp.vertices.push_back(osg::Vec3(
+                                        static_cast<float>(facePoints[i].x),
+                                        static_cast<float>(facePoints[i].y),
+                                        static_cast<float>(facePoints[i].z)));
+                                    if (hasNormals) {
+                                        grp.normals.push_back(osg::Vec3(
+                                            static_cast<float>(faceNormals[i].x),
+                                            static_cast<float>(faceNormals[i].y),
+                                            static_cast<float>(faceNormals[i].z)));
+                                    }
+                                }
+                                for (size_t i = 0; i < faceFacets.size(); i++) {
+                                    grp.indices.push_back(baseIdx + faceFacets[i].I1);
+                                    grp.indices.push_back(baseIdx + faceFacets[i].I2);
+                                    grp.indices.push_back(baseIdx + faceFacets[i].I3);
                                 }
                             }
 
-                            // Get diffuse color from ViewProvider's ShapeAppearance
-                            float transparency = 0.0f;
+                            // Create one osg::Geometry per color group
+                            for (auto& grp : colorGroups) {
+                                if (grp.vertices.empty() || grp.indices.empty()) continue;
 
-                            // Default FreeCAD-like color (light steel blue)
-                            osg::Vec4 diffuseColor(0.8f, 0.8f, 0.9f, 1.0f);
+                                osg::ref_ptr<osg::Vec3Array> va = new osg::Vec3Array(grp.vertices.begin(), grp.vertices.end());
+                                osg::ref_ptr<osg::DrawElementsUInt> ia =
+                                    new osg::DrawElementsUInt(osg::PrimitiveSet::TRIANGLES, grp.indices.begin(), grp.indices.end());
 
-                            {
-                                // New FreeCAD: color is in ShapeAppearance (PropertyMaterialList)
-                                auto* matListProp = dynamic_cast<App::PropertyMaterialList*>(
-                                    vp->getPropertyByName("ShapeAppearance"));
-                                if (matListProp && matListProp->getSize() > 0) {
+                                // Normals
+                                osg::ref_ptr<osg::Vec3Array> na;
+                                if (grp.normals.size() == grp.vertices.size()) {
+                                    na = new osg::Vec3Array(grp.normals.begin(), grp.normals.end());
+                                } else {
+                                    na = new osg::Vec3Array(grp.vertices.size());
+                                    for (size_t i = 0; i < grp.vertices.size(); i++)
+                                        (*na)[i] = osg::Vec3(0, 0, 0);
+                                    for (size_t i = 0; i + 2 < grp.indices.size(); i += 3) {
+                                        osg::Vec3 fn = ((*va)[grp.indices[i+1]] - (*va)[grp.indices[i]])
+                                                     ^ ((*va)[grp.indices[i+2]] - (*va)[grp.indices[i]]);
+                                        (*na)[grp.indices[i]]   += fn;
+                                        (*na)[grp.indices[i+1]] += fn;
+                                        (*na)[grp.indices[i+2]] += fn;
+                                    }
+                                    for (size_t i = 0; i < grp.vertices.size(); i++) {
+                                        float len = (*na)[i].length();
+                                        (*na)[i] = (len > 1e-7f) ? (*na)[i] / len : osg::Vec3(0, 0, 1);
+                                    }
+                                }
+
+                                osg::ref_ptr<osg::Geometry> geometry = new osg::Geometry();
+                                geometry->setVertexArray(va.get());
+                                geometry->setNormalArray(na.get());
+                                geometry->setNormalBinding(osg::Geometry::BIND_PER_VERTEX);
+                                geometry->addPrimitiveSet(ia.get());
+
+                                osg::StateSet* ss = geometry->getOrCreateStateSet();
+                                ss->addUniform(new osg::Uniform("u_baseColor", grp.color));
+                                ss->addUniform(new osg::Uniform("u_colorMode", 0));
+
+                                osg::ref_ptr<osg::Material> mat = new osg::Material();
+                                mat->setDiffuse(osg::Material::FRONT_AND_BACK, grp.color);
+                                mat->setAmbient(osg::Material::FRONT_AND_BACK,
+                                    osg::Vec4(grp.color.r()*0.3f, grp.color.g()*0.3f, grp.color.b()*0.3f, 1.0f));
+                                mat->setSpecular(osg::Material::FRONT_AND_BACK, osg::Vec4(0.4f, 0.4f, 0.4f, 1.0f));
+                                mat->setShininess(osg::Material::FRONT_AND_BACK, 40.0f);
+                                mat->setColorMode(osg::Material::OFF);
+                                if (grp.color.a() < 1.0f) {
+                                    mat->setAlpha(osg::Material::FRONT_AND_BACK, grp.color.a());
+                                    ss->setMode(GL_BLEND, osg::StateAttribute::ON);
+                                    ss->setRenderingHint(osg::StateSet::TRANSPARENT_BIN);
+                                }
+                                ss->setAttributeAndModes(mat.get(),
+                                    osg::StateAttribute::ON | osg::StateAttribute::OVERRIDE);
+                                ss->setMode(GL_LIGHTING, osg::StateAttribute::ON);
+
+                                osg::ref_ptr<osg::Geode> geode = new osg::Geode();
+                                geode->addDrawable(geometry.get());
+                                vpGroup->addChild(geode);
+                                hasGeometry = true;
+                            }
+
+                            Base::Console().log("OsgVerseViewer::addViewProvider: %s per-face: %lu faces, %zu color groups\n",
+                                objName.c_str(), numFaces, colorGroups.size());
+                        } else {
+                            // === Single color path (original) ===
+                            std::vector<Base::Vector3d> points;
+                            std::vector<Data::ComplexGeoData::Facet> facets;
+                            double accuracy = geoData->getAccuracy();
+                            geoData->getFaces(points, facets, accuracy);
+
+                            if (!points.empty() && !facets.empty()) {
+                                osg::ref_ptr<osg::Vec3Array> vertexArray = new osg::Vec3Array(points.size());
+                                for (size_t i = 0; i < points.size(); i++) {
+                                    (*vertexArray)[i] = osg::Vec3(
+                                        static_cast<float>(points[i].x),
+                                        static_cast<float>(points[i].y),
+                                        static_cast<float>(points[i].z));
+                                }
+
+                                osg::ref_ptr<osg::DrawElementsUInt> indexArray =
+                                    new osg::DrawElementsUInt(osg::PrimitiveSet::TRIANGLES, facets.size() * 3);
+                                for (size_t i = 0; i < facets.size(); i++) {
+                                    (*indexArray)[i * 3 + 0] = facets[i].I1;
+                                    (*indexArray)[i * 3 + 1] = facets[i].I2;
+                                    (*indexArray)[i * 3 + 2] = facets[i].I3;
+                                }
+
+                                osg::ref_ptr<osg::Vec3Array> normalArray = new osg::Vec3Array(points.size());
+                                for (size_t i = 0; i < points.size(); i++)
+                                    (*normalArray)[i] = osg::Vec3(0, 0, 0);
+                                for (size_t i = 0; i < facets.size(); i++) {
+                                    const osg::Vec3& v0 = (*vertexArray)[facets[i].I1];
+                                    const osg::Vec3& v1 = (*vertexArray)[facets[i].I2];
+                                    const osg::Vec3& v2 = (*vertexArray)[facets[i].I3];
+                                    osg::Vec3 faceNormal = (v1 - v0) ^ (v2 - v0);
+                                    (*normalArray)[facets[i].I1] += faceNormal;
+                                    (*normalArray)[facets[i].I2] += faceNormal;
+                                    (*normalArray)[facets[i].I3] += faceNormal;
+                                }
+                                for (size_t i = 0; i < points.size(); i++) {
+                                    osg::Vec3& n = (*normalArray)[i];
+                                    float len = n.length();
+                                    n = (len > 1e-7f) ? n / len : osg::Vec3(0, 0, 1);
+                                }
+
+                                // Get single diffuse color
+                                osg::Vec4 diffuseColor(0.8f, 0.8f, 0.9f, 1.0f);
+                                float transparency = 0.0f;
+                                if (matCount > 0) {
                                     const Base::Color& c = matListProp->getDiffuseColor();
                                     diffuseColor = osg::Vec4(c.r, c.g, c.b, 1.0f);
                                     transparency = matListProp->getTransparency();
-                                    if (transparency > 0.0f) {
+                                    if (transparency > 0.0f)
                                         diffuseColor.a() = 1.0f - transparency;
-                                    }
-                                    Base::Console().log("OsgVerseViewer::addViewProvider: ShapeAppearance color = (%.2f, %.2f, %.2f)\n",
-                                                       c.r, c.g, c.b);
-                                } else {
-                                    Base::Console().log("OsgVerseViewer::addViewProvider: No ShapeAppearance, using default\n");
                                 }
+
+                                osg::ref_ptr<osg::Geometry> geometry = new osg::Geometry();
+                                geometry->setVertexArray(vertexArray.get());
+                                geometry->setNormalArray(normalArray.get());
+                                geometry->setNormalBinding(osg::Geometry::BIND_PER_VERTEX);
+                                geometry->addPrimitiveSet(indexArray.get());
+
+                                osg::StateSet* stateSet = geometry->getOrCreateStateSet();
+                                stateSet->addUniform(new osg::Uniform("u_baseColor", diffuseColor));
+                                stateSet->addUniform(new osg::Uniform("u_colorMode", 0));
+
+                                osg::ref_ptr<osg::Material> material = new osg::Material();
+                                material->setDiffuse(osg::Material::FRONT_AND_BACK, diffuseColor);
+                                material->setAmbient(osg::Material::FRONT_AND_BACK,
+                                    osg::Vec4(diffuseColor.r() * 0.3f, diffuseColor.g() * 0.3f,
+                                              diffuseColor.b() * 0.3f, 1.0f));
+                                material->setSpecular(osg::Material::FRONT_AND_BACK, osg::Vec4(0.4f, 0.4f, 0.4f, 1.0f));
+                                material->setShininess(osg::Material::FRONT_AND_BACK, 40.0f);
+                                if (transparency > 0.0f)
+                                    material->setAlpha(osg::Material::FRONT_AND_BACK, 1.0f - transparency);
+                                material->setColorMode(osg::Material::OFF);
+
+                                stateSet->setAttributeAndModes(material.get(),
+                                    osg::StateAttribute::ON | osg::StateAttribute::OVERRIDE);
+                                stateSet->setMode(GL_LIGHTING, osg::StateAttribute::ON);
+
+                                if (transparency > 0.0f) {
+                                    stateSet->setMode(GL_BLEND, osg::StateAttribute::ON);
+                                    stateSet->setRenderingHint(osg::StateSet::TRANSPARENT_BIN);
+                                }
+
+                                osg::ref_ptr<osg::Geode> geode = new osg::Geode();
+                                geode->addDrawable(geometry.get());
+                                vpGroup->addChild(geode);
+                                hasGeometry = true;
+
+                                Base::Console().log("OsgVerseViewer::addViewProvider: Converted %s: %zu vertices, %zu triangles\n",
+                                    objName.c_str(), points.size(), facets.size());
                             }
-
-                            // Create OSG Geometry
-                            osg::ref_ptr<osg::Geometry> geometry = new osg::Geometry();
-                            geometry->setVertexArray(vertexArray.get());
-                            geometry->setNormalArray(normalArray.get());
-                            geometry->setNormalBinding(osg::Geometry::BIND_PER_VERTEX);
-                            geometry->addPrimitiveSet(indexArray.get());
-
-                            // Set up StateSet with material and shader uniform
-                            osg::StateSet* stateSet = geometry->getOrCreateStateSet();
-
-                            // Pass base color to shader via osg::Uniform (most reliable on macOS)
-                            stateSet->addUniform(new osg::Uniform("u_baseColor", diffuseColor));
-
-                            // Also set osg::Material for fixed-function fallback
-                            osg::ref_ptr<osg::Material> material = new osg::Material();
-                            material->setDiffuse(osg::Material::FRONT_AND_BACK, diffuseColor);
-                            material->setAmbient(osg::Material::FRONT_AND_BACK,
-                                                osg::Vec4(diffuseColor.r() * 0.3f,
-                                                          diffuseColor.g() * 0.3f,
-                                                          diffuseColor.b() * 0.3f, 1.0f));
-                            material->setSpecular(osg::Material::FRONT_AND_BACK,
-                                                 osg::Vec4(0.4f, 0.4f, 0.4f, 1.0f));
-                            material->setShininess(osg::Material::FRONT_AND_BACK, 40.0f);
-                            if (transparency > 0.0f) {
-                                material->setAlpha(osg::Material::FRONT_AND_BACK, 1.0f - transparency);
-                            }
-                            material->setColorMode(osg::Material::OFF);
-
-                            stateSet->setAttributeAndModes(material.get(),
-                                osg::StateAttribute::ON | osg::StateAttribute::OVERRIDE);
-                            stateSet->setMode(GL_LIGHTING, osg::StateAttribute::ON);
-
-                            if (transparency > 0.0f) {
-                                stateSet->setMode(GL_BLEND, osg::StateAttribute::ON);
-                                stateSet->setRenderingHint(osg::StateSet::TRANSPARENT_BIN);
-                            }
-
-                            osg::ref_ptr<osg::Geode> geode = new osg::Geode();
-                            geode->addDrawable(geometry.get());
-                            vpGroup->addChild(geode);
-                            hasGeometry = true;
-
-                            Base::Console().log("OsgVerseViewer::addViewProvider: Converted %s: %zu vertices, %zu triangles\n",
-                                               objName.c_str(), points.size(), facets.size());
                         }
                     } catch (const std::exception& e) {
                         Base::Console().error("OsgVerseViewer::addViewProvider: Exception: %s\n", e.what());
@@ -1705,17 +1815,11 @@ void OsgVerseViewer::addViewProvider(Gui::ViewProvider* vp)
         }
     }
 
-    // 如果没有几何体，创建一个默认的小球
-    // If no geometry, create a default sphere
+    // Skip ViewProviders without geometry (FEM constraints, analysis containers, etc.)
     if (!hasGeometry) {
-        Base::Console().log("OsgVerseViewer::addViewProvider: No geometry found, creating default sphere\n");
-        osg::ref_ptr<osg::Sphere> sphere = new osg::Sphere(osg::Vec3(0,0,0), 5.0f);
-        osg::ref_ptr<osg::ShapeDrawable> drawable = new osg::ShapeDrawable(sphere);
-        drawable->setColor(osg::Vec4(0.8f, 0.8f, 0.8f, 1.0f));
-        
-        osg::ref_ptr<osg::Geode> geode = new osg::Geode();
-        geode->addDrawable(drawable);
-        vpGroup->addChild(geode);
+        Base::Console().log("OsgVerseViewer::addViewProvider: No geometry for %s, skipping\n", objName.c_str());
+        _viewProviders.erase(vp);
+        return;
     }
 
     // 添加到场景图

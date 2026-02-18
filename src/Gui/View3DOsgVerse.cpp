@@ -125,7 +125,6 @@ View3DOsgVerse::View3DOsgVerse(Gui::Document* pcDocument,
 
 View3DOsgVerse::~View3DOsgVerse()
 {
-    Base::Console().log("View3DOsgVerse: Destructor called\n");
     _viewer.reset();
 }
 

@@ -2331,19 +2331,9 @@ MDIView* Document::createView(const Base::Type& typeId, CreateViewMode mode)
                 Base::Console().warning("Document::createView: OsgVerse backend is active but viewer not registered, falling back to Coin3D\n");
             }
         }
-        // If no backend is selected, try OsgVerse first (default)
+        // If no backend is selected, default to Coin3D (the stable, established backend)
         else if (backend == Gui::Render::BackendType::None) {
-            if (View3D::ViewerFactory::isRegistered(Gui::Render::BackendType::OsgVerse)) {
-                Base::Console().log("Document::createView: No backend selected, trying OsgVerse as default\n");
-                try {
-                    return createView(View3DOsgVerse::getClassTypeId(), mode);
-                }
-                catch (const std::exception& e) {
-                    Base::Console().warning("Document::createView: Failed to create OsgVerse view: %s, falling back to Coin3D\n", e.what());
-                }
-            } else {
-                Base::Console().log("Document::createView: OsgVerse viewer not registered, using Coin3D\n");
-            }
+            Base::Console().log("Document::createView: No backend selected, using Coin3D as default\n");
         }
 #endif
 

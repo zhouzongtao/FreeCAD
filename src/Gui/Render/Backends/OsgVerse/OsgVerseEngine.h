@@ -184,6 +184,14 @@ public:
     osgViewer::Viewer* getViewer() const { return _viewer; }
 
     /**
+     * @brief 获取 OSG 场景根节点 / Get OSG scene root node
+     *
+     * 直接返回 OSG 的 Group 节点，用于添加光源等场景元素。
+     * Returns the OSG Group node directly for adding lights and other scene elements.
+     */
+    osg::Group* getOsgSceneRoot() const { return _sceneRoot; }
+
+    /**
      * @brief 启用/禁用 PBR 渲染 / Enable/disable PBR rendering
      */
     void setPBREnabled(bool enabled);
