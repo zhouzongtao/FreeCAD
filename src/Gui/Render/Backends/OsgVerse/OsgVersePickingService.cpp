@@ -97,105 +97,159 @@ PickResults OsgVersePickingService::pick(int screenX, int screenY,
     double ndcX, ndcY;
     screenToNDC(screenX, screenY, ndcX, ndcY);
 
-    // Create line segment intersector
-    osg::ref_ptr<osgUtil::LineSegmentIntersector> intersector =
-        new osgUtil::LineSegmentIntersector(
+    // Get pick radius from viewer (default 5.0 pixels)
+    float pickRadius = _osgViewer ? _osgViewer->getPickRadius() : 5.0f;
+
+    // Use PolytopeIntersector for radius-based picking, LineSegment for exact
+    osg::ref_ptr<osgUtil::Intersector> intersectorBase;
+    osg::ref_ptr<osgUtil::LineSegmentIntersector> lineIntersector;
+
+    if (pickRadius > 0.0f) {
+        double x = static_cast<double>(screenX);
+        double y = static_cast<double>(screenY);
+        double r = static_cast<double>(pickRadius);
+        osg::ref_ptr<osgUtil::PolytopeIntersector> polyIntersector =
+            new osgUtil::PolytopeIntersector(
+                osgUtil::Intersector::WINDOW,
+                x - r, y - r, x + r, y + r);
+        intersectorBase = polyIntersector;
+    } else {
+        lineIntersector = new osgUtil::LineSegmentIntersector(
             osgUtil::Intersector::WINDOW,
             static_cast<double>(screenX),
-            static_cast<double>(screenY)
-        );
+            static_cast<double>(screenY));
+        intersectorBase = lineIntersector;
+    }
 
     // Configure intersector
-    osgUtil::IntersectionVisitor iv(intersector.get());
+    osgUtil::IntersectionVisitor iv(intersectorBase.get());
 
     // Apply to scene
     camera->accept(iv);
 
-    if (!intersector->containsIntersections()) {
+    if (!intersectorBase->containsIntersections()) {
         return results;
     }
 
-    // Process intersections
-    const osgUtil::LineSegmentIntersector::Intersections& intersections =
-        intersector->getIntersections();
+    // Process intersections — PolytopeIntersector and LineSegmentIntersector
+    // have different result types, so handle them separately
+    if (pickRadius > 0.0f) {
+        auto* polyIntersector = static_cast<osgUtil::PolytopeIntersector*>(intersectorBase.get());
+        const auto& intersections = polyIntersector->getIntersections();
 
-    int hitCount = 0;
-    for (const auto& intersection : intersections) {
-        if (hitCount >= options.maxHits) {
-            break;
-        }
+        int hitCount = 0;
+        for (const auto& intersection : intersections) {
+            if (hitCount >= options.maxHits) break;
 
-        PickResult result;
-        result.hit = true;
+            PickResult result;
+            result.hit = true;
 
-        // Get intersection point
-        const osg::Vec3d& point = intersection.getWorldIntersectPoint();
-        result.point = Vector3(
-            static_cast<float>(point.x()),
-            static_cast<float>(point.y()),
-            static_cast<float>(point.z())
-        );
+            // PolytopeIntersector doesn't give exact intersection point,
+            // use the center of the intersected primitive's vertices
+            osg::Vec3d point(0, 0, 0);
+            if (intersection.numIntersectionPoints > 0) {
+                for (unsigned int pi = 0; pi < intersection.numIntersectionPoints; ++pi) {
+                    point += intersection.intersectionPoints[pi];
+                }
+                point /= static_cast<double>(intersection.numIntersectionPoints);
+            }
+            result.point = Vector3(
+                static_cast<float>(point.x()),
+                static_cast<float>(point.y()),
+                static_cast<float>(point.z()));
 
-        // Get normal
-        const osg::Vec3& normal = intersection.getWorldIntersectNormal();
-        result.normal = Vector3(normal.x(), normal.y(), normal.z());
+            // Distance from ray origin
+            osg::Vec3d diff = point - osg::Vec3d(ray.origin.x, ray.origin.y, ray.origin.z);
+            result.distance = static_cast<float>(diff.length());
 
-        // Calculate distance from ray origin
-        osg::Vec3d diff = point - osg::Vec3d(ray.origin.x, ray.origin.y, ray.origin.z);
-        result.distance = static_cast<float>(diff.length());
-
-        // Determine pick type from primitive index
-        if (intersection.indexList.size() >= 3) {
-            result.type = PickType::Face;
-            result.faceIndex = static_cast<int>(intersection.primitiveIndex);
-        } else if (intersection.indexList.size() == 2) {
-            result.type = PickType::Edge;
-            result.edgeIndex = static_cast<int>(intersection.primitiveIndex);
-        } else if (intersection.indexList.size() == 1) {
-            result.type = PickType::Vertex;
-            result.vertexIndex = static_cast<int>(intersection.indexList[0]);
-        }
-
-        // Check pick type filters
-        if (result.type == PickType::Face && !options.pickFaces) continue;
-        if (result.type == PickType::Edge && !options.pickEdges) continue;
-        if (result.type == PickType::Vertex && !options.pickVertices) continue;
-
-        // Resolve ViewProvider from the node path
-        if (_osgViewer && !intersection.nodePath.empty()) {
-            for (auto it = intersection.nodePath.rbegin(); it != intersection.nodePath.rend(); ++it) {
-                Gui::ViewProvider* vp = _osgViewer->findViewProviderForNode(*it);
-                if (vp) {
-                    result.viewProvider = vp;
-                    // Build sub-element name from node name if available
-                    osg::Node* hitNode = intersection.nodePath.back();
-                    if (hitNode && !hitNode->getName().empty()) {
-                        std::string nodeName = hitNode->getName();
-                        if (nodeName.find("Face") == 0 || nodeName.find("Edge") == 0 ||
-                            nodeName.find("Vertex") == 0) {
-                            result.elementName = nodeName;
-                        }
+            // Resolve ViewProvider from the node path
+            if (_osgViewer && !intersection.nodePath.empty()) {
+                for (auto it = intersection.nodePath.rbegin(); it != intersection.nodePath.rend(); ++it) {
+                    Gui::ViewProvider* vp = _osgViewer->findViewProviderForNode(*it);
+                    if (vp) {
+                        result.viewProvider = vp;
+                        break;
                     }
-                    // Generate element name from pick type if not set
-                    if (result.elementName.empty()) {
-                        if (result.type == PickType::Face && result.faceIndex >= 0) {
-                            result.elementName = "Face" + std::to_string(result.faceIndex + 1);
-                        } else if (result.type == PickType::Edge && result.edgeIndex >= 0) {
-                            result.elementName = "Edge" + std::to_string(result.edgeIndex + 1);
-                        } else if (result.type == PickType::Vertex && result.vertexIndex >= 0) {
-                            result.elementName = "Vertex" + std::to_string(result.vertexIndex + 1);
-                        }
-                    }
-                    break;
                 }
             }
+
+            results.hits.push_back(result);
+            ++hitCount;
+
+            if (options.pickClosestOnly) break;
         }
+    } else {
+        // LineSegmentIntersector path (exact picking, no radius)
+        const auto& intersections = lineIntersector->getIntersections();
 
-        results.hits.push_back(result);
-        ++hitCount;
+        int hitCount = 0;
+        for (const auto& intersection : intersections) {
+            if (hitCount >= options.maxHits) break;
 
-        if (options.pickClosestOnly) {
-            break;
+            PickResult result;
+            result.hit = true;
+
+            const osg::Vec3d& point = intersection.getWorldIntersectPoint();
+            result.point = Vector3(
+                static_cast<float>(point.x()),
+                static_cast<float>(point.y()),
+                static_cast<float>(point.z()));
+
+            const osg::Vec3& normal = intersection.getWorldIntersectNormal();
+            result.normal = Vector3(normal.x(), normal.y(), normal.z());
+
+            osg::Vec3d diff = point - osg::Vec3d(ray.origin.x, ray.origin.y, ray.origin.z);
+            result.distance = static_cast<float>(diff.length());
+
+            // Determine pick type from primitive index
+            if (intersection.indexList.size() >= 3) {
+                result.type = PickType::Face;
+                result.faceIndex = static_cast<int>(intersection.primitiveIndex);
+            } else if (intersection.indexList.size() == 2) {
+                result.type = PickType::Edge;
+                result.edgeIndex = static_cast<int>(intersection.primitiveIndex);
+            } else if (intersection.indexList.size() == 1) {
+                result.type = PickType::Vertex;
+                result.vertexIndex = static_cast<int>(intersection.indexList[0]);
+            }
+
+            // Check pick type filters
+            if (result.type == PickType::Face && !options.pickFaces) continue;
+            if (result.type == PickType::Edge && !options.pickEdges) continue;
+            if (result.type == PickType::Vertex && !options.pickVertices) continue;
+
+            // Resolve ViewProvider from the node path
+            if (_osgViewer && !intersection.nodePath.empty()) {
+                for (auto it = intersection.nodePath.rbegin(); it != intersection.nodePath.rend(); ++it) {
+                    Gui::ViewProvider* vp = _osgViewer->findViewProviderForNode(*it);
+                    if (vp) {
+                        result.viewProvider = vp;
+                        osg::Node* hitNode = intersection.nodePath.back();
+                        if (hitNode && !hitNode->getName().empty()) {
+                            std::string nodeName = hitNode->getName();
+                            if (nodeName.find("Face") == 0 || nodeName.find("Edge") == 0 ||
+                                nodeName.find("Vertex") == 0) {
+                                result.elementName = nodeName;
+                            }
+                        }
+                        if (result.elementName.empty()) {
+                            if (result.type == PickType::Face && result.faceIndex >= 0) {
+                                result.elementName = "Face" + std::to_string(result.faceIndex + 1);
+                            } else if (result.type == PickType::Edge && result.edgeIndex >= 0) {
+                                result.elementName = "Edge" + std::to_string(result.edgeIndex + 1);
+                            } else if (result.type == PickType::Vertex && result.vertexIndex >= 0) {
+                                result.elementName = "Vertex" + std::to_string(result.vertexIndex + 1);
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
+
+            results.hits.push_back(result);
+            ++hitCount;
+
+            if (options.pickClosestOnly) break;
         }
     }
 

@@ -39,8 +39,11 @@
 #include "BitmapFactory.h"
 #include <Base/Console.h>
 #include <Base/Interpreter.h>
+#include <App/Document.h>
 #include <osg/Quat>
+#include <osg/Matrix>
 #include <cmath>
+#include <sstream>
 
 using namespace Gui;
 
@@ -170,7 +173,7 @@ bool View3DOsgVerse::onMsg(const char* pMsg, const char** ppReturn)
         return true;
     }
     else if (strcmp(pMsg, "ViewSelection") == 0) {
-        _viewer->viewAll();  // TODO: Implement view selection
+        _viewer->fitSelection();
         return true;
     }
     else if (strcmp(pMsg, "ViewHome") == 0) {
@@ -234,7 +237,23 @@ bool View3DOsgVerse::onMsg(const char* pMsg, const char** ppReturn)
         return true;
     }
     else if (strcmp(pMsg, "ViewAxo") == 0) {
-        // TODO: Implement axonometric view
+        // Isometric view: standard CAD isometric orientation
+        Gui::View3D::CameraParams params = _viewer->getCamera();
+        // Standard isometric: rotate 45° around Z, then ~35.264° around X
+        // Quaternion for isometric view (world-to-camera)
+        double s2 = std::sqrt(2.0);
+        double s3 = std::sqrt(3.0);
+        double s6 = std::sqrt(6.0);
+        // This quaternion gives the standard isometric view matching Coin3D
+        osg::Quat rot(
+            (s3 + 1.0) / (2.0 * s6),   // x
+            (s3 - 1.0) / (2.0 * s6),   // y
+            (1.0 - s3) / (2.0 * s6),   // z
+            (1.0 + s3) / (2.0 * s6)    // w
+        );
+        setCameraParamsFromQuat(params, rot);
+        _viewer->setCamera(params);
+        _viewer->viewAll();
         return true;
     }
     else if (strcmp(pMsg, "Orthographic") == 0) {
@@ -249,7 +268,210 @@ bool View3DOsgVerse::onMsg(const char* pMsg, const char** ppReturn)
         dump();
         return true;
     }
-    
+    else if (strcmp(pMsg, "GetCamera") == 0) {
+        // Construct an Inventor-compatible camera string for Python API
+        auto cam = _viewer->getCamera();
+        bool ortho = _viewer->isCameraOrthographic();
+
+        // Build Inventor ASCII format string
+        // Python code expects: "OrthographicCamera { ... }" or "PerspectiveCamera { ... }"
+        static std::string cameraStr;
+        std::ostringstream ss;
+        if (ortho) {
+            ss << "OrthographicCamera {\n"
+               << "  viewportMapping ADJUST_CAMERA\n"
+               << "  position " << cam.position.x << " " << cam.position.y << " " << cam.position.z << "\n";
+            // Compute orientation quaternion from eye/target/up
+            osg::Vec3d eye(cam.position.x, cam.position.y, cam.position.z);
+            osg::Vec3d center(cam.target.x, cam.target.y, cam.target.z);
+            osg::Vec3d up(cam.upVector.x, cam.upVector.y, cam.upVector.z);
+            osg::Vec3d forward = center - eye;
+            forward.normalize();
+            osg::Vec3d right = forward ^ up;
+            right.normalize();
+            osg::Vec3d realUp = right ^ forward;
+            realUp.normalize();
+            // Build rotation matrix (camera-to-world) then convert to axis-angle
+            osg::Matrixd rotMat;
+            rotMat.set(right.x(), right.y(), right.z(), 0,
+                       realUp.x(), realUp.y(), realUp.z(), 0,
+                       -forward.x(), -forward.y(), -forward.z(), 0,
+                       0, 0, 0, 1);
+            osg::Quat q;
+            q.set(rotMat);
+            double angle;
+            osg::Vec3d axis;
+            q.getRotate(angle, axis);
+            ss << "  orientation " << axis.x() << " " << axis.y() << " " << axis.z() << " " << angle << "\n";
+            double distance = (eye - center).length();
+            ss << "  nearDistance " << cam.nearPlane << "\n"
+               << "  farDistance " << cam.farPlane << "\n"
+               << "  aspectRatio " << cam.aspectRatio << "\n"
+               << "  focalDistance " << distance << "\n"
+               << "  height " << cam.height << "\n"
+               << "}\n";
+        } else {
+            ss << "PerspectiveCamera {\n"
+               << "  viewportMapping ADJUST_CAMERA\n"
+               << "  position " << cam.position.x << " " << cam.position.y << " " << cam.position.z << "\n";
+            osg::Vec3d eye(cam.position.x, cam.position.y, cam.position.z);
+            osg::Vec3d center(cam.target.x, cam.target.y, cam.target.z);
+            osg::Vec3d up(cam.upVector.x, cam.upVector.y, cam.upVector.z);
+            osg::Vec3d forward = center - eye;
+            forward.normalize();
+            osg::Vec3d right = forward ^ up;
+            right.normalize();
+            osg::Vec3d realUp = right ^ forward;
+            realUp.normalize();
+            osg::Matrixd rotMat;
+            rotMat.set(right.x(), right.y(), right.z(), 0,
+                       realUp.x(), realUp.y(), realUp.z(), 0,
+                       -forward.x(), -forward.y(), -forward.z(), 0,
+                       0, 0, 0, 1);
+            osg::Quat q;
+            q.set(rotMat);
+            double angle;
+            osg::Vec3d axis;
+            q.getRotate(angle, axis);
+            ss << "  orientation " << axis.x() << " " << axis.y() << " " << axis.z() << " " << angle << "\n";
+            double distance = (eye - center).length();
+            ss << "  nearDistance " << cam.nearPlane << "\n"
+               << "  farDistance " << cam.farPlane << "\n"
+               << "  aspectRatio " << cam.aspectRatio << "\n"
+               << "  focalDistance " << distance << "\n"
+               << "  heightAngle " << (cam.fieldOfView * M_PI / 180.0) << "\n"
+               << "}\n";
+        }
+        cameraStr = ss.str();
+        *ppReturn = cameraStr.c_str();
+        return true;
+    }
+    else if (strncmp(pMsg, "SetCamera", 9) == 0) {
+        // Parse Inventor ASCII camera string and apply
+        const char* camStr = pMsg + 10;
+        if (!camStr || !*camStr) return false;
+
+        Gui::View3D::CameraParams params = _viewer->getCamera();
+        std::string str(camStr);
+
+        bool ortho = (str.find("OrthographicCamera") != std::string::npos);
+
+        // Parse position
+        auto parseVec3 = [&str](const std::string& key, double& x, double& y, double& z) {
+            size_t pos = str.find(key);
+            if (pos != std::string::npos) {
+                pos += key.length();
+                std::istringstream iss(str.substr(pos));
+                iss >> x >> y >> z;
+            }
+        };
+
+        double px = 0, py = 0, pz = 0;
+        parseVec3("position ", px, py, pz);
+        params.position = Base::Vector3d(px, py, pz);
+
+        // Parse orientation (axis-angle)
+        size_t oriPos = str.find("orientation ");
+        if (oriPos != std::string::npos) {
+            oriPos += 12;
+            double ax, ay, az, angle;
+            std::istringstream iss(str.substr(oriPos));
+            iss >> ax >> ay >> az >> angle;
+
+            osg::Quat q(angle, osg::Vec3d(ax, ay, az));
+            // q is camera rotation: forward = q * (0,0,-1), up = q * (0,1,0)
+            osg::Vec3d forward = q * osg::Vec3d(0, 0, -1);
+            osg::Vec3d up = q * osg::Vec3d(0, 1, 0);
+
+            // Parse focal distance for target computation
+            double focalDist = 5.0;
+            size_t fdPos = str.find("focalDistance ");
+            if (fdPos != std::string::npos) {
+                std::istringstream fiss(str.substr(fdPos + 14));
+                fiss >> focalDist;
+            }
+
+            osg::Vec3d eye(px, py, pz);
+            osg::Vec3d center = eye + forward * focalDist;
+            params.target = Base::Vector3d(center.x(), center.y(), center.z());
+            params.upVector = Base::Vector3d(up.x(), up.y(), up.z());
+        }
+
+        params.orthographic = ortho;
+
+        // Parse height (ortho) or heightAngle (perspective)
+        if (ortho) {
+            size_t hPos = str.find("height ");
+            if (hPos != std::string::npos) {
+                // Make sure we don't match "heightAngle"
+                if (hPos == 0 || str[hPos - 1] == '\n' || str[hPos - 1] == ' ') {
+                    std::istringstream iss(str.substr(hPos + 7));
+                    iss >> params.height;
+                }
+            }
+        } else {
+            size_t haPos = str.find("heightAngle ");
+            if (haPos != std::string::npos) {
+                double heightAngle;
+                std::istringstream iss(str.substr(haPos + 12));
+                iss >> heightAngle;
+                params.fieldOfView = heightAngle * 180.0 / M_PI;
+            }
+        }
+
+        _viewer->setCamera(params);
+        _viewer->setCameraType(ortho);
+        return true;
+    }
+    else if (strcmp(pMsg, "ZoomIn") == 0) {
+        auto cam = _viewer->getCamera();
+        Base::Vector3d dir = cam.target - cam.position;
+        double dist = dir.Length();
+        dir.Normalize();
+        // Move 20% closer
+        double newDist = dist * 0.8;
+        cam.position = cam.target - dir * newDist;
+        if (cam.orthographic) {
+            cam.height *= 0.8;
+        }
+        _viewer->setCamera(cam);
+        return true;
+    }
+    else if (strcmp(pMsg, "ZoomOut") == 0) {
+        auto cam = _viewer->getCamera();
+        Base::Vector3d dir = cam.target - cam.position;
+        double dist = dir.Length();
+        dir.Normalize();
+        // Move 25% farther
+        double newDist = dist * 1.25;
+        cam.position = cam.target - dir * newDist;
+        if (cam.orthographic) {
+            cam.height *= 1.25;
+        }
+        _viewer->setCamera(cam);
+        return true;
+    }
+    else if (strcmp(pMsg, "Undo") == 0) {
+        getGuiDocument()->undo(1);
+        return true;
+    }
+    else if (strcmp(pMsg, "Redo") == 0) {
+        getGuiDocument()->redo(1);
+        return true;
+    }
+    else if (strcmp(pMsg, "Save") == 0) {
+        getGuiDocument()->save();
+        return true;
+    }
+    else if (strcmp(pMsg, "SaveAs") == 0) {
+        getGuiDocument()->saveAs();
+        return true;
+    }
+    else if (strcmp(pMsg, "SaveCopy") == 0) {
+        getGuiDocument()->saveCopy();
+        return true;
+    }
+
     return false;
 }
 
@@ -272,8 +494,27 @@ bool View3DOsgVerse::onHasMsg(const char* pMsg) const
         strcmp(pMsg, "ViewAxo") == 0 ||
         strcmp(pMsg, "Orthographic") == 0 ||
         strcmp(pMsg, "Perspective") == 0 ||
-        strcmp(pMsg, "DumpInfo") == 0) {
+        strcmp(pMsg, "DumpInfo") == 0 ||
+        strcmp(pMsg, "GetCamera") == 0 ||
+        strcmp(pMsg, "ZoomIn") == 0 ||
+        strcmp(pMsg, "ZoomOut") == 0) {
         return true;
+    }
+    if (strncmp(pMsg, "SetCamera", 9) == 0) {
+        return true;
+    }
+    if (strcmp(pMsg, "Save") == 0 ||
+        strcmp(pMsg, "SaveAs") == 0 ||
+        strcmp(pMsg, "SaveCopy") == 0) {
+        return true;
+    }
+    if (strcmp(pMsg, "Undo") == 0) {
+        App::Document* doc = getAppDocument();
+        return doc && doc->getAvailableUndos() > 0;
+    }
+    if (strcmp(pMsg, "Redo") == 0) {
+        App::Document* doc = getAppDocument();
+        return doc && doc->getAvailableRedos() > 0;
     }
     
     return false;

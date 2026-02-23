@@ -522,6 +522,105 @@ public:
      * @brief 重置编辑模式
      */
     virtual void resetEditingViewProvider() = 0;
+
+    //-----------------------------------------------------------------------
+    // 编辑模式扩展（Phase G）
+    //-----------------------------------------------------------------------
+
+    /**
+     * @brief 获取焦平面上的 3D 点
+     *
+     * 将屏幕坐标投影到焦平面（过相机目标点、法线为视线方向的平面）
+     *
+     * @param x 屏幕 X 坐标
+     * @param y 屏幕 Y 坐标
+     * @return 焦平面上的 3D 世界坐标
+     */
+    virtual Base::Vector3d getPointOnFocalPlane(int x, int y) const = 0;
+
+    /**
+     * @brief 设置编辑根节点
+     *
+     * 创建编辑模式的场景图结构，将编辑几何体与主场景分离
+     *
+     * @param node 要添加到编辑根的节点（后端特定类型，void* 保持后端无关）
+     *             如果为 nullptr，则将当前编辑 VP 的子节点移到编辑根
+     * @param mat 编辑变换矩阵（可选）
+     */
+    virtual void setupEditingRoot(void* node = nullptr, const Base::Matrix4D* mat = nullptr) = 0;
+
+    /**
+     * @brief 重置编辑根节点
+     *
+     * 将编辑几何体移回原始 VP 根，恢复场景图结构
+     *
+     * @param updateLinks 是否更新 ViewProviderLink 引用
+     */
+    virtual void resetEditingRoot(bool updateLinks = true) = 0;
+
+    /**
+     * @brief 设置编辑变换矩阵
+     *
+     * @param mat 变换矩阵
+     */
+    virtual void setEditingTransform(const Base::Matrix4D& mat) = 0;
+
+    //-----------------------------------------------------------------------
+    // Seek 功能（Phase G）
+    //-----------------------------------------------------------------------
+
+    /**
+     * @brief 飞行到屏幕点击位置
+     *
+     * 在屏幕坐标处拾取 3D 点，然后将相机动画飞行到该点
+     *
+     * @param screenX 屏幕 X 坐标
+     * @param screenY 屏幕 Y 坐标
+     * @return true 如果成功拾取到点并开始动画
+     */
+    virtual bool seekToPoint(int screenX, int screenY) = 0;
+
+    /**
+     * @brief 飞行到世界坐标点
+     *
+     * 将相机动画飞行到指定的世界坐标位置
+     *
+     * @param worldPos 目标世界坐标
+     */
+    virtual void seekToPoint(const Base::Vector3d& worldPos) = 0;
+
+    //-----------------------------------------------------------------------
+    // 拾取半径（Phase G）
+    //-----------------------------------------------------------------------
+
+    /**
+     * @brief 获取拾取半径（像素）
+     */
+    virtual float getPickRadius() const = 0;
+
+    /**
+     * @brief 设置拾取半径（像素）
+     */
+    virtual void setPickRadius(float radius) = 0;
+
+    //-----------------------------------------------------------------------
+    // 渲染模式覆盖（Phase H）
+    //-----------------------------------------------------------------------
+
+    /**
+     * @brief 设置全局渲染模式覆盖
+     *
+     * 覆盖所有 ViewProvider 的显示模式
+     *
+     * @param mode 模式字符串（如 "Wireframe", "Shaded", "Flat Lines" 等）
+     *             空字符串表示取消覆盖
+     */
+    virtual void setOverrideMode(const std::string& mode) = 0;
+
+    /**
+     * @brief 获取当前渲染模式覆盖
+     */
+    virtual std::string getOverrideMode() const = 0;
 };
 
 } // namespace View3D

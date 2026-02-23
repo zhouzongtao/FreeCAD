@@ -45,6 +45,7 @@
 #include <App/Document.h>
 #include <App/DocumentObject.h>
 #include <App/DocumentObjectGroup.h>
+#include <App/GeoFeature.h>
 #include <App/Transactions.h>
 #include <App/ElementNamingUtils.h>
 #include <Base/Console.h>
@@ -1174,11 +1175,23 @@ void Document::slotChangedObject(const App::DocumentObject& Obj, const App::Prop
 
             // Update OsgVerse views when shape or appearance properties change
             const char* propName = Prop.getName();
-            bool isShapeChange = propName && (strcmp(propName, "Shape") == 0 ||
-                                              strstr(propName, "Length") ||
-                                              strstr(propName, "Width") ||
-                                              strstr(propName, "Height") ||
-                                              strstr(propName, "Radius"));
+            bool isShapeChange = false;
+
+            // Check if the changed property IS the geometry property of a GeoFeature
+            if (auto* geoFeature = dynamic_cast<const App::GeoFeature*>(&Obj)) {
+                const auto* geoProp = geoFeature->getPropertyOfGeometry();
+                if (geoProp && geoProp == &Prop) {
+                    isShapeChange = true;
+                }
+            }
+            // Also catch explicit Shape property changes and dimension parameters
+            if (!isShapeChange && propName) {
+                isShapeChange = (strcmp(propName, "Shape") == 0 ||
+                                 strstr(propName, "Length") ||
+                                 strstr(propName, "Width") ||
+                                 strstr(propName, "Height") ||
+                                 strstr(propName, "Radius"));
+            }
             bool isAppearanceChange = propName && (strcmp(propName, "ShapeAppearance") == 0 ||
                                                    strcmp(propName, "ShapeColor") == 0 ||
                                                    strcmp(propName, "Transparency") == 0);

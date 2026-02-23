@@ -24,16 +24,24 @@
 #define GUI_RENDER_BACKENDS_OSGVERSE_OSGVERSEVIEWER_H
 
 #include <memory>
+#include <array>
 #include <set>
 #include <map>
 #include <vector>
 #include <QOpenGLWidget>
 #include <osg/ref_ptr>
 #include <osg/Node>
+#include <osg/ClipPlane>
+#include <osg/ClipNode>
 
 #include <FCGlobal.h>
+#include <Base/Vector3D.h>
+#include <Base/Matrix.h>
 #include "../../Core/RenderViewer.h"
 #include "OsgVerseEngine.h"
+
+class QDragEnterEvent;
+class QDropEvent;
 
 // OsgVerse / OSG 前向声明 / Forward declarations
 namespace osgViewer {
@@ -435,6 +443,84 @@ public:
      */
     void showContextMenu(const QPoint& globalPos);
 
+    //-----------------------------------------------------------------------
+    // Phase G: 焦平面投影 / Focal Plane Projection
+    //-----------------------------------------------------------------------
+
+    /**
+     * @brief 获取焦平面上的 3D 点 / Get 3D point on focal plane
+     *
+     * 将屏幕坐标投影到焦平面（过相机目标点、法线为视线方向的平面）
+     *
+     * @param x 屏幕 X 坐标 / Screen X coordinate
+     * @param y 屏幕 Y 坐标 / Screen Y coordinate
+     * @return 焦平面上的 3D 世界坐标 / 3D world coordinate on focal plane
+     */
+    Base::Vector3d getPointOnFocalPlane(int x, int y) const;
+
+    //-----------------------------------------------------------------------
+    // Phase G: 编辑根节点 / Editing Root Node
+    //-----------------------------------------------------------------------
+
+    /**
+     * @brief 设置编辑根节点 / Setup editing root node
+     */
+    void setupEditingRoot(void* node = nullptr, const Base::Matrix4D* mat = nullptr);
+
+    /**
+     * @brief 重置编辑根节点 / Reset editing root node
+     */
+    void resetEditingRoot(bool updateLinks = true);
+
+    /**
+     * @brief 设置编辑变换矩阵 / Set editing transform matrix
+     */
+    void setEditingTransform(const Base::Matrix4D& mat);
+
+    //-----------------------------------------------------------------------
+    // Phase G: Seek 功能
+    //-----------------------------------------------------------------------
+
+    /**
+     * @brief 飞行到屏幕点击位置 / Seek to screen position
+     */
+    bool seekToPoint(int screenX, int screenY);
+
+    /**
+     * @brief 飞行到世界坐标点 / Seek to world position
+     */
+    void seekToPoint(const Base::Vector3d& worldPos);
+
+    //-----------------------------------------------------------------------
+    // Phase G: 拾取半径 / Pick Radius
+    //-----------------------------------------------------------------------
+
+    float getPickRadius() const { return _pickRadius; }
+    void setPickRadius(float radius) { _pickRadius = radius; }
+
+    //-----------------------------------------------------------------------
+    // Phase H: 渲染模式覆盖 / Override Mode
+    //-----------------------------------------------------------------------
+
+    void setOverrideMode(const std::string& mode);
+    std::string getOverrideMode() const { return _overrideMode; }
+
+    //-----------------------------------------------------------------------
+    // Phase H: 惯性旋转 / Spin Animation
+    //-----------------------------------------------------------------------
+
+    void setSpinAnimationEnabled(bool enabled) { _spinEnabled = enabled; }
+    bool isSpinAnimationEnabled() const { return _spinEnabled; }
+
+    //-----------------------------------------------------------------------
+    // Phase I: 裁剪面 / Clip Planes
+    //-----------------------------------------------------------------------
+
+    void setClipPlane(int index, double a, double b, double c, double d);
+    void removeClipPlane(int index);
+    bool isClipPlaneEnabled(int index) const;
+    void toggleClipPlane(int index);
+
 private:
     /**
      * @brief 初始化查看器 / Initialize viewer
@@ -524,6 +610,11 @@ private:
      */
     void stopCameraAnimation();
 
+    /**
+     * @brief 更新惯性旋转 / Update spin animation
+     */
+    void updateSpinAnimation();
+
     // 相机动画成员 / Camera animation members
     float _animationDuration{1.0f};             ///< 动画持续时间（秒）/ Animation duration (seconds)
     bool _animationEnabled{false};              ///< 动画是否启用 / Whether animation is enabled
@@ -585,6 +676,28 @@ private:
     int _editingMode{0};                                               ///< Editing mode
     osg::ref_ptr<osg::Group> _editingRoot;                             ///< Editing scene root
 
+    // Phase G: Editing root / 编辑根节点
+    osg::ref_ptr<osg::Group> _editingRootNode;                         ///< Editing root group node
+    osg::ref_ptr<osg::MatrixTransform> _editingTransform;              ///< Editing transform node
+
+    // Phase G: Pick radius / 拾取半径
+    float _pickRadius{5.0f};                                           ///< Pick radius in pixels
+
+    // Phase H: Override mode / 渲染模式覆盖
+    std::string _overrideMode;                                         ///< Current override mode string
+
+    // Phase H: Spin animation / 惯性旋转
+    bool _spinEnabled{true};                                           ///< Whether spin animation is enabled
+    bool _isSpinning{false};                                           ///< Whether currently spinning
+    double _spinVelocityX{0.0};                                        ///< Spin velocity X
+    double _spinVelocityY{0.0};                                        ///< Spin velocity Y
+    double _spinDecay{0.95};                                           ///< Spin decay factor per frame
+
+    // Phase I: Clip planes / 裁剪面
+    std::array<osg::ref_ptr<osg::ClipPlane>, 6> _clipPlanes;          ///< Clip planes
+    osg::ref_ptr<osg::ClipNode> _clipNode;                             ///< Clip node
+    std::array<bool, 6> _clipPlaneEnabled{};                           ///< Clip plane enabled flags
+
     // Gradient background / 渐变背景
     osg::ref_ptr<osg::Camera> _gradientCamera;                         ///< Gradient HUD camera
     osg::ref_ptr<osg::Geometry> _gradientGeom;                         ///< Gradient quad geometry
@@ -631,6 +744,10 @@ protected:
     // 绘制事件 / Paint event (for rubber band overlay)
     void paintEvent(QPaintEvent* event) override;
 
+    // Drag-drop events
+    void dragEnterEvent(QDragEnterEvent* event) override;
+    void dropEvent(QDropEvent* event) override;
+
 private:
     OsgVerseViewer* _osgVerseViewer;  ///< 指向外部OsgVerseViewer的指针 / Pointer to outer OsgVerseViewer
     osgViewer::Viewer* _viewer;
@@ -641,6 +758,10 @@ private:
     bool _rubberBandActive{false};
     QPoint _rubberBandStart;
     QPoint _rubberBandEnd;
+
+    // Last mouse position for spin velocity calculation
+    double _lastMouseX{0.0};
+    double _lastMouseY{0.0};
 };
 
 } // namespace Render

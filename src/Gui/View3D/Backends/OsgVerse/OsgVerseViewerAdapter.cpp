@@ -501,6 +501,96 @@ void OsgVerseViewerAdapter::resetEditingViewProvider()
 }
 
 //===========================================================================
+// Phase G: 编辑模式扩展
+//===========================================================================
+
+Base::Vector3d OsgVerseViewerAdapter::getPointOnFocalPlane(int x, int y) const
+{
+    if (_viewer) {
+        return _viewer->getPointOnFocalPlane(x, y);
+    }
+    return Base::Vector3d();
+}
+
+void OsgVerseViewerAdapter::setupEditingRoot(void* node, const Base::Matrix4D* mat)
+{
+    if (_viewer) {
+        _viewer->setupEditingRoot(node, mat);
+    }
+}
+
+void OsgVerseViewerAdapter::resetEditingRoot(bool updateLinks)
+{
+    if (_viewer) {
+        _viewer->resetEditingRoot(updateLinks);
+    }
+}
+
+void OsgVerseViewerAdapter::setEditingTransform(const Base::Matrix4D& mat)
+{
+    if (_viewer) {
+        _viewer->setEditingTransform(mat);
+    }
+}
+
+//===========================================================================
+// Phase G: Seek
+//===========================================================================
+
+bool OsgVerseViewerAdapter::seekToPoint(int screenX, int screenY)
+{
+    if (_viewer) {
+        return _viewer->seekToPoint(screenX, screenY);
+    }
+    return false;
+}
+
+void OsgVerseViewerAdapter::seekToPoint(const Base::Vector3d& worldPos)
+{
+    if (_viewer) {
+        _viewer->seekToPoint(worldPos);
+    }
+}
+
+//===========================================================================
+// Phase G: Pick radius
+//===========================================================================
+
+float OsgVerseViewerAdapter::getPickRadius() const
+{
+    if (_viewer) {
+        return _viewer->getPickRadius();
+    }
+    return 5.0f;
+}
+
+void OsgVerseViewerAdapter::setPickRadius(float radius)
+{
+    if (_viewer) {
+        _viewer->setPickRadius(radius);
+    }
+}
+
+//===========================================================================
+// Phase H: Override mode
+//===========================================================================
+
+void OsgVerseViewerAdapter::setOverrideMode(const std::string& mode)
+{
+    if (_viewer) {
+        _viewer->setOverrideMode(mode);
+    }
+}
+
+std::string OsgVerseViewerAdapter::getOverrideMode() const
+{
+    if (_viewer) {
+        return _viewer->getOverrideMode();
+    }
+    return std::string();
+}
+
+//===========================================================================
 // Rendering settings (Phase A.4)
 //===========================================================================
 

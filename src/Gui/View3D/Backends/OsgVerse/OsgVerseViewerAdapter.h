@@ -107,6 +107,24 @@ public:
     bool isEditingViewProvider() const override;
     void resetEditingViewProvider() override;
 
+    // Phase G: 编辑模式扩展
+    Base::Vector3d getPointOnFocalPlane(int x, int y) const override;
+    void setupEditingRoot(void* node = nullptr, const Base::Matrix4D* mat = nullptr) override;
+    void resetEditingRoot(bool updateLinks = true) override;
+    void setEditingTransform(const Base::Matrix4D& mat) override;
+
+    // Phase G: Seek
+    bool seekToPoint(int screenX, int screenY) override;
+    void seekToPoint(const Base::Vector3d& worldPos) override;
+
+    // Phase G: Pick radius
+    float getPickRadius() const override;
+    void setPickRadius(float radius) override;
+
+    // Phase H: Override mode
+    void setOverrideMode(const std::string& mode) override;
+    std::string getOverrideMode() const override;
+
     // Rendering settings
     void setRenderMode(RenderMode mode) override;
     RenderMode getRenderMode() const override;

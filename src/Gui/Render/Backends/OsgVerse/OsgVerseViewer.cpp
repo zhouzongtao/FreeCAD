@@ -31,6 +31,10 @@
 #include <QOpenGLContext>
 #include <QSurfaceFormat>
 #include <QApplication>
+#include <QDragEnterEvent>
+#include <QDropEvent>
+#include <QMimeData>
+#include <QUrl>
 #include <fstream>
 #endif
 
@@ -61,6 +65,7 @@
 #include <App/Document.h>
 #include <App/Property.h>
 #include <App/PropertyStandard.h>
+#include <App/Application.h>
 
 // Shape geometry display via App-level ComplexGeoData interface
 // (No direct Part module dependency — uses virtual dispatch at runtime)
@@ -74,6 +79,10 @@
 #include <osg/Program>
 #include <osg/Shader>
 #include <osg/LineWidth>
+#include <osg/ClipPlane>
+#include <osg/ClipNode>
+#include <osg/Texture2D>
+#include <osg/FrameBufferObject>
 
 using namespace Gui::Render;
 
@@ -170,6 +179,10 @@ void OsgVerseViewer::render()
         // Update axis cross rotation to match main camera
         if (_axisCrossEnabled) {
             updateAxisCross();
+        }
+        // Update spin animation
+        if (_isSpinning) {
+            updateSpinAnimation();
         }
         // NaviCube is now drawn in ViewerWidget::paintGL() where OpenGL context is active
         // NaviCube现在在ViewerWidget::paintGL()中绘制，那里OpenGL上下文是激活的
@@ -319,7 +332,44 @@ void OsgVerseViewer::resetCamera()
 
 void OsgVerseViewer::fitAll()
 {
-    if (_viewer) {
+    if (!_viewer || !_engine) {
+        return;
+    }
+
+    osg::Group* sceneRoot = _engine->getOsgSceneRoot();
+    if (!sceneRoot || sceneRoot->getNumChildren() == 0) {
+        return;
+    }
+
+    // Compute actual scene bounding box
+    osg::ComputeBoundsVisitor cbv;
+    sceneRoot->accept(cbv);
+    osg::BoundingBox bb = cbv.getBoundingBox();
+
+    if (!bb.valid()) {
+        // Fallback to home()
+        _viewer->home();
+        return;
+    }
+
+    osg::BoundingSphere bs;
+    bs.expandBy(bb);
+    float radius = bs.radius();
+
+    if (radius < 1e-6f) {
+        _viewer->home();
+        return;
+    }
+
+    // Position camera via TrackballManipulator
+    osgGA::TrackballManipulator* manip =
+        dynamic_cast<osgGA::TrackballManipulator*>(_viewer->getCameraManipulator());
+    if (manip) {
+        manip->setCenter(bs.center());
+        manip->setDistance(static_cast<double>(radius) * 2.5);
+        Base::Console().message("OsgVerse: fitAll -> center=(%.1f,%.1f,%.1f) dist=%.1f\n",
+            bs.center().x(), bs.center().y(), bs.center().z(), radius * 2.5);
+    } else {
         _viewer->home();
     }
 }
@@ -618,18 +668,81 @@ void OsgVerseViewer::onResize(int width, int height)
 
 QImage OsgVerseViewer::grabImage(int width, int height)
 {
-    if (!_widget) {
+    if (!_viewer) {
         return QImage();
     }
 
-    // Render to image
-    QImage image = _widget->grabFramebuffer();
-
-    if (width > 0 && height > 0 && (image.width() != width || image.height() != height)) {
-        image = image.scaled(width, height, Qt::IgnoreAspectRatio, Qt::SmoothTransformation);
+    // If no custom size requested, just grab the widget framebuffer
+    if (width <= 0 || height <= 0) {
+        if (_widget) {
+            return _widget->grabFramebuffer();
+        }
+        return QImage();
     }
 
-    return image;
+    // For custom resolution, use RTT (render-to-texture) offscreen rendering
+    osg::Camera* mainCamera = _viewer->getCamera();
+    if (!mainCamera || !_viewer->getSceneData()) {
+        return QImage();
+    }
+
+    // Create RTT camera that copies the main camera's view/projection
+    osg::ref_ptr<osg::Camera> rttCamera = new osg::Camera();
+    rttCamera->setClearColor(mainCamera->getClearColor());
+    rttCamera->setClearMask(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    rttCamera->setViewport(0, 0, width, height);
+    rttCamera->setRenderOrder(osg::Camera::PRE_RENDER);
+    rttCamera->setRenderTargetImplementation(osg::Camera::FRAME_BUFFER_OBJECT);
+
+    // Copy view and projection matrices from main camera
+    rttCamera->setViewMatrix(mainCamera->getViewMatrix());
+    rttCamera->setProjectionMatrix(mainCamera->getProjectionMatrix());
+
+    // Fix aspect ratio for the requested resolution
+    double fovy, aspectRatio, zNear, zFar;
+    if (mainCamera->getProjectionMatrixAsPerspective(fovy, aspectRatio, zNear, zFar)) {
+        double newAspect = static_cast<double>(width) / static_cast<double>(height);
+        rttCamera->setProjectionMatrixAsPerspective(fovy, newAspect, zNear, zFar);
+    }
+
+    // Create color texture for attachment
+    osg::ref_ptr<osg::Texture2D> colorTex = new osg::Texture2D();
+    colorTex->setTextureSize(width, height);
+    colorTex->setInternalFormat(GL_RGBA);
+    colorTex->setFilter(osg::Texture2D::MIN_FILTER, osg::Texture2D::LINEAR);
+    colorTex->setFilter(osg::Texture2D::MAG_FILTER, osg::Texture2D::LINEAR);
+    rttCamera->attach(osg::Camera::COLOR_BUFFER, colorTex.get());
+
+    // Create depth renderbuffer
+    rttCamera->attach(osg::Camera::DEPTH_BUFFER, GL_DEPTH_COMPONENT24);
+
+    // Create image to read back pixels
+    osg::ref_ptr<osg::Image> osgImage = new osg::Image();
+    osgImage->allocateImage(width, height, 1, GL_RGBA, GL_UNSIGNED_BYTE);
+    rttCamera->attach(osg::Camera::COLOR_BUFFER, osgImage.get());
+
+    // Add scene as child of RTT camera
+    rttCamera->addChild(_viewer->getSceneData());
+
+    // Temporarily add RTT camera to the scene, render one frame, then remove
+    auto* sceneRoot = dynamic_cast<osg::Group*>(_viewer->getSceneData());
+    if (!sceneRoot) {
+        return QImage();
+    }
+
+    sceneRoot->addChild(rttCamera.get());
+    _viewer->frame();
+    sceneRoot->removeChild(rttCamera.get());
+
+    // Convert osg::Image to QImage (OSG stores bottom-up, Qt stores top-down)
+    QImage result(width, height, QImage::Format_RGBA8888);
+    const unsigned char* data = osgImage->data();
+    for (int row = 0; row < height; ++row) {
+        int srcRow = height - 1 - row;  // Flip vertically
+        memcpy(result.scanLine(row), data + srcRow * width * 4, width * 4);
+    }
+
+    return result;
 }
 
 bool OsgVerseViewer::saveScreenshot(const QString& filename, int width, int height)
@@ -768,32 +881,25 @@ void OsgVerseViewer::setupDefaultCamera()
         return;
     }
 
-    // Set default camera parameters
-    // 设置更合适的默认相机参数，便于查看 3D 场景
-    // Set more suitable default camera parameters for better 3D scene viewing
+    _cameraParams.position = Vec3f(0.0f, -8.0f, 12.0f);
+    _cameraParams.target = Vec3f(0.0f, 0.0f, 0.0f);
+    _cameraParams.upVector = Vec3f(0.0f, 1.0f, 0.0f);
+    _cameraParams.fieldOfView = 60.0f;
+    _cameraParams.aspectRatio = 1.333f;
+    _cameraParams.nearPlane = 0.1f;
+    _cameraParams.farPlane = 100000.0f;
 
-    // 相机位置：放在 Y 轴后方，稍向下方偏右
-    // Camera position: placed back on right side, slightly downward
-    // 视线方向：看向原点方向，从斜上方观察
-    // Camera target: 放在原点
-    // 视场角：更宽的视野（60 度）
-    // 近裁剪面：足够远，能容纳场景中的物体
-
-    _cameraParams.position = Vec3f(0.0f, -8.0f, 12.0f);  // 后退 8 单位，上方 12 单位
-    _cameraParams.target = Vec3f(0.0f, 0.0f, 0.0f);        // 看向原点
-    _cameraParams.upVector = Vec3f(0.0f, 1.0f, 0.0f);       // Y 轴向上
-    _cameraParams.fieldOfView = 60.0f;                          // 60 度视场角（更宽）
-    _cameraParams.aspectRatio = 1.333f;                        // 宽高比
-    _cameraParams.nearPlane = 0.1f;                             // 近裁剪面距离（100mm）
-    _cameraParams.farPlane = 1000.0f;
-
-    // Apply camera parameters
     camera->setProjectionMatrixAsPerspective(
         _cameraParams.fieldOfView,
         _cameraParams.aspectRatio,
         _cameraParams.nearPlane,
         _cameraParams.farPlane
     );
+
+    // Let OSG auto-compute near/far planes based on scene bounding volumes each frame.
+    // This is critical for large scenes (e.g. ArchDetail with radius ~124000 units).
+    camera->setComputeNearFarMode(osg::CullSettings::COMPUTE_NEAR_FAR_USING_BOUNDING_VOLUMES);
+    camera->setNearFarRatio(0.00005);  // Allow very large depth range
 
     camera->setClearColor(osg::Vec4(_backgroundColor.r, _backgroundColor.g, _backgroundColor.b, _backgroundColor.a));
     camera->setClearMask(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -952,6 +1058,7 @@ OsgVerseViewer::ViewerWidget::ViewerWidget(OsgVerseViewer* osgVerseViewer,
     // Enable mouse tracking and keyboard focus
     setMouseTracking(true);
     setFocusPolicy(Qt::StrongFocus);
+    setAcceptDrops(true);
     setMinimumSize(320, 240);
 
     Base::Console().log("OsgVerseViewer::ViewerWidget: Constructor completed\n");
@@ -994,15 +1101,18 @@ void OsgVerseViewer::ViewerWidget::paintGL()
             _graphicsWindow->setDefaultFboId(defaultFboId);
             _firstFrame = false;
             Base::Console().log("OsgVerseViewer::ViewerWidget::paintGL: Set default FBO ID: %u\n", defaultFboId);
-
-            // GL context is now guaranteed active -- initialize deferred
-            // post-processing FBO cameras that need a valid context.
-            if (_osgVerseViewer && _osgVerseViewer->_engine &&
-                _osgVerseViewer->_engine->isPostProcessPending()) {
-                _osgVerseViewer->_engine->initializePostProcessingDeferred();
-            }
         }
         _viewer->frame();
+
+        // Deferred fitAll: wait until scene actually has geometry (more than just lights)
+        if (_osgVerseViewer && _osgVerseViewer->_pendingFitAll) {
+            osg::Group* root = _osgVerseViewer->_engine
+                ? _osgVerseViewer->_engine->getOsgSceneRoot() : nullptr;
+            if (root && root->getNumChildren() > 2) {
+                _osgVerseViewer->fitAll();
+                _osgVerseViewer->_pendingFitAll = false;
+            }
+        }
 
         // Draw NaviCube AFTER main scene (so it appears on top)
         // OpenGL context is active here
@@ -1045,6 +1155,11 @@ void OsgVerseViewer::ViewerWidget::mousePressEvent(QMouseEvent* event)
         event->accept();
         update();
         return;
+    }
+
+    // Stop spin animation on any mouse press
+    if (_osgVerseViewer) {
+        _osgVerseViewer->_isSpinning = false;
     }
 
     // Right click → context menu
@@ -1132,6 +1247,22 @@ void OsgVerseViewer::ViewerWidget::mouseReleaseEvent(QMouseEvent* event)
 
         _graphicsWindow->getEventQueue()->mouseButtonRelease(x, y, button);
         event->accept();
+
+        // Start spin animation if middle button released with velocity
+        if (_osgVerseViewer && _osgVerseViewer->_spinEnabled &&
+            event->button() == Qt::MiddleButton) {
+            // Use the last mouse move delta as velocity estimate
+            // The OSG event queue tracks positions; we compute velocity from
+            // the release position vs the last known position
+            double vx = static_cast<double>(event->position().x()) - _lastMouseX;
+            double vy = static_cast<double>(event->position().y()) - _lastMouseY;
+            double speed = std::abs(vx) + std::abs(vy);
+            if (speed > 2.0) {
+                _osgVerseViewer->_isSpinning = true;
+                _osgVerseViewer->_spinVelocityX = vx;
+                _osgVerseViewer->_spinVelocityY = vy;
+            }
+        }
     }
     update();
 }
@@ -1171,6 +1302,11 @@ void OsgVerseViewer::ViewerWidget::mouseMoveEvent(QMouseEvent* event)
         );
         event->accept();
     }
+
+    // Track last mouse position for spin velocity calculation
+    _lastMouseX = event->position().x();
+    _lastMouseY = event->position().y();
+
     update();
 }
 
@@ -1659,9 +1795,22 @@ void OsgVerseViewer::addViewProvider(Gui::ViewProvider* vp)
     if (auto* vpDoc = dynamic_cast<Gui::ViewProviderDocumentObject*>(vp)) {
         App::DocumentObject* obj = vpDoc->getObject();
         if (obj) {
-            // Check for "Shape" property (present on Part::Feature and derived objects)
+            // Try multiple paths to find geometry:
+            // 1. Direct "Shape" property (Part::Feature and derived)
+            // 2. GeoFeature::getPropertyOfGeometry() (generic fallback for Arch, Mesh, etc.)
+            const App::PropertyComplexGeoData* geoDataProp = nullptr;
+
             App::Property* shapeProp = obj->getPropertyByName("Shape");
-            auto* geoDataProp = dynamic_cast<App::PropertyComplexGeoData*>(shapeProp);
+            if (shapeProp) {
+                geoDataProp = dynamic_cast<const App::PropertyComplexGeoData*>(shapeProp);
+            }
+
+            // Fallback: use GeoFeature generic interface
+            if (!geoDataProp) {
+                if (auto* geoFeature = dynamic_cast<App::GeoFeature*>(obj)) {
+                    geoDataProp = geoFeature->getPropertyOfGeometry();
+                }
+            }
 
             if (geoDataProp) {
                 const Data::ComplexGeoData* geoData = geoDataProp->getComplexData();
@@ -1754,6 +1903,7 @@ void OsgVerseViewer::addViewProvider(Gui::ViewProvider* vp)
                             }
 
                             // Create one osg::Geometry per color group
+                            int colorGroupIdx = 0;
                             for (auto& grp : colorGroups) {
                                 if (grp.vertices.empty() || grp.indices.empty()) continue;
 
@@ -1810,10 +1960,10 @@ void OsgVerseViewer::addViewProvider(Gui::ViewProvider* vp)
 
                                 osg::ref_ptr<osg::Geode> geode = new osg::Geode();
                                 geode->addDrawable(geometry.get());
-                                // Name the geode with face index for sub-element picking
-                                geode->setName("Face" + std::to_string(fi + 1));
+                                geode->setName("ColorGroup" + std::to_string(colorGroupIdx));
                                 vpGroup->addChild(geode);
                                 hasGeometry = true;
+                                colorGroupIdx++;
                             }
 
                             Base::Console().log("OsgVerseViewer::addViewProvider: %s per-face: %lu faces, %zu color groups\n",
@@ -1921,10 +2071,17 @@ void OsgVerseViewer::addViewProvider(Gui::ViewProvider* vp)
     }
 
     // Skip ViewProviders without geometry (FEM constraints, analysis containers, etc.)
+    // Keep the VP registered so it can be updated later when geometry becomes available
+    // (e.g., during document restore, shapes may not be computed yet)
     if (!hasGeometry) {
-        Base::Console().log("OsgVerseViewer::addViewProvider: No geometry for %s, skipping\n", objName.c_str());
-        _viewProviders.erase(vp);
+        Base::Console().log("OsgVerseViewer::addViewProvider: No geometry for %s (will retry on update)\n", objName.c_str());
         return;
+    }
+
+    // Respect VP visibility — hide node if VP is not visible
+    // (e.g., construction geometry like Wires, Rectangles in Arch)
+    if (!vp->isVisible()) {
+        vpGroup->setNodeMask(0x0);
     }
 
     // 添加到场景图
@@ -1933,7 +2090,6 @@ void OsgVerseViewer::addViewProvider(Gui::ViewProvider* vp)
         osg::Group* sceneRoot = _engine->getOsgSceneRoot();
         if (sceneRoot) {
             sceneRoot->addChild(vpGroup);
-            Base::Console().log("OsgVerseViewer::addViewProvider: Added to scene graph\n");
         }
     }
 
@@ -1942,7 +2098,10 @@ void OsgVerseViewer::addViewProvider(Gui::ViewProvider* vp)
     _vpToNodeMap[vp] = vpGroup;
     _nodeToVPMap[vpGroup.get()] = vp;
 
-    Base::Console().log("OsgVerseViewer::addViewProvider: Complete\n");
+    // Apply current override mode if set
+    if (!_overrideMode.empty()) {
+        vp->setOverrideMode(_overrideMode);
+    }
 
   } catch (const std::exception& e) {
     Base::Console().error("OsgVerseViewer::addViewProvider: CAUGHT exception for %s: %s\n",
@@ -2244,6 +2403,139 @@ void OsgVerseViewer::resetEditingViewProvider()
 }
 
 //===========================================================================
+// Editing root node
+//===========================================================================
+
+void OsgVerseViewer::setupEditingRoot(void* node, const Base::Matrix4D* mat)
+{
+    osg::Group* sceneRoot = _engine ? _engine->getOsgSceneRoot() : nullptr;
+    if (!sceneRoot) return;
+
+    if (!_editingRootNode) {
+        _editingRootNode = new osg::Group();
+        _editingRootNode->setName("EditingRootNode");
+    }
+
+    if (!_editingTransform) {
+        _editingTransform = new osg::MatrixTransform();
+        _editingTransform->setName("EditingTransform");
+    }
+
+    if (mat) {
+        double glMat[16];
+        mat->getGLMatrix(glMat);
+        _editingTransform->setMatrix(osg::Matrixd(glMat));
+    }
+
+    if (_editingRootNode->getChildIndex(_editingTransform.get()) == _editingRootNode->getNumChildren()) {
+        _editingRootNode->addChild(_editingTransform.get());
+    }
+
+    if (node) {
+        osg::Node* osgNode = static_cast<osg::Node*>(node);
+        _editingRootNode->addChild(osgNode);
+    } else if (_editingVP) {
+        auto it = _vpToNodeMap.find(_editingVP);
+        if (it != _vpToNodeMap.end()) {
+            osg::Node* vpNode = it->second.get();
+            osg::Group* vpGroup = vpNode ? vpNode->asGroup() : nullptr;
+            if (vpGroup) {
+                while (vpGroup->getNumChildren() > 0) {
+                    osg::ref_ptr<osg::Node> child = vpGroup->getChild(0);
+                    vpGroup->removeChild(0u, 1u);
+                    _editingRootNode->addChild(child.get());
+                }
+            }
+        }
+    }
+
+    sceneRoot->addChild(_editingRootNode.get());
+
+    for (auto& pair : _vpToNodeMap) {
+        if (pair.first != _editingVP) {
+            osg::Node* n = pair.second.get();
+            if (n) {
+                osg::StateSet* ss = n->getOrCreateStateSet();
+                ss->addUniform(new osg::Uniform("u_editingDimmed", 1));
+            }
+        }
+    }
+
+    Base::Console().log("OsgVerseViewer: Editing root set up\n");
+}
+
+void OsgVerseViewer::resetEditingRoot(bool updateLinks)
+{
+    if (!_editingRootNode) return;
+
+    if (_editingVP) {
+        auto it = _vpToNodeMap.find(_editingVP);
+        if (it != _vpToNodeMap.end()) {
+            osg::Group* vpGroup = it->second.get() ? it->second->asGroup() : nullptr;
+            if (vpGroup) {
+                for (unsigned int i = _editingRootNode->getNumChildren(); i > 0; --i) {
+                    osg::ref_ptr<osg::Node> child = _editingRootNode->getChild(i - 1);
+                    if (child.get() != _editingTransform.get()) {
+                        _editingRootNode->removeChild(i - 1, 1u);
+                        vpGroup->addChild(child.get());
+                    }
+                }
+            }
+        }
+    }
+
+    while (_editingRootNode->getNumParents() > 0) {
+        osg::Group* parent = _editingRootNode->getParent(0);
+        parent->removeChild(_editingRootNode.get());
+    }
+
+    for (auto& pair : _vpToNodeMap) {
+        osg::Node* n = pair.second.get();
+        if (n) {
+            osg::StateSet* ss = n->getStateSet();
+            if (ss) {
+                ss->removeUniform("u_editingDimmed");
+            }
+        }
+    }
+
+    _editingRootNode = nullptr;
+    _editingTransform = nullptr;
+
+    if (updateLinks) {
+        Base::Console().log("OsgVerseViewer: Editing root reset (updateLinks=true, link update is future work)\n");
+    } else {
+        Base::Console().log("OsgVerseViewer: Editing root reset\n");
+    }
+}
+
+void OsgVerseViewer::setEditingTransform(const Base::Matrix4D& mat)
+{
+    if (!_editingTransform) return;
+
+    double glMat[16];
+    mat.getGLMatrix(glMat);
+    _editingTransform->setMatrix(osg::Matrixd(glMat));
+}
+
+//===========================================================================
+// Override mode
+//===========================================================================
+
+void OsgVerseViewer::setOverrideMode(const std::string& mode)
+{
+    _overrideMode = mode;
+
+    for (auto* vp : _viewProviders) {
+        if (vp) {
+            vp->setOverrideMode(mode);
+        }
+    }
+
+    Base::Console().log("OsgVerseViewer: Override mode set to '%s'\n", mode.c_str());
+}
+
+//===========================================================================
 // Box selection
 //===========================================================================
 
@@ -2278,9 +2570,9 @@ void OsgVerseViewer::handleBoxSelection(int x1, int y1, int x2, int y2, bool ctr
 
 void OsgVerseViewer::setRubberBandEnabled(bool enabled)
 {
-    if (_widget) {
-        _widget->_rubberBandActive = false;
-    }
+    // Rubber band state is managed internally by ViewerWidget
+    // This method is called by the adapter to signal selection mode changes
+    (void)enabled;
 }
 
 //===========================================================================
@@ -2542,5 +2834,218 @@ void OsgVerseViewer::setAxisCrossEnabled(bool enabled)
     _axisCrossEnabled = enabled;
     if (_axisCrossCamera) {
         _axisCrossCamera->setNodeMask(enabled ? ~0u : 0u);
+    }
+}
+
+//===========================================================================
+// Phase G: Focal Plane Projection
+//===========================================================================
+
+Base::Vector3d OsgVerseViewer::getPointOnFocalPlane(int x, int y) const
+{
+    if (!_viewer || !_pickingService) {
+        return Base::Vector3d(0, 0, 0);
+    }
+
+    // Focal plane passes through the camera target, with normal = view direction
+    Base::Vector3f eye = _cameraParams.position;
+    Base::Vector3f center = _cameraParams.target;
+    Base::Vector3f dir = center - eye;
+    dir.Normalize();
+
+    Vector3 planePoint(center.x, center.y, center.z);
+    Vector3 planeNormal(dir.x, dir.y, dir.z);
+    Vector3 worldPoint;
+
+    if (_pickingService->unprojectToPlane(x, y, planePoint, planeNormal, worldPoint)) {
+        return Base::Vector3d(worldPoint.x, worldPoint.y, worldPoint.z);
+    }
+
+    return Base::Vector3d(0, 0, 0);
+}
+
+//===========================================================================
+// Phase G: Seek
+//===========================================================================
+
+bool OsgVerseViewer::seekToPoint(int screenX, int screenY)
+{
+    if (!_pickingService) {
+        return false;
+    }
+
+    PickResults results = _pickingService->pick(screenX, screenY);
+    if (!results.hasHit()) {
+        return false;
+    }
+
+    const PickResult& hit = results.closest();
+    seekToPoint(Base::Vector3d(hit.point.x, hit.point.y, hit.point.z));
+    return true;
+}
+
+void OsgVerseViewer::seekToPoint(const Base::Vector3d& worldPos)
+{
+    if (!_viewer) {
+        return;
+    }
+
+    // Current camera state
+    Base::Vector3f eye = _cameraParams.position;
+    Base::Vector3f center = _cameraParams.target;
+
+    // View direction and focal distance
+    Base::Vector3f dir = center - eye;
+    double focalDist = dir.Length();
+    if (focalDist < 1e-6) {
+        focalDist = 1.0;
+    }
+    dir.Normalize();
+
+    // Target: move camera so it looks at worldPos from the same distance/direction
+    Vec3d targetCenter(worldPos.x, worldPos.y, worldPos.z);
+    Vec3d targetEye(worldPos.x - dir.x * focalDist,
+                    worldPos.y - dir.y * focalDist,
+                    worldPos.z - dir.z * focalDist);
+
+    startCameraAnimation(targetEye, targetCenter);
+}
+
+//===========================================================================
+// Phase H: Spin Animation
+//===========================================================================
+
+void OsgVerseViewer::updateSpinAnimation()
+{
+    if (!_isSpinning || !_viewer) {
+        return;
+    }
+
+    auto* manip = dynamic_cast<osgGA::TrackballManipulator*>(_viewer->getCameraManipulator());
+    if (!manip) {
+        _isSpinning = false;
+        return;
+    }
+
+    // Apply rotation based on spin velocity
+    osg::Quat currentRotation = manip->getRotation();
+    osg::Quat deltaRotation =
+        osg::Quat(_spinVelocityX * 0.01, osg::Vec3d(0, 1, 0)) *
+        osg::Quat(_spinVelocityY * 0.01, osg::Vec3d(1, 0, 0));
+    manip->setRotation(currentRotation * deltaRotation);
+
+    // Decay velocity
+    _spinVelocityX *= _spinDecay;
+    _spinVelocityY *= _spinDecay;
+
+    // Stop when velocity is negligible
+    if (std::abs(_spinVelocityX) + std::abs(_spinVelocityY) < 0.1) {
+        _isSpinning = false;
+    }
+}
+
+//===========================================================================
+// Phase I: Drag-Drop Support
+//===========================================================================
+
+void OsgVerseViewer::ViewerWidget::dragEnterEvent(QDragEnterEvent* event)
+{
+    if (event->mimeData()->hasUrls()) {
+        event->acceptProposedAction();
+    }
+}
+
+void OsgVerseViewer::ViewerWidget::dropEvent(QDropEvent* event)
+{
+    const QMimeData* mimeData = event->mimeData();
+    if (mimeData->hasUrls()) {
+        for (const QUrl& url : mimeData->urls()) {
+            QString filePath = url.toLocalFile();
+            if (!filePath.isEmpty()) {
+                App::GetApplication().openDocument(filePath.toUtf8().constData());
+            }
+        }
+        event->acceptProposedAction();
+    }
+}
+
+//===========================================================================
+// Phase I: Clip Planes
+//===========================================================================
+
+void OsgVerseViewer::setClipPlane(int index, double a, double b, double c, double d)
+{
+    if (index < 0 || index >= 6) {
+        Base::Console().warning("OsgVerseViewer::setClipPlane: index %d out of range [0,5]\n", index);
+        return;
+    }
+
+    if (!_viewer || !_viewer->getSceneData()) {
+        return;
+    }
+
+    // Create clip node if needed, attach to scene root
+    if (!_clipNode) {
+        _clipNode = new osg::ClipNode();
+        auto* sceneRoot = dynamic_cast<osg::Group*>(_viewer->getSceneData());
+        if (sceneRoot) {
+            sceneRoot->addChild(_clipNode.get());
+        }
+    }
+
+    // Remove existing clip plane at this index if any
+    if (_clipPlanes[index]) {
+        _clipNode->removeClipPlane(_clipPlanes[index].get());
+    }
+
+    // Create and add new clip plane
+    _clipPlanes[index] = new osg::ClipPlane(GL_CLIP_PLANE0 + index);
+    _clipPlanes[index]->setClipPlane(osg::Vec4d(a, b, c, d));
+    _clipNode->addClipPlane(_clipPlanes[index].get());
+    _clipPlaneEnabled[index] = true;
+
+    Base::Console().log("OsgVerseViewer: Clip plane %d set to (%.2f, %.2f, %.2f, %.2f)\n",
+                        index, a, b, c, d);
+}
+
+void OsgVerseViewer::removeClipPlane(int index)
+{
+    if (index < 0 || index >= 6) {
+        return;
+    }
+
+    if (_clipPlanes[index] && _clipNode) {
+        _clipNode->removeClipPlane(_clipPlanes[index].get());
+    }
+    _clipPlanes[index] = nullptr;
+    _clipPlaneEnabled[index] = false;
+}
+
+bool OsgVerseViewer::isClipPlaneEnabled(int index) const
+{
+    if (index < 0 || index >= 6) {
+        return false;
+    }
+    return _clipPlaneEnabled[index];
+}
+
+void OsgVerseViewer::toggleClipPlane(int index)
+{
+    if (index < 0 || index >= 6) {
+        return;
+    }
+
+    if (_clipPlaneEnabled[index]) {
+        // Disable: remove from clip node but keep the plane object
+        if (_clipPlanes[index] && _clipNode) {
+            _clipNode->removeClipPlane(_clipPlanes[index].get());
+        }
+        _clipPlaneEnabled[index] = false;
+    } else {
+        // Re-enable: add back to clip node if plane object exists
+        if (_clipPlanes[index] && _clipNode) {
+            _clipNode->addClipPlane(_clipPlanes[index].get());
+            _clipPlaneEnabled[index] = true;
+        }
     }
 }

@@ -780,6 +780,98 @@ void CoinViewer::resetEditingViewProvider()
 }
 
 //-----------------------------------------------------------------------
+// Phase G: 编辑模式扩展
+//-----------------------------------------------------------------------
+
+Base::Vector3d CoinViewer::getPointOnFocalPlane(int x, int y) const
+{
+    if (_coinViewer) {
+        SbVec2s pos(static_cast<short>(x), static_cast<short>(y));
+        SbVec3f pt = _coinViewer->getPointOnFocalPlane(pos);
+        return Base::Vector3d(pt[0], pt[1], pt[2]);
+    }
+    return Base::Vector3d();
+}
+
+void CoinViewer::setupEditingRoot(void* node, const Base::Matrix4D* mat)
+{
+    if (_coinViewer) {
+        SoNode* soNode = node ? static_cast<SoNode*>(node) : nullptr;
+        _coinViewer->setupEditingRoot(soNode, mat);
+    }
+}
+
+void CoinViewer::resetEditingRoot(bool updateLinks)
+{
+    if (_coinViewer) {
+        _coinViewer->resetEditingRoot(updateLinks);
+    }
+}
+
+void CoinViewer::setEditingTransform(const Base::Matrix4D& mat)
+{
+    if (_coinViewer) {
+        _coinViewer->setEditingTransform(mat);
+    }
+}
+
+//-----------------------------------------------------------------------
+// Phase G: Seek
+//-----------------------------------------------------------------------
+
+bool CoinViewer::seekToPoint(int screenX, int screenY)
+{
+    if (_coinViewer) {
+        SbVec2s pos(static_cast<short>(screenX), static_cast<short>(screenY));
+        return _coinViewer->pubSeekToPoint(pos);
+    }
+    return false;
+}
+
+void CoinViewer::seekToPoint(const Base::Vector3d& worldPos)
+{
+    if (_coinViewer) {
+        SbVec3f pos(worldPos.x, worldPos.y, worldPos.z);
+        _coinViewer->pubSeekToPoint(pos);
+    }
+}
+
+//-----------------------------------------------------------------------
+// Phase G: Pick radius
+//-----------------------------------------------------------------------
+
+float CoinViewer::getPickRadius() const
+{
+    // Coin3D uses a default pick radius of 5 pixels
+    return 5.0f;
+}
+
+void CoinViewer::setPickRadius(float radius)
+{
+    // Coin3D pick radius is managed internally
+    (void)radius;
+}
+
+//-----------------------------------------------------------------------
+// Phase H: Override mode
+//-----------------------------------------------------------------------
+
+void CoinViewer::setOverrideMode(const std::string& mode)
+{
+    if (_coinViewer) {
+        _coinViewer->setOverrideMode(mode);
+    }
+}
+
+std::string CoinViewer::getOverrideMode() const
+{
+    if (_coinViewer) {
+        return _coinViewer->getOverrideMode();
+    }
+    return std::string();
+}
+
+//-----------------------------------------------------------------------
 // 辅助方法
 //-----------------------------------------------------------------------
 
