@@ -26,30 +26,120 @@
 
 #ifndef _PreComp_
 # include <QOpenGLWidget>
+# include <QApplication>
+# include <QMouseEvent>
+# include <QKeyEvent>
+# include <QWheelEvent>
 #endif
 
 #include "OsgVerseViewerAdapter.h"
 #include <Gui/ViewProvider.h>
+#include <Gui/Render/Backends/OsgVerse/OsgVerseEngine.h>
 #include <Base/Console.h>
+
+#include <osg/Node>
+#include <osgViewer/Viewer>
+#include <osg/Camera>
 
 using namespace Gui::View3D::OsgVerse;
 using namespace Gui::View3D;
 
-OsgVerseViewerAdapter::OsgVerseViewerAdapter(QWidget* parent, const QOpenGLWidget* shareWidget)
-    : _viewer(std::make_unique<Render::OsgVerseViewer>())
+//===========================================================================
+// Helper: Convert View3D::RenderMode ↔ Render::RenderMode
+//===========================================================================
+
+static Gui::Render::RenderMode toRenderMode(RenderMode mode)
 {
-    Base::Console().log("OsgVerseViewerAdapter: Constructor called\n");
-    // TODO: Initialize with parent and shareWidget if needed
+    switch (mode) {
+        case RenderMode::Wireframe:  return Gui::Render::RenderMode::Wireframe;
+        case RenderMode::Points:     return Gui::Render::RenderMode::Points;
+        case RenderMode::Shaded:     return Gui::Render::RenderMode::Shaded;
+        case RenderMode::FlatLines:  return Gui::Render::RenderMode::Flat;
+        case RenderMode::NoShading:  return Gui::Render::RenderMode::Flat;
+        case RenderMode::HiddenLine: return Gui::Render::RenderMode::Wireframe;
+        case RenderMode::AsIs:
+        default:                     return Gui::Render::RenderMode::Default;
+    }
+}
+
+static RenderMode fromRenderMode(Gui::Render::RenderMode mode)
+{
+    switch (mode) {
+        case Gui::Render::RenderMode::Wireframe: return RenderMode::Wireframe;
+        case Gui::Render::RenderMode::Points:    return RenderMode::Points;
+        case Gui::Render::RenderMode::Shaded:    return RenderMode::Shaded;
+        case Gui::Render::RenderMode::Flat:      return RenderMode::FlatLines;
+        case Gui::Render::RenderMode::Gouraud:   return RenderMode::Shaded;
+        case Gui::Render::RenderMode::Phong:     return RenderMode::Shaded;
+        case Gui::Render::RenderMode::Default:
+        default:                                 return RenderMode::AsIs;
+    }
+}
+
+//===========================================================================
+// Helper: Convert View3D::CameraParams ↔ Render::CameraParams
+//===========================================================================
+
+static Gui::Render::CameraParams toRenderCameraParams(const CameraParams& p)
+{
+    Gui::Render::CameraParams rp;
+    rp.position = Gui::Render::Vec3f(
+        static_cast<float>(p.position.x),
+        static_cast<float>(p.position.y),
+        static_cast<float>(p.position.z));
+    rp.target = Gui::Render::Vec3f(
+        static_cast<float>(p.target.x),
+        static_cast<float>(p.target.y),
+        static_cast<float>(p.target.z));
+    rp.upVector = Gui::Render::Vec3f(
+        static_cast<float>(p.upVector.x),
+        static_cast<float>(p.upVector.y),
+        static_cast<float>(p.upVector.z));
+    rp.fieldOfView = static_cast<float>(p.fieldOfView);
+    rp.aspectRatio = static_cast<float>(p.aspectRatio);
+    rp.nearPlane = static_cast<float>(p.nearPlane);
+    rp.farPlane = static_cast<float>(p.farPlane);
+    rp.orthographic = p.orthographic;
+    rp.height = static_cast<float>(p.height);
+    return rp;
+}
+
+static CameraParams fromRenderCameraParams(const Gui::Render::CameraParams& rp)
+{
+    CameraParams p;
+    p.position = Base::Vector3d(rp.position.x, rp.position.y, rp.position.z);
+    p.target = Base::Vector3d(rp.target.x, rp.target.y, rp.target.z);
+    p.upVector = Base::Vector3d(rp.upVector.x, rp.upVector.y, rp.upVector.z);
+    p.fieldOfView = rp.fieldOfView;
+    p.aspectRatio = rp.aspectRatio;
+    p.nearPlane = rp.nearPlane;
+    p.farPlane = rp.farPlane;
+    p.orthographic = rp.orthographic;
+    p.height = rp.height;
+    return p;
+}
+
+//===========================================================================
+// Constructor / Destructor
+//===========================================================================
+
+OsgVerseViewerAdapter::OsgVerseViewerAdapter(QWidget* parent, const QOpenGLWidget* shareWidget)
+    : _viewer(std::make_unique<Gui::Render::OsgVerseViewer>())
+    , _pickingService(std::make_unique<Gui::Render::OsgVersePickingService>())
+{
+    // Connect picking service to viewer
+    _pickingService->setOsgVerseViewer(_viewer.get());
 }
 
 OsgVerseViewerAdapter::~OsgVerseViewerAdapter()
 {
-    Base::Console().log("OsgVerseViewerAdapter: Destructor called\n");
+    _pickingService.reset();
+    _viewer.reset();
 }
 
-//-----------------------------------------------------------------------
-// Basic rendering
-//-----------------------------------------------------------------------
+//===========================================================================
+// Basic rendering (already implemented)
+//===========================================================================
 
 void OsgVerseViewerAdapter::render()
 {
@@ -78,21 +168,37 @@ QOpenGLWidget* OsgVerseViewerAdapter::getGLWidget()
     return nullptr;
 }
 
-//-----------------------------------------------------------------------
-// Scene management
-//-----------------------------------------------------------------------
+//===========================================================================
+// Scene management (Phase A.3)
+//===========================================================================
 
 void OsgVerseViewerAdapter::setSceneGraph(void* root)
 {
-    // TODO: Convert void* to RenderNode::Ptr and call _viewer->setSceneRoot()
-    Base::Console().warning("OsgVerseViewerAdapter::setSceneGraph not yet implemented\n");
+    if (!_viewer || !root) return;
+
+    Gui::Render::OsgVerseEngine* engine = _viewer->getEngine();
+    if (!engine) return;
+
+    // Wrap the raw osg::Node* into a RenderNode::Ptr
+    osg::Node* osgNode = static_cast<osg::Node*>(root);
+    Gui::Render::RenderNode::Ptr wrapped = engine->wrapNode(osgNode);
+    if (wrapped) {
+        _viewer->setSceneRoot(wrapped);
+    }
 }
 
 void* OsgVerseViewerAdapter::getSceneGraph()
 {
-    // TODO: Get scene root and convert to void*
-    Base::Console().warning("OsgVerseViewerAdapter::getSceneGraph not yet implemented\n");
-    return nullptr;
+    if (!_viewer) return nullptr;
+
+    Gui::Render::OsgVerseEngine* engine = _viewer->getEngine();
+    if (!engine) return nullptr;
+
+    Gui::Render::RenderNode::Ptr root = _viewer->getSceneRoot();
+    if (!root) return nullptr;
+
+    // Unwrap to get the raw osg::Node*
+    return static_cast<void*>(engine->unwrapNode(root.get()));
 }
 
 void OsgVerseViewerAdapter::updateScene()
@@ -102,20 +208,39 @@ void OsgVerseViewerAdapter::updateScene()
     }
 }
 
-//-----------------------------------------------------------------------
-// Camera control
-//-----------------------------------------------------------------------
+//===========================================================================
+// Camera control (Phase A.2)
+//===========================================================================
 
 void OsgVerseViewerAdapter::setCamera(const CameraParams& params)
 {
-    // TODO: Convert Gui::View3D::CameraParams to Gui::Render::CameraParams and call _viewer->setCamera()
-    Base::Console().warning("OsgVerseViewerAdapter::setCamera not yet implemented\n");
+    if (!_viewer) return;
+
+    _cameraOrthographic = params.orthographic;
+
+    Gui::Render::CameraParams rp = toRenderCameraParams(params);
+    _viewer->setCamera(rp);
+
+    // Handle orthographic switching
+    if (params.orthographic) {
+        osgViewer::Viewer* osgViewer = _viewer->getOsgViewer();
+        if (osgViewer && osgViewer->getCamera()) {
+            double halfH = params.height * 0.5;
+            double halfW = halfH * params.aspectRatio;
+            osgViewer->getCamera()->setProjectionMatrixAsOrtho(
+                -halfW, halfW, -halfH, halfH, params.nearPlane, params.farPlane);
+        }
+    }
 }
 
 CameraParams OsgVerseViewerAdapter::getCamera() const
 {
-    // TODO: Implement proper conversion from Gui::Render::CameraParams
-    return CameraParams();
+    if (!_viewer) return CameraParams();
+
+    Gui::Render::CameraParams rp = _viewer->getCamera();
+    CameraParams p = fromRenderCameraParams(rp);
+    p.orthographic = _cameraOrthographic;
+    return p;
 }
 
 void OsgVerseViewerAdapter::viewAll()
@@ -141,83 +266,168 @@ void OsgVerseViewerAdapter::resetCamera()
 
 void OsgVerseViewerAdapter::setCameraType(bool orthographic)
 {
-    // TODO: Implement camera type switching
-    Base::Console().warning("OsgVerseViewerAdapter::setCameraType not yet implemented\n");
+    _cameraOrthographic = orthographic;
+
+    if (!_viewer) return;
+
+    osgViewer::Viewer* osgViewer = _viewer->getOsgViewer();
+    if (!osgViewer || !osgViewer->getCamera()) return;
+
+    osg::Camera* camera = osgViewer->getCamera();
+    const osg::Viewport* vp = camera->getViewport();
+    if (!vp) return;
+
+    double aspect = vp->width() / vp->height();
+
+    if (orthographic) {
+        // Switch to orthographic: compute height from current perspective FOV and distance
+        Gui::Render::CameraParams rp = _viewer->getCamera();
+        double distance = (Base::Vector3f(rp.position) - Base::Vector3f(rp.target)).Length();
+        double halfH = distance * std::tan(rp.fieldOfView * M_PI / 360.0);
+        double halfW = halfH * aspect;
+        camera->setProjectionMatrixAsOrtho(-halfW, halfW, -halfH, halfH,
+                                           rp.nearPlane, rp.farPlane);
+    } else {
+        // Switch to perspective
+        Gui::Render::CameraParams rp = _viewer->getCamera();
+        camera->setProjectionMatrixAsPerspective(
+            rp.fieldOfView, aspect, rp.nearPlane, rp.farPlane);
+    }
 }
 
 bool OsgVerseViewerAdapter::isCameraOrthographic() const
 {
-    // TODO: Implement
-    return false;
+    return _cameraOrthographic;
 }
 
-//-----------------------------------------------------------------------
-// Event handling - Stub implementations
-//-----------------------------------------------------------------------
+//===========================================================================
+// Event handling (Phase A.1)
+//===========================================================================
 
 bool OsgVerseViewerAdapter::handleMouseEvent(QMouseEvent* event)
 {
-    // TODO: Implement mouse event handling
-    return false;
+    if (!_viewer) return false;
+
+    QWidget* widget = _viewer->getWidget();
+    if (!widget) return false;
+
+    // Forward the event to the ViewerWidget which handles OSG event queue
+    QApplication::sendEvent(widget, event);
+    return event->isAccepted();
 }
 
 bool OsgVerseViewerAdapter::handleKeyEvent(QKeyEvent* event)
 {
-    // TODO: Implement key event handling
-    return false;
+    if (!_viewer) return false;
+
+    QWidget* widget = _viewer->getWidget();
+    if (!widget) return false;
+
+    QApplication::sendEvent(widget, event);
+    return event->isAccepted();
 }
 
 bool OsgVerseViewerAdapter::handleWheelEvent(QWheelEvent* event)
 {
-    // TODO: Implement wheel event handling
-    return false;
+    if (!_viewer) return false;
+
+    QWidget* widget = _viewer->getWidget();
+    if (!widget) return false;
+
+    QApplication::sendEvent(widget, event);
+    return event->isAccepted();
 }
 
-//-----------------------------------------------------------------------
-// Picking and selection - Stub implementations
-//-----------------------------------------------------------------------
+//===========================================================================
+// Picking and selection (Phase B.1 + selection state)
+//===========================================================================
 
 PickResult OsgVerseViewerAdapter::pick(const QPoint& pos)
 {
-    // TODO: Implement picking
-    return PickResult();
+    PickResult result;
+
+    if (!_pickingService || !_viewer) return result;
+
+    // Use the picking service to perform the pick
+    Gui::Render::PickResults pickResults = _pickingService->pick(pos.x(), pos.y());
+
+    if (!pickResults.hasHit()) return result;
+
+    const Gui::Render::PickResult& closest = pickResults.closest();
+
+    result.valid = closest.hit;
+    result.point = Base::Vector3d(closest.point.x, closest.point.y, closest.point.z);
+    result.normal = Base::Vector3d(closest.normal.x, closest.normal.y, closest.normal.z);
+    result.distance = closest.distance;
+    result.viewProvider = closest.viewProvider;
+    result.subElementName = closest.elementName;
+    result.faceIndex = closest.faceIndex;
+    result.edgeIndex = closest.edgeIndex;
+    result.vertexIndex = closest.vertexIndex;
+
+    // Convert pick type
+    switch (closest.type) {
+        case Gui::Render::PickType::Face:
+            result.pickType = View3D::PickType::Face;
+            break;
+        case Gui::Render::PickType::Edge:
+            result.pickType = View3D::PickType::Edge;
+            break;
+        case Gui::Render::PickType::Vertex:
+            result.pickType = View3D::PickType::Vertex;
+            break;
+        default:
+            result.pickType = View3D::PickType::None;
+            break;
+    }
+
+    return result;
 }
 
 void OsgVerseViewerAdapter::setSelectionMode(SelectionMode mode)
 {
-    // TODO: Implement
+    _selectionMode = mode;
 }
 
 SelectionMode OsgVerseViewerAdapter::getSelectionMode() const
 {
-    // TODO: Implement
-    return SelectionMode::None;
+    return _selectionMode;
 }
 
 void OsgVerseViewerAdapter::startSelection(SelectionMode mode)
 {
-    // TODO: Implement
+    _selectionMode = mode;
+    _isSelecting = true;
+    if (_viewer && (mode == SelectionMode::Rectangle || mode == SelectionMode::Rubberband)) {
+        _viewer->setRubberBandEnabled(true);
+    }
 }
 
 void OsgVerseViewerAdapter::stopSelection()
 {
-    // TODO: Implement
+    _isSelecting = false;
+    if (_viewer) {
+        _viewer->setRubberBandEnabled(false);
+    }
 }
 
 void OsgVerseViewerAdapter::abortSelection()
 {
-    // TODO: Implement
+    _isSelecting = false;
+    _selectionMode = SelectionMode::None;
+    if (_viewer) {
+        _viewer->setRubberBandEnabled(false);
+    }
 }
 
 bool OsgVerseViewerAdapter::isSelecting() const
 {
-    // TODO: Implement
-    return false;
+    return _isSelecting;
 }
 
-//-----------------------------------------------------------------------
+//===========================================================================
 // ViewProvider management
-//-----------------------------------------------------------------------
+//===========================================================================
 
 void OsgVerseViewerAdapter::addViewProvider(ViewProvider* vp)
 {
@@ -256,41 +466,56 @@ std::vector<Gui::ViewProvider*> OsgVerseViewerAdapter::getViewProviders() const
     return {};
 }
 
+//===========================================================================
+// Editing mode (Phase C - basic framework)
+//===========================================================================
+
 void OsgVerseViewerAdapter::setEditingViewProvider(ViewProvider* vp, int mode)
 {
-    // TODO: Implement
+    _editingViewProvider = vp;
+    _editingMode = mode;
+
+    if (_viewer) {
+        _viewer->setEditingViewProvider(vp, mode);
+    }
 }
 
 Gui::ViewProvider* OsgVerseViewerAdapter::getEditingViewProvider() const
 {
-    // TODO: Implement
-    return nullptr;
+    return _editingViewProvider;
 }
 
 bool OsgVerseViewerAdapter::isEditingViewProvider() const
 {
-    // TODO: Implement
-    return false;
+    return _editingViewProvider != nullptr;
 }
 
 void OsgVerseViewerAdapter::resetEditingViewProvider()
 {
-    // TODO: Implement
+    _editingViewProvider = nullptr;
+    _editingMode = 0;
+
+    if (_viewer) {
+        _viewer->resetEditingViewProvider();
+    }
 }
 
-//-----------------------------------------------------------------------
-// Rendering settings
-//-----------------------------------------------------------------------
+//===========================================================================
+// Rendering settings (Phase A.4)
+//===========================================================================
 
 void OsgVerseViewerAdapter::setRenderMode(RenderMode mode)
 {
-    // TODO: Convert Gui::View3D::RenderMode to Gui::Render::RenderMode and call _viewer->setRenderMode()
-    Base::Console().warning("OsgVerseViewerAdapter::setRenderMode not yet implemented\n");
+    if (_viewer) {
+        _viewer->setRenderMode(toRenderMode(mode));
+    }
 }
 
 RenderMode OsgVerseViewerAdapter::getRenderMode() const
 {
-    // TODO: Implement proper conversion from Gui::Render::RenderMode
+    if (_viewer) {
+        return fromRenderMode(_viewer->getRenderMode());
+    }
     return RenderMode::AsIs;
 }
 
@@ -311,14 +536,22 @@ Base::Color OsgVerseViewerAdapter::getBackgroundColor() const
 
 void OsgVerseViewerAdapter::setBackgroundGradient(const BackgroundGradient& gradient)
 {
-    // TODO: Implement background gradient
-    Base::Console().warning("OsgVerseViewerAdapter::setBackgroundGradient not yet implemented\n");
+    _backgroundGradient = gradient;
+
+    if (!_viewer) return;
+
+    if (gradient.type == BackgroundGradientType::Linear) {
+        _viewer->setGradientBackground(
+            gradient.topColor.r, gradient.topColor.g, gradient.topColor.b,
+            gradient.bottomColor.r, gradient.bottomColor.g, gradient.bottomColor.b);
+    } else {
+        _viewer->setBackgroundColor(gradient.bottomColor);
+    }
 }
 
 BackgroundGradient OsgVerseViewerAdapter::getBackgroundGradient() const
 {
-    // TODO: Implement
-    return BackgroundGradient();
+    return _backgroundGradient;
 }
 
 void OsgVerseViewerAdapter::setBacklightEnabled(bool enabled)
@@ -351,46 +584,45 @@ float OsgVerseViewerAdapter::getAmbientIntensity() const
     return 0.3f;
 }
 
-//-----------------------------------------------------------------------
-// Navigation and interaction - Stub implementations
-//-----------------------------------------------------------------------
+//===========================================================================
+// Navigation and interaction (Phase A.5 / E)
+//===========================================================================
 
 void OsgVerseViewerAdapter::setNavigationStyle(const std::string& style)
 {
-    // TODO: Implement
-    Base::Console().log("OsgVerseViewerAdapter::setNavigationStyle: %s\n", style.c_str());
+    _navigationStyle = style;
+    if (_viewer) {
+        _viewer->setNavigationStyle(style);
+    }
 }
 
 std::string OsgVerseViewerAdapter::getNavigationStyle() const
 {
-    // TODO: Implement
-    return "Trackball";
+    return _navigationStyle;
 }
 
 void OsgVerseViewerAdapter::setViewing(bool enable)
 {
-    // TODO: Implement
+    _isViewing = enable;
 }
 
 bool OsgVerseViewerAdapter::isViewing() const
 {
-    // TODO: Implement
-    return true;
+    return _isViewing;
 }
 
-//-----------------------------------------------------------------------
+//===========================================================================
 // Backend info
-//-----------------------------------------------------------------------
+//===========================================================================
 
 std::string OsgVerseViewerAdapter::getBackendVersion() const
 {
-    // OsgVerse backend version
     return "1.0";
 }
 
-//-----------------------------------------------------------------------
+//===========================================================================
 // Statistics and debugging
-//-----------------------------------------------------------------------
+//===========================================================================
 
 Gui::Render::RenderStats OsgVerseViewerAdapter::getStats() const
 {
@@ -409,19 +641,20 @@ void OsgVerseViewerAdapter::resetStats()
 
 void OsgVerseViewerAdapter::setFPSEnabled(bool enabled)
 {
-    // TODO: Implement
-    Base::Console().log("OsgVerseViewerAdapter::setFPSEnabled: %d\n", enabled);
+    _fpsEnabled = enabled;
+    if (_viewer) {
+        _viewer->setStatsEnabled(enabled);
+    }
 }
 
 bool OsgVerseViewerAdapter::isFPSEnabled() const
 {
-    // TODO: Implement
-    return false;
+    return _fpsEnabled;
 }
 
-//-----------------------------------------------------------------------
+//===========================================================================
 // Screenshots
-//-----------------------------------------------------------------------
+//===========================================================================
 
 QImage OsgVerseViewerAdapter::grabImage(int width, int height)
 {

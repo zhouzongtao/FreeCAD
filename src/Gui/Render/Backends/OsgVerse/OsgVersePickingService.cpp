@@ -161,6 +161,36 @@ PickResults OsgVersePickingService::pick(int screenX, int screenY,
         if (result.type == PickType::Edge && !options.pickEdges) continue;
         if (result.type == PickType::Vertex && !options.pickVertices) continue;
 
+        // Resolve ViewProvider from the node path
+        if (_osgViewer && !intersection.nodePath.empty()) {
+            for (auto it = intersection.nodePath.rbegin(); it != intersection.nodePath.rend(); ++it) {
+                Gui::ViewProvider* vp = _osgViewer->findViewProviderForNode(*it);
+                if (vp) {
+                    result.viewProvider = vp;
+                    // Build sub-element name from node name if available
+                    osg::Node* hitNode = intersection.nodePath.back();
+                    if (hitNode && !hitNode->getName().empty()) {
+                        std::string nodeName = hitNode->getName();
+                        if (nodeName.find("Face") == 0 || nodeName.find("Edge") == 0 ||
+                            nodeName.find("Vertex") == 0) {
+                            result.elementName = nodeName;
+                        }
+                    }
+                    // Generate element name from pick type if not set
+                    if (result.elementName.empty()) {
+                        if (result.type == PickType::Face && result.faceIndex >= 0) {
+                            result.elementName = "Face" + std::to_string(result.faceIndex + 1);
+                        } else if (result.type == PickType::Edge && result.edgeIndex >= 0) {
+                            result.elementName = "Edge" + std::to_string(result.edgeIndex + 1);
+                        } else if (result.type == PickType::Vertex && result.vertexIndex >= 0) {
+                            result.elementName = "Vertex" + std::to_string(result.vertexIndex + 1);
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+
         results.hits.push_back(result);
         ++hitCount;
 

@@ -24,6 +24,7 @@
 #ifndef _PreComp_
 #include <QImage>
 #include <QPainter>
+#include <QMenu>
 #include <QMouseEvent>
 #include <QWheelEvent>
 #include <QKeyEvent>
@@ -37,6 +38,7 @@
 #include "OsgVerseLight.h"
 #include "OsgVerseNaviCube.h"
 #include "OsgVerseShaderManager.h"
+#include "OsgVersePickingService.h"
 #include <osgViewer/Viewer>
 #include <osgViewer/GraphicsWindow>
 #include <osgGA/TrackballManipulator>
@@ -54,7 +56,9 @@
 #include <Base/Console.h>
 #include <Gui/ViewProvider.h>
 #include <Gui/ViewProviderDocumentObject.h>
+#include <Gui/Selection/Selection.h>
 #include <App/DocumentObject.h>
+#include <App/Document.h>
 #include <App/Property.h>
 #include <App/PropertyStandard.h>
 
@@ -67,6 +71,9 @@
 #include <osg/Array>
 #include <osg/PrimitiveSet>
 #include <osg/Geometry>
+#include <osg/Program>
+#include <osg/Shader>
+#include <osg/LineWidth>
 
 using namespace Gui::Render;
 
@@ -159,6 +166,10 @@ void OsgVerseViewer::render()
         // Update camera animation (if animating)
         if (_animationEnabled && !_animationComplete && _viewer->getFrameStamp()) {
             updateCameraAnimation(_viewer->getFrameStamp()->getReferenceTime());
+        }
+        // Update axis cross rotation to match main camera
+        if (_axisCrossEnabled) {
+            updateAxisCross();
         }
         // NaviCube is now drawn in ViewerWidget::paintGL() where OpenGL context is active
         // NaviCube现在在ViewerWidget::paintGL()中绘制，那里OpenGL上下文是激活的
@@ -592,6 +603,13 @@ void OsgVerseViewer::onResize(int width, int height)
             );
         }
     }
+
+    // Update axis cross viewport (100x100 physical pixels, bottom-left)
+    if (_axisCrossCamera) {
+        int axisSize = static_cast<int>(100 * dpr);
+        int margin = static_cast<int>(10 * dpr);
+        _axisCrossCamera->setViewport(margin, margin, axisSize, axisSize);
+    }
 }
 
 //-----------------------------------------------------------------------
@@ -976,6 +994,13 @@ void OsgVerseViewer::ViewerWidget::paintGL()
             _graphicsWindow->setDefaultFboId(defaultFboId);
             _firstFrame = false;
             Base::Console().log("OsgVerseViewer::ViewerWidget::paintGL: Set default FBO ID: %u\n", defaultFboId);
+
+            // GL context is now guaranteed active -- initialize deferred
+            // post-processing FBO cameras that need a valid context.
+            if (_osgVerseViewer && _osgVerseViewer->_engine &&
+                _osgVerseViewer->_engine->isPostProcessPending()) {
+                _osgVerseViewer->_engine->initializePostProcessingDeferred();
+            }
         }
         _viewer->frame();
 
@@ -1022,6 +1047,22 @@ void OsgVerseViewer::ViewerWidget::mousePressEvent(QMouseEvent* event)
         return;
     }
 
+    // Right click → context menu
+    if (event->button() == Qt::RightButton && _osgVerseViewer) {
+        _osgVerseViewer->showContextMenu(event->globalPosition().toPoint());
+        event->accept();
+        return;
+    }
+
+    // Left click → selection
+    if (event->button() == Qt::LeftButton && _osgVerseViewer) {
+        const float dpr = devicePixelRatio();
+        int sx = static_cast<int>(event->position().x() * dpr);
+        int sy = static_cast<int>(event->position().y() * dpr);
+        bool ctrl = event->modifiers() & Qt::ControlModifier;
+        _osgVerseViewer->handleSelection(sx, sy, ctrl);
+    }
+
     if (_graphicsWindow.valid()) {
         const float dpr = devicePixelRatio();
         float x = static_cast<float>(event->position().x()) * dpr;
@@ -1049,6 +1090,30 @@ void OsgVerseViewer::ViewerWidget::mouseReleaseEvent(QMouseEvent* event)
         _osgVerseViewer->_naviCube->handleMouseEvent(event)) {
         event->accept();
         update();
+        return;
+    }
+
+    // Complete rubber band selection if active
+    if (_rubberBandActive && event->button() == Qt::LeftButton) {
+        _rubberBandActive = false;
+        _rubberBandEnd = event->pos();
+
+        const float dpr = devicePixelRatio();
+        int x1 = static_cast<int>(_rubberBandStart.x() * dpr);
+        int y1 = static_cast<int>(_rubberBandStart.y() * dpr);
+        int x2 = static_cast<int>(_rubberBandEnd.x() * dpr);
+        int y2 = static_cast<int>(_rubberBandEnd.y() * dpr);
+
+        // Only do box selection if the drag was significant (> 5 pixels)
+        if (std::abs(x2 - x1) > 5 || std::abs(y2 - y1) > 5) {
+            bool ctrl = event->modifiers() & Qt::ControlModifier;
+            if (_osgVerseViewer) {
+                _osgVerseViewer->handleBoxSelection(x1, y1, x2, y2, ctrl);
+            }
+        }
+
+        update();
+        event->accept();
         return;
     }
 
@@ -1080,6 +1145,20 @@ void OsgVerseViewer::ViewerWidget::mouseMoveEvent(QMouseEvent* event)
         event->accept();
         update();
         return;
+    }
+
+    // Preselection: only when no mouse buttons are pressed (pure hover)
+    if (event->buttons() == Qt::NoButton && _osgVerseViewer) {
+        const float dpr = devicePixelRatio();
+        int sx = static_cast<int>(event->position().x() * dpr);
+        int sy = static_cast<int>(event->position().y() * dpr);
+        _osgVerseViewer->handlePreselection(sx, sy);
+    }
+
+    // Update rubber band if active
+    if (_rubberBandActive) {
+        _rubberBandEnd = event->pos();
+        update();  // Trigger repaint for rubber band overlay
     }
 
     // 正常处理场景鼠标移动
@@ -1124,6 +1203,22 @@ void OsgVerseViewer::ViewerWidget::keyReleaseEvent(QKeyEvent* event)
         _graphicsWindow->getEventQueue()->keyRelease(event->key());
     }
     update();
+}
+
+void OsgVerseViewer::ViewerWidget::paintEvent(QPaintEvent* event)
+{
+    // Let QOpenGLWidget do its normal GL rendering
+    QOpenGLWidget::paintEvent(event);
+
+    // Draw rubber band overlay if active
+    if (_rubberBandActive) {
+        QPainter painter(this);
+        painter.setPen(QPen(QColor(100, 100, 255), 1, Qt::DashLine));
+        painter.setBrush(QColor(100, 100, 255, 40));
+        QRect rect = QRect(_rubberBandStart, _rubberBandEnd).normalized();
+        painter.drawRect(rect);
+        painter.end();
+    }
 }
 
 
@@ -1186,6 +1281,14 @@ void OsgVerseViewer::ensureInitialized()
             // NaviCube 创建失败不应阻止整个初始化
             // NaviCube creation failure should not block overall initialization
         }
+
+        // Create picking service
+        _pickingService = std::make_unique<OsgVersePickingService>();
+        _pickingService->setOsgVerseViewer(this);
+
+        // Setup gradient background and axis cross
+        setupGradientBackground();
+        setupAxisCross();
 
         _initialized = true;
         Base::Console().log("OsgVerseViewer: Lazy initialization completed successfully\n");
@@ -1707,6 +1810,8 @@ void OsgVerseViewer::addViewProvider(Gui::ViewProvider* vp)
 
                                 osg::ref_ptr<osg::Geode> geode = new osg::Geode();
                                 geode->addDrawable(geometry.get());
+                                // Name the geode with face index for sub-element picking
+                                geode->setName("Face" + std::to_string(fi + 1));
                                 vpGroup->addChild(geode);
                                 hasGeometry = true;
                             }
@@ -1909,4 +2014,533 @@ bool OsgVerseViewer::hasViewProvider(Gui::ViewProvider* vp) const
 std::vector<Gui::ViewProvider*> OsgVerseViewer::getViewProviders() const
 {
     return std::vector<Gui::ViewProvider*>(_viewProviders.begin(), _viewProviders.end());
+}
+
+//===========================================================================
+// Selection support
+//===========================================================================
+
+Gui::ViewProvider* OsgVerseViewer::findViewProviderForNode(osg::Node* node) const
+{
+    if (!node) return nullptr;
+
+    // Direct lookup first
+    auto it = _nodeToVPMap.find(node);
+    if (it != _nodeToVPMap.end()) {
+        return it->second;
+    }
+
+    // Walk up the parent hierarchy to find a mapped node
+    // OSG nodes can have multiple parents, but in our scene graph each VP group
+    // has a unique path from the scene root
+    const osg::Node::ParentList& parents = node->getParents();
+    for (osg::Group* parent : parents) {
+        auto pit = _nodeToVPMap.find(parent);
+        if (pit != _nodeToVPMap.end()) {
+            return pit->second;
+        }
+        // Recurse up
+        Gui::ViewProvider* vp = findViewProviderForNode(parent);
+        if (vp) return vp;
+    }
+
+    return nullptr;
+}
+
+osg::Node* OsgVerseViewer::getNodeForViewProvider(Gui::ViewProvider* vp) const
+{
+    auto it = _vpToNodeMap.find(vp);
+    if (it != _vpToNodeMap.end()) {
+        return it->second.get();
+    }
+    return nullptr;
+}
+
+//===========================================================================
+// Selection integration
+//===========================================================================
+
+void OsgVerseViewer::handlePreselection(int screenX, int screenY)
+{
+    if (!_pickingService) return;
+
+    Gui::Render::PickResults results = _pickingService->pick(screenX, screenY);
+
+    if (results.hasHit()) {
+        const Gui::Render::PickResult& hit = results.closest();
+        Gui::ViewProvider* vp = hit.viewProvider;
+
+        if (vp != _preselectedVP || hit.elementName != _preselectedElement) {
+            // Clear old preselection highlight
+            if (_preselectedVP) {
+                updatePreselectionHighlight(_preselectedVP, false);
+            }
+
+            _preselectedVP = vp;
+            _preselectedElement = hit.elementName;
+
+            if (vp) {
+                updatePreselectionHighlight(vp, true);
+
+                // Notify FreeCAD SelectionSingleton
+                if (auto* vpDoc = dynamic_cast<Gui::ViewProviderDocumentObject*>(vp)) {
+                    if (vpDoc->getObject() && vpDoc->getObject()->getDocument()) {
+                        const char* docName = vpDoc->getObject()->getDocument()->getName();
+                        const char* objName = vpDoc->getObject()->getNameInDocument();
+                        if (docName && objName) {
+                            Gui::Selection().setPreselect(
+                                docName, objName,
+                                hit.elementName.c_str(),
+                                hit.point.x, hit.point.y, hit.point.z);
+                        }
+                    }
+                }
+            }
+        }
+    } else {
+        // Nothing under cursor — clear preselection
+        if (_preselectedVP) {
+            updatePreselectionHighlight(_preselectedVP, false);
+            _preselectedVP = nullptr;
+            _preselectedElement.clear();
+            Gui::Selection().rmvPreselect();
+        }
+    }
+}
+
+void OsgVerseViewer::handleSelection(int screenX, int screenY, bool ctrlPressed)
+{
+    if (!_pickingService) return;
+
+    Gui::Render::PickResults results = _pickingService->pick(screenX, screenY);
+
+    if (results.hasHit()) {
+        const Gui::Render::PickResult& hit = results.closest();
+        Gui::ViewProvider* vp = hit.viewProvider;
+
+        if (vp) {
+            if (auto* vpDoc = dynamic_cast<Gui::ViewProviderDocumentObject*>(vp)) {
+                if (vpDoc->getObject() && vpDoc->getObject()->getDocument()) {
+                    const char* docName = vpDoc->getObject()->getDocument()->getName();
+                    const char* objName = vpDoc->getObject()->getNameInDocument();
+                    if (docName && objName) {
+                        if (!ctrlPressed) {
+                            // Single select: clear previous, add new
+                            Gui::Selection().clearSelection(docName);
+                        }
+                        Gui::Selection().addSelection(
+                            docName, objName,
+                            hit.elementName.c_str(),
+                            hit.point.x, hit.point.y, hit.point.z);
+                    }
+                }
+            }
+        }
+    } else {
+        // Clicked on empty space — clear selection
+        if (!ctrlPressed) {
+            Gui::Selection().clearSelection();
+            clearSelectionHighlights();
+        }
+    }
+}
+
+void OsgVerseViewer::updateSelectionHighlight(Gui::ViewProvider* vp, bool selected)
+{
+    osg::Node* node = getNodeForViewProvider(vp);
+    if (!node) return;
+
+    osg::StateSet* ss = node->getOrCreateStateSet();
+    if (selected) {
+        ss->addUniform(new osg::Uniform("u_selectionColor", osg::Vec4(0.1f, 0.8f, 0.1f, 1.0f)));
+        ss->addUniform(new osg::Uniform("u_selectionActive", 1));
+    } else {
+        ss->removeUniform("u_selectionColor");
+        ss->removeUniform("u_selectionActive");
+    }
+}
+
+void OsgVerseViewer::updatePreselectionHighlight(Gui::ViewProvider* vp, bool preselected)
+{
+    osg::Node* node = getNodeForViewProvider(vp);
+    if (!node) return;
+
+    osg::StateSet* ss = node->getOrCreateStateSet();
+    if (preselected) {
+        ss->addUniform(new osg::Uniform("u_preselectionColor", osg::Vec4(0.8f, 0.8f, 0.1f, 1.0f)));
+        ss->addUniform(new osg::Uniform("u_preselectionActive", 1));
+    } else {
+        ss->removeUniform("u_preselectionColor");
+        ss->removeUniform("u_preselectionActive");
+    }
+}
+
+void OsgVerseViewer::clearSelectionHighlights()
+{
+    for (auto& pair : _vpToNodeMap) {
+        updateSelectionHighlight(pair.first, false);
+    }
+}
+
+//===========================================================================
+// Editing mode
+//===========================================================================
+
+void OsgVerseViewer::setEditingViewProvider(Gui::ViewProvider* vp, int mode)
+{
+    if (_editingVP == vp) return;
+
+    // Exit current editing mode if active
+    if (_editingVP) {
+        resetEditingViewProvider();
+    }
+
+    if (!vp) return;
+
+    _editingVP = vp;
+    _editingMode = mode;
+
+    Base::Console().log("OsgVerseViewer: Entering edit mode %d\n", mode);
+
+    // Create editing root node
+    if (!_editingRoot) {
+        _editingRoot = new osg::Group();
+        _editingRoot->setName("EditingRoot");
+    }
+
+    // Reduce opacity of non-editing objects
+    for (auto& pair : _vpToNodeMap) {
+        if (pair.first != vp) {
+            osg::Node* node = pair.second.get();
+            if (node) {
+                osg::StateSet* ss = node->getOrCreateStateSet();
+                // Store original transparency and make semi-transparent
+                ss->addUniform(new osg::Uniform("u_editingDimmed", 1));
+            }
+        }
+    }
+}
+
+void OsgVerseViewer::resetEditingViewProvider()
+{
+    if (!_editingVP) return;
+
+    Base::Console().log("OsgVerseViewer: Exiting edit mode\n");
+
+    // Restore opacity of all objects
+    for (auto& pair : _vpToNodeMap) {
+        osg::Node* node = pair.second.get();
+        if (node) {
+            osg::StateSet* ss = node->getStateSet();
+            if (ss) {
+                ss->removeUniform("u_editingDimmed");
+            }
+        }
+    }
+
+    _editingVP = nullptr;
+    _editingMode = 0;
+    _editingRoot = nullptr;
+}
+
+//===========================================================================
+// Box selection
+//===========================================================================
+
+void OsgVerseViewer::handleBoxSelection(int x1, int y1, int x2, int y2, bool ctrlPressed)
+{
+    if (!_pickingService) return;
+
+    Gui::Render::PickResults results = _pickingService->pickRegion(x1, y1, x2, y2);
+
+    if (!ctrlPressed) {
+        Gui::Selection().clearSelection();
+        clearSelectionHighlights();
+    }
+
+    for (const auto& hit : results.hits) {
+        // Resolve ViewProvider for each hit
+        // The region picker doesn't automatically resolve VPs, so we need
+        // to use the point-based lookup
+        if (hit.viewProvider) {
+            if (auto* vpDoc = dynamic_cast<Gui::ViewProviderDocumentObject*>(hit.viewProvider)) {
+                if (vpDoc->getObject() && vpDoc->getObject()->getDocument()) {
+                    const char* docName = vpDoc->getObject()->getDocument()->getName();
+                    const char* objName = vpDoc->getObject()->getNameInDocument();
+                    if (docName && objName) {
+                        Gui::Selection().addSelection(docName, objName);
+                    }
+                }
+            }
+        }
+    }
+}
+
+void OsgVerseViewer::setRubberBandEnabled(bool enabled)
+{
+    if (_widget) {
+        _widget->_rubberBandActive = false;
+    }
+}
+
+//===========================================================================
+// Navigation style
+//===========================================================================
+
+void OsgVerseViewer::setNavigationStyle(const std::string& style)
+{
+    _navigationStyle = style;
+    Base::Console().log("OsgVerseViewer: Navigation style set to '%s'\n", style.c_str());
+}
+
+//===========================================================================
+// Context menu
+//===========================================================================
+
+void OsgVerseViewer::showContextMenu(const QPoint& globalPos)
+{
+    QMenu menu;
+
+    // Standard views
+    QMenu* viewMenu = menu.addMenu(QObject::tr("Standard views"));
+    viewMenu->addAction(QObject::tr("Front"), [this]() { setPresetView(PresetView::Front); });
+    viewMenu->addAction(QObject::tr("Rear"), [this]() { setPresetView(PresetView::Rear); });
+    viewMenu->addAction(QObject::tr("Top"), [this]() { setPresetView(PresetView::Top); });
+    viewMenu->addAction(QObject::tr("Bottom"), [this]() { setPresetView(PresetView::Bottom); });
+    viewMenu->addAction(QObject::tr("Left"), [this]() { setPresetView(PresetView::Left); });
+    viewMenu->addAction(QObject::tr("Right"), [this]() { setPresetView(PresetView::Right); });
+    viewMenu->addAction(QObject::tr("Isometric"), [this]() { setPresetView(PresetView::Iso); });
+
+    menu.addSeparator();
+
+    // Render modes
+    QMenu* renderMenu = menu.addMenu(QObject::tr("Draw style"));
+    renderMenu->addAction(QObject::tr("As Is"), [this]() { setRenderMode(RenderMode::Default); });
+    renderMenu->addAction(QObject::tr("Wireframe"), [this]() { setRenderMode(RenderMode::Wireframe); });
+    renderMenu->addAction(QObject::tr("Shaded"), [this]() { setRenderMode(RenderMode::Shaded); });
+    renderMenu->addAction(QObject::tr("Flat Lines"), [this]() { setRenderMode(RenderMode::Flat); });
+    renderMenu->addAction(QObject::tr("Points"), [this]() { setRenderMode(RenderMode::Points); });
+
+    menu.addSeparator();
+
+    // Camera
+    menu.addAction(QObject::tr("Fit All"), [this]() { fitAll(); });
+
+    menu.exec(globalPos);
+}
+
+//===========================================================================
+// Gradient Background
+//===========================================================================
+
+void OsgVerseViewer::setupGradientBackground()
+{
+    if (!_viewer) return;
+
+    osg::Group* sceneRoot = _engine ? _engine->getOsgSceneRoot() : nullptr;
+    if (!sceneRoot) return;
+
+    // Create HUD camera for gradient background
+    _gradientCamera = new osg::Camera();
+    _gradientCamera->setName("GradientBackground");
+    _gradientCamera->setReferenceFrame(osg::Transform::ABSOLUTE_RF);
+    _gradientCamera->setRenderOrder(osg::Camera::PRE_RENDER, -100);
+    _gradientCamera->setClearMask(0);  // Don't clear anything
+    _gradientCamera->setAllowEventFocus(false);
+    _gradientCamera->setProjectionMatrix(osg::Matrix::ortho2D(0, 1, 0, 1));
+    _gradientCamera->setViewMatrix(osg::Matrix::identity());
+
+    // Fullscreen quad with vertex colors
+    _gradientGeom = new osg::Geometry();
+    _gradientGeom->setUseDisplayList(false);
+    _gradientGeom->setUseVertexBufferObjects(true);
+
+    osg::Vec3Array* verts = new osg::Vec3Array(4);
+    (*verts)[0].set(0.0f, 0.0f, 0.0f);  // bottom-left
+    (*verts)[1].set(1.0f, 0.0f, 0.0f);  // bottom-right
+    (*verts)[2].set(1.0f, 1.0f, 0.0f);  // top-right
+    (*verts)[3].set(0.0f, 1.0f, 0.0f);  // top-left
+    _gradientGeom->setVertexArray(verts);
+
+    // Default gradient: dark blue bottom, lighter blue top
+    osg::Vec4Array* colors = new osg::Vec4Array(4);
+    (*colors)[0].set(0.10f, 0.10f, 0.20f, 1.0f);  // bottom
+    (*colors)[1].set(0.10f, 0.10f, 0.20f, 1.0f);  // bottom
+    (*colors)[2].set(0.30f, 0.35f, 0.50f, 1.0f);  // top
+    (*colors)[3].set(0.30f, 0.35f, 0.50f, 1.0f);  // top
+    _gradientGeom->setColorArray(colors, osg::Array::BIND_PER_VERTEX);
+
+    _gradientGeom->addPrimitiveSet(new osg::DrawArrays(GL_QUADS, 0, 4));
+
+    // GLSL 1.20 shader — pass vertex color through a varying
+    static const char* gradVert =
+        "#version 120\n"
+        "varying vec4 vColor;\n"
+        "void main() {\n"
+        "    vColor = gl_Color;\n"
+        "    gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex;\n"
+        "}\n";
+
+    static const char* gradFrag =
+        "#version 120\n"
+        "varying vec4 vColor;\n"
+        "void main() {\n"
+        "    gl_FragColor = vColor;\n"
+        "}\n";
+
+    osg::Program* prog = new osg::Program();
+    prog->addShader(new osg::Shader(osg::Shader::VERTEX, gradVert));
+    prog->addShader(new osg::Shader(osg::Shader::FRAGMENT, gradFrag));
+
+    osg::StateSet* ss = _gradientGeom->getOrCreateStateSet();
+    ss->setAttributeAndModes(prog, osg::StateAttribute::ON);
+    ss->setMode(GL_DEPTH_TEST, osg::StateAttribute::OFF);
+    ss->setMode(GL_LIGHTING, osg::StateAttribute::OFF);
+
+    osg::Geode* geode = new osg::Geode();
+    geode->addDrawable(_gradientGeom.get());
+    _gradientCamera->addChild(geode);
+
+    // Insert as first child so it renders behind everything
+    sceneRoot->insertChild(0, _gradientCamera.get());
+
+    Base::Console().log("OsgVerseViewer: Gradient background created\n");
+}
+
+void OsgVerseViewer::setGradientBackground(float topR, float topG, float topB,
+                                            float botR, float botG, float botB)
+{
+    ensureInitialized();
+
+    // Create gradient camera on first call
+    if (!_gradientCamera) {
+        setupGradientBackground();
+    }
+
+    if (!_gradientGeom) return;
+
+    osg::Vec4Array* colors = dynamic_cast<osg::Vec4Array*>(_gradientGeom->getColorArray());
+    if (!colors || colors->size() < 4) return;
+
+    (*colors)[0].set(botR, botG, botB, 1.0f);  // bottom-left
+    (*colors)[1].set(botR, botG, botB, 1.0f);  // bottom-right
+    (*colors)[2].set(topR, topG, topB, 1.0f);  // top-right
+    (*colors)[3].set(topR, topG, topB, 1.0f);  // top-left
+    colors->dirty();
+    _gradientGeom->dirtyDisplayList();
+
+    // Disable main camera clear color since gradient provides the background
+    if (_viewer && _viewer->getCamera()) {
+        _viewer->getCamera()->setClearMask(GL_DEPTH_BUFFER_BIT);
+    }
+}
+
+//===========================================================================
+// Axis Cross
+//===========================================================================
+
+void OsgVerseViewer::setupAxisCross()
+{
+    if (!_viewer) return;
+
+    osg::Group* sceneRoot = _engine ? _engine->getOsgSceneRoot() : nullptr;
+    if (!sceneRoot) return;
+
+    // HUD camera in bottom-left corner (100x100 logical pixels)
+    _axisCrossCamera = new osg::Camera();
+    _axisCrossCamera->setName("AxisCross");
+    _axisCrossCamera->setReferenceFrame(osg::Transform::ABSOLUTE_RF);
+    _axisCrossCamera->setRenderOrder(osg::Camera::POST_RENDER, 100);
+    _axisCrossCamera->setClearMask(GL_DEPTH_BUFFER_BIT);
+    _axisCrossCamera->setAllowEventFocus(false);
+    // Orthographic projection centered at origin, axes extend [-1,1]
+    _axisCrossCamera->setProjectionMatrix(osg::Matrix::ortho(-1.5, 1.5, -1.5, 1.5, -10, 10));
+    _axisCrossCamera->setViewMatrix(osg::Matrix::identity());
+    // Viewport will be set in onResize; default to 100x100 at bottom-left
+    _axisCrossCamera->setViewport(10, 10, 100, 100);
+
+    // Transform node that rotates with the main camera
+    _axisCrossTransform = new osg::MatrixTransform();
+
+    // Create XYZ axis lines
+    osg::Geometry* axisGeom = new osg::Geometry();
+    axisGeom->setUseDisplayList(false);
+
+    osg::Vec3Array* verts = new osg::Vec3Array(6);
+    // X axis
+    (*verts)[0].set(0.0f, 0.0f, 0.0f);
+    (*verts)[1].set(1.0f, 0.0f, 0.0f);
+    // Y axis
+    (*verts)[2].set(0.0f, 0.0f, 0.0f);
+    (*verts)[3].set(0.0f, 1.0f, 0.0f);
+    // Z axis
+    (*verts)[4].set(0.0f, 0.0f, 0.0f);
+    (*verts)[5].set(0.0f, 0.0f, 1.0f);
+    axisGeom->setVertexArray(verts);
+
+    osg::Vec4Array* colors = new osg::Vec4Array(6);
+    (*colors)[0].set(1.0f, 0.0f, 0.0f, 1.0f);  // X = red
+    (*colors)[1].set(1.0f, 0.0f, 0.0f, 1.0f);
+    (*colors)[2].set(0.0f, 1.0f, 0.0f, 1.0f);  // Y = green
+    (*colors)[3].set(0.0f, 1.0f, 0.0f, 1.0f);
+    (*colors)[4].set(0.0f, 0.3f, 1.0f, 1.0f);  // Z = blue
+    (*colors)[5].set(0.0f, 0.3f, 1.0f, 1.0f);
+    axisGeom->setColorArray(colors, osg::Array::BIND_PER_VERTEX);
+
+    axisGeom->addPrimitiveSet(new osg::DrawArrays(GL_LINES, 0, 6));
+
+    // Simple pass-through shader (same as gradient)
+    static const char* axisVert =
+        "#version 120\n"
+        "varying vec4 vColor;\n"
+        "void main() {\n"
+        "    vColor = gl_Color;\n"
+        "    gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex;\n"
+        "}\n";
+
+    static const char* axisFrag =
+        "#version 120\n"
+        "varying vec4 vColor;\n"
+        "void main() {\n"
+        "    gl_FragColor = vColor;\n"
+        "}\n";
+
+    osg::Program* prog = new osg::Program();
+    prog->addShader(new osg::Shader(osg::Shader::VERTEX, axisVert));
+    prog->addShader(new osg::Shader(osg::Shader::FRAGMENT, axisFrag));
+
+    osg::StateSet* ss = axisGeom->getOrCreateStateSet();
+    ss->setAttributeAndModes(prog, osg::StateAttribute::ON);
+    ss->setMode(GL_LIGHTING, osg::StateAttribute::OFF);
+    ss->setAttributeAndModes(new osg::LineWidth(2.0f), osg::StateAttribute::ON);
+
+    osg::Geode* geode = new osg::Geode();
+    geode->addDrawable(axisGeom);
+    _axisCrossTransform->addChild(geode);
+    _axisCrossCamera->addChild(_axisCrossTransform.get());
+
+    sceneRoot->addChild(_axisCrossCamera.get());
+
+    Base::Console().log("OsgVerseViewer: Axis cross created\n");
+}
+
+void OsgVerseViewer::updateAxisCross()
+{
+    if (!_axisCrossTransform || !_viewer) return;
+
+    // Extract rotation-only from the main camera's view matrix
+    osg::Matrixd viewMatrix = _viewer->getCamera()->getViewMatrix();
+    // Zero out translation to keep only rotation
+    viewMatrix(3, 0) = 0.0;
+    viewMatrix(3, 1) = 0.0;
+    viewMatrix(3, 2) = 0.0;
+    _axisCrossTransform->setMatrix(viewMatrix);
+}
+
+void OsgVerseViewer::setAxisCrossEnabled(bool enabled)
+{
+    _axisCrossEnabled = enabled;
+    if (_axisCrossCamera) {
+        _axisCrossCamera->setNodeMask(enabled ? ~0u : 0u);
+    }
 }

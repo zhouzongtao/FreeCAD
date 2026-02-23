@@ -26,8 +26,10 @@
 #ifdef RENDER_HAS_OSGVERSE_BACKEND
 
 #include <memory>
+#include <string>
 #include <Gui/View3D/IViewer3D.h>
 #include <Gui/Render/Backends/OsgVerse/OsgVerseViewer.h>
+#include <Gui/Render/Backends/OsgVerse/OsgVersePickingService.h>
 
 class QOpenGLWidget;
 
@@ -144,6 +146,22 @@ public:
 
 private:
     std::unique_ptr<Render::OsgVerseViewer> _viewer;  ///< The wrapped OsgVerseViewer instance
+    std::unique_ptr<Render::OsgVersePickingService> _pickingService;  ///< Picking service
+
+    // Selection state
+    SelectionMode _selectionMode{SelectionMode::None};
+    bool _isSelecting{false};
+
+    // Editing state
+    ViewProvider* _editingViewProvider{nullptr};
+    int _editingMode{0};
+
+    // Display state
+    bool _isViewing{true};
+    bool _fpsEnabled{false};
+    bool _cameraOrthographic{false};
+    std::string _navigationStyle{"Trackball"};
+    BackgroundGradient _backgroundGradient;
 };
 
 } // namespace OsgVerse

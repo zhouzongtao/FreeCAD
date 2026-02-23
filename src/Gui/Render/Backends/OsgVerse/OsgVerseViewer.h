@@ -45,6 +45,13 @@ namespace osgGA {
     class CameraManipulator;
 }
 
+namespace osg {
+    class Camera;
+    class Group;
+    class Geometry;
+    class MatrixTransform;
+}
+
 // FreeCAD 前向声明 / FreeCAD forward declarations
 namespace Gui {
     class ViewProvider;
@@ -291,6 +298,143 @@ public:
      */
     bool isStatsEnabled() const { return _statsEnabled; }
 
+    //-----------------------------------------------------------------------
+    // Selection support / 选择支持
+    //-----------------------------------------------------------------------
+
+    /**
+     * @brief Find ViewProvider from an OSG node path
+     *
+     * Walks up the node hierarchy to find the ViewProvider that owns
+     * the given node. Used by the picking system.
+     */
+    Gui::ViewProvider* findViewProviderForNode(osg::Node* node) const;
+
+    /**
+     * @brief Get the OSG node for a ViewProvider
+     */
+    osg::Node* getNodeForViewProvider(Gui::ViewProvider* vp) const;
+
+    /**
+     * @brief Get the node-to-VP mapping (for picking service)
+     */
+    const std::map<osg::Node*, Gui::ViewProvider*>& getNodeToVPMap() const { return _nodeToVPMap; }
+
+    //-----------------------------------------------------------------------
+    // Selection integration / 选择集成
+    //-----------------------------------------------------------------------
+
+    /**
+     * @brief Handle preselection on mouse move
+     * @param screenX Screen X coordinate
+     * @param screenY Screen Y coordinate
+     */
+    void handlePreselection(int screenX, int screenY);
+
+    /**
+     * @brief Handle click selection
+     * @param screenX Screen X coordinate
+     * @param screenY Screen Y coordinate
+     * @param ctrlPressed Whether Ctrl is held (multi-select)
+     */
+    void handleSelection(int screenX, int screenY, bool ctrlPressed);
+
+    /**
+     * @brief Update selection highlight for a ViewProvider
+     */
+    void updateSelectionHighlight(Gui::ViewProvider* vp, bool selected);
+
+    /**
+     * @brief Update preselection highlight for a ViewProvider
+     */
+    void updatePreselectionHighlight(Gui::ViewProvider* vp, bool preselected);
+
+    /**
+     * @brief Clear all selection highlights
+     */
+    void clearSelectionHighlights();
+
+    //-----------------------------------------------------------------------
+    // Editing mode / 编辑模式
+    //-----------------------------------------------------------------------
+
+    /**
+     * @brief Enter editing mode for a ViewProvider
+     * @param vp The ViewProvider to edit
+     * @param mode The editing mode
+     */
+    void setEditingViewProvider(Gui::ViewProvider* vp, int mode);
+
+    /**
+     * @brief Get the currently editing ViewProvider
+     */
+    Gui::ViewProvider* getEditingViewProvider() const { return _editingVP; }
+
+    /**
+     * @brief Check if in editing mode
+     */
+    bool isEditing() const { return _editingVP != nullptr; }
+
+    /**
+     * @brief Exit editing mode
+     */
+    void resetEditingViewProvider();
+
+    /**
+     * @brief Handle box/region selection
+     * @param x1, y1 First corner (screen coords)
+     * @param x2, y2 Second corner (screen coords)
+     * @param ctrlPressed Whether Ctrl is held
+     */
+    void handleBoxSelection(int x1, int y1, int x2, int y2, bool ctrlPressed);
+
+    /**
+     * @brief Enable/disable rubber band selection mode on the widget
+     */
+    void setRubberBandEnabled(bool enabled);
+
+    //-----------------------------------------------------------------------
+    // Gradient Background / 渐变背景
+    //-----------------------------------------------------------------------
+
+    /**
+     * @brief Set gradient background colors
+     * @param topR/topG/topB Top color RGB [0..1]
+     * @param botR/botG/botB Bottom color RGB [0..1]
+     */
+    void setGradientBackground(float topR, float topG, float topB,
+                               float botR, float botG, float botB);
+
+    //-----------------------------------------------------------------------
+    // Axis Cross / 坐标轴十字
+    //-----------------------------------------------------------------------
+
+    /**
+     * @brief Enable/disable the axis cross display
+     */
+    void setAxisCrossEnabled(bool enabled);
+    bool isAxisCrossEnabled() const { return _axisCrossEnabled; }
+
+    //-----------------------------------------------------------------------
+    // Navigation style / 导航风格
+    //-----------------------------------------------------------------------
+
+    /**
+     * @brief Set navigation style
+     * @param style "CAD", "Blender", "Inventor", "Trackball"
+     */
+    void setNavigationStyle(const std::string& style);
+    std::string getNavigationStyle() const { return _navigationStyle; }
+
+    //-----------------------------------------------------------------------
+    // Context menu / 右键菜单
+    //-----------------------------------------------------------------------
+
+    /**
+     * @brief Show context menu at the given position
+     */
+    void showContextMenu(const QPoint& globalPos);
+
 private:
     /**
      * @brief 初始化查看器 / Initialize viewer
@@ -311,6 +455,21 @@ private:
      * @brief 设置默认光照 / Setup default lighting
      */
     void setupDefaultLighting();
+
+    /**
+     * @brief Setup gradient background HUD camera
+     */
+    void setupGradientBackground();
+
+    /**
+     * @brief Setup axis cross HUD camera
+     */
+    void setupAxisCross();
+
+    /**
+     * @brief Update axis cross rotation to match main camera
+     */
+    void updateAxisCross();
 
     /**
      * @brief 确保已初始化 / Ensure initialized
@@ -412,6 +571,28 @@ private:
     // NaviCube
     std::unique_ptr<class OsgVerseNaviCube> _naviCube;                ///< 导航立方体 / Navigation cube
     bool _naviCubeEnabled{true};                                       ///< NaviCube是否启用 / Whether NaviCube is enabled
+
+    // Navigation style / 导航风格
+    std::string _navigationStyle{"CAD"};                               ///< Current navigation style
+
+    // Selection state / 选择状态
+    std::unique_ptr<class OsgVersePickingService> _pickingService;    ///< Picking service
+    Gui::ViewProvider* _preselectedVP{nullptr};                        ///< Currently preselected VP
+    std::string _preselectedElement;                                   ///< Preselected sub-element
+
+    // Editing state / 编辑状态
+    Gui::ViewProvider* _editingVP{nullptr};                            ///< Currently editing VP
+    int _editingMode{0};                                               ///< Editing mode
+    osg::ref_ptr<osg::Group> _editingRoot;                             ///< Editing scene root
+
+    // Gradient background / 渐变背景
+    osg::ref_ptr<osg::Camera> _gradientCamera;                         ///< Gradient HUD camera
+    osg::ref_ptr<osg::Geometry> _gradientGeom;                         ///< Gradient quad geometry
+
+    // Axis cross / 坐标轴十字
+    osg::ref_ptr<osg::Camera> _axisCrossCamera;                        ///< Axis cross HUD camera
+    osg::ref_ptr<osg::MatrixTransform> _axisCrossTransform;            ///< Rotation transform for axes
+    bool _axisCrossEnabled{true};                                       ///< Whether axis cross is enabled
 };
 
 /**
@@ -447,11 +628,19 @@ protected:
     void keyPressEvent(QKeyEvent* event) override;
     void keyReleaseEvent(QKeyEvent* event) override;
 
+    // 绘制事件 / Paint event (for rubber band overlay)
+    void paintEvent(QPaintEvent* event) override;
+
 private:
     OsgVerseViewer* _osgVerseViewer;  ///< 指向外部OsgVerseViewer的指针 / Pointer to outer OsgVerseViewer
     osgViewer::Viewer* _viewer;
     osg::ref_ptr<osgViewer::GraphicsWindowEmbedded> _graphicsWindow;
     bool _firstFrame{true};
+
+    // Rubber band selection state
+    bool _rubberBandActive{false};
+    QPoint _rubberBandStart;
+    QPoint _rubberBandEnd;
 };
 
 } // namespace Render

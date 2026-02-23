@@ -125,7 +125,7 @@ if(BUILD_WITH_OSGVERSE)
     )
 
     # 单元测试 / Unit tests
-    if(BUILD_TESTS)
+    if(BUILD_TEST OR BUILD_TESTING)
         add_subdirectory(tests)
     endif()
 

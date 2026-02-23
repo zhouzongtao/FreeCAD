@@ -32,6 +32,7 @@
 # include <osg/Geometry>
 # include <osg/Camera>
 # include <osg/Texture2D>
+# include <osg/GL>
 #endif
 
 #include "OsgVersePostProcessing.h"
@@ -316,9 +317,17 @@ void PostProcessChain::rebuildChain()
 
 bool PostProcessChain::detectFloatTextureSupport()
 {
-    // GL_ARB_texture_float detection is done at runtime via extension string
-    // For now, conservatively return false (GL 2.1 safe)
-    // TODO: Query GL extensions at runtime
+    // Query GL_ARB_texture_float at runtime.
+    // This is called during deferred init when GL context is active.
+    const char* extensions = reinterpret_cast<const char*>(glGetString(GL_EXTENSIONS));
+    if (extensions) {
+        std::string extStr(extensions);
+        if (extStr.find("GL_ARB_texture_float") != std::string::npos) {
+            Base::Console().log("PostProcessChain: GL_ARB_texture_float detected\n");
+            return true;
+        }
+    }
+    Base::Console().log("PostProcessChain: GL_ARB_texture_float not available, using 8-bit textures\n");
     return false;
 }
 

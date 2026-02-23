@@ -49,6 +49,7 @@
 #include <osg/Array>
 #include <osg/Stats>
 #include <osg/PrimitiveSet>
+#include <osg/GraphicsContext>
 #include <osgViewer/Viewer>
 #include <osgDB/Registry>
 
@@ -773,9 +774,47 @@ void OsgVerseEngine::initializeRenderingPipeline()
         }
     }
 
-    // Setup post-processing if enabled
+    // Post-processing creates FBO cameras that require a valid GL context.
+    // Defer to initializePostProcessingDeferred() which is called from
+    // ViewerWidget::paintGL() on the first frame.
     if (_hdrEnabled || _pbrEnabled) {
-        setupPostProcessing();
+        _postProcessPending = true;
+        Base::Console().log("OsgVerseEngine: Post-processing deferred (waiting for GL context)\n");
+    }
+}
+
+void OsgVerseEngine::initializePostProcessingDeferred()
+{
+    if (!_postProcessPending) return;
+    _postProcessPending = false;
+
+    Base::Console().log("OsgVerseEngine: Deferred post-processing init (GL context now available)\n");
+
+    setupPostProcessing();
+
+    // Bind FBO cameras to the viewer's GraphicsContext so OSG's
+    // Renderer::compile() can allocate GL resources without crashing.
+    if (_postProcessChain && _viewer) {
+        osg::GraphicsContext* gc = _viewer->getCamera()->getGraphicsContext();
+        if (gc) {
+            // Bind scene capture camera
+            if (_postProcessChain->getSceneCamera()) {
+                _postProcessChain->getSceneCamera()->setGraphicsContext(gc);
+            }
+            // Bind all pass cameras
+            if (_postProcessChain->getPassRoot()) {
+                for (unsigned int i = 0; i < _postProcessChain->getPassRoot()->getNumChildren(); ++i) {
+                    osg::Camera* cam = dynamic_cast<osg::Camera*>(
+                        _postProcessChain->getPassRoot()->getChild(i));
+                    if (cam) {
+                        cam->setGraphicsContext(gc);
+                    }
+                }
+            }
+            Base::Console().log("OsgVerseEngine: FBO cameras bound to GraphicsContext\n");
+        } else {
+            Base::Console().warning("OsgVerseEngine: No GraphicsContext available for FBO cameras\n");
+        }
     }
 }
 

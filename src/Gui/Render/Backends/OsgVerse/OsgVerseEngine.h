@@ -321,6 +321,23 @@ private:
      */
     void setupPostProcessing();
 
+public:
+    /**
+     * @brief Deferred post-processing initialization
+     *
+     * Must be called from paintGL() on the first frame when GL context is
+     * guaranteed available. FBO cameras need a valid GraphicsContext to avoid
+     * crashes in OSG's Renderer::compile().
+     */
+    void initializePostProcessingDeferred();
+
+    /**
+     * @brief Check if deferred post-processing init is pending
+     */
+    bool isPostProcessPending() const { return _postProcessPending; }
+
+private:
+
     /**
      * @brief 更新渲染统计 / Update rendering statistics
      */
@@ -369,6 +386,7 @@ private:
 
     // 初始化状态 / Initialization state
     bool _initialized{false};
+    bool _postProcessPending{false};  ///< Post-processing deferred init pending
 };
 
 //===========================================================================
