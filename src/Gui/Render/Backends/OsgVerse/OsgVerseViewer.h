@@ -31,9 +31,17 @@
 #include <osg/ref_ptr>
 #include <osg/Node>
 
+QT_BEGIN_NAMESPACE
+class QMouseEvent;
+class QKeyEvent;
+QT_END_NAMESPACE
+
+#include <functional>
 #include <FCGlobal.h>
 #include "../../Core/RenderViewer.h"
 #include "OsgVerseEngine.h"
+#include "OsgVersePickingService.h"
+#include "OsgVerseSelection.h"
 
 // OsgVerse / OSG 前向声明 / Forward declarations
 namespace osgViewer {
@@ -194,6 +202,11 @@ public:
     bool isAnimating() const override;
     void stopAnimation() override;
 
+    /**
+     * @brief Cancel pending deferred fitAll (e.g., when camera is restored from document)
+     */
+    void cancelPendingFitAll() { _pendingFitAll = false; }
+
     //-----------------------------------------------------------------------
     // OsgVerse 特定接口 / OsgVerse-specific Interface
     //-----------------------------------------------------------------------
@@ -207,6 +220,42 @@ public:
      * @brief 获取渲染引擎 / Get render engine
      */
     OsgVerseEngine* getEngine() const { return _engine.get(); }
+
+    //-----------------------------------------------------------------------
+    // 拾取服务 / Picking Service
+    //-----------------------------------------------------------------------
+
+    /**
+     * @brief 获取拾取服务 / Get picking service
+     */
+    OsgVersePickingService* getPickingService() const { return _pickingService.get(); }
+
+    /**
+     * @brief 通过 OSG 节点查找 ViewProvider / Find ViewProvider by OSG node
+     * Traverses nodePath from leaf to root to find mapped VP.
+     */
+    ViewProvider* getViewProviderByNode(osg::Node* node) const;
+
+    /**
+     * @brief 获取 VP 对应的 SelectionRoot / Get SelectionRoot for a ViewProvider
+     */
+    OsgVerseSelectionRoot* getSelectionRootForVP(ViewProvider* vp) const;
+
+    //-----------------------------------------------------------------------
+    // 事件回调设置 / Event Callback Setup
+    //-----------------------------------------------------------------------
+
+    /**
+     * @brief 设置鼠标事件回调 / Set mouse event callback
+     * The callback returns true if the event was consumed.
+     */
+    void setMouseEventCallback(std::function<bool(QMouseEvent*)> cb);
+
+    /**
+     * @brief 设置键盘事件回调 / Set key event callback
+     * The callback returns true if the event was consumed.
+     */
+    void setKeyEventCallback(std::function<bool(QKeyEvent*)> cb);
 
     //-----------------------------------------------------------------------
     // 相机动画 / Camera Animation
@@ -336,12 +385,17 @@ private:
     std::unique_ptr<OsgVerseEngine> _engine;    ///< 渲染引擎 / Render engine
     osgViewer::Viewer* _viewer{nullptr};        ///< OSG 查看器 / OSG viewer
     ViewerWidget* _widget{nullptr};             ///< Qt 窗口 / Qt widget
+
+    // 存储的回调（在 widget 创建前设置）/ Stored callbacks (set before widget creation)
+    std::function<bool(QMouseEvent*)> _storedMouseEventCallback;
+    std::function<bool(QKeyEvent*)> _storedKeyEventCallback;
     osg::ref_ptr<osgViewer::GraphicsWindowEmbedded> _graphicsWindow; ///< 嵌入式图形窗口 / Embedded graphics window
 
     // 初始化状态 / Initialization state
     bool _initialized{false};                   ///< 是否已初始化 / Whether initialized
     bool _initializationFailed{false};          ///< 初始化是否失败 / Whether initialization failed
     bool _firstFrame{true};                     ///< 是否是第一帧 / Whether first frame
+    bool _pendingFitAll{true};                  ///< 需要在有几何体后执行 fitAll
 
     //-----------------------------------------------------------------------
     // 相机动画内部方法 / Camera Animation Internal Methods
@@ -412,6 +466,12 @@ private:
     // NaviCube
     std::unique_ptr<class OsgVerseNaviCube> _naviCube;                ///< 导航立方体 / Navigation cube
     bool _naviCubeEnabled{true};                                       ///< NaviCube是否启用 / Whether NaviCube is enabled
+
+    // 拾取服务 / Picking service
+    std::unique_ptr<OsgVersePickingService> _pickingService;
+
+    // SelectionRoot 映射 / SelectionRoot mapping
+    std::map<Gui::ViewProvider*, osg::ref_ptr<OsgVerseSelectionRoot>> _vpToSelectionRoot;
 };
 
 /**
@@ -424,6 +484,9 @@ class OsgVerseViewer::ViewerWidget : public QOpenGLWidget {
     Q_OBJECT
 
 public:
+    using MouseEventCallback = std::function<bool(QMouseEvent*)>;
+    using KeyEventCallback = std::function<bool(QKeyEvent*)>;
+
     ViewerWidget(OsgVerseViewer* osgVerseViewer,
                  osgViewer::Viewer* viewer,
                  osgViewer::GraphicsWindowEmbedded* graphicsWindow,
@@ -431,6 +494,9 @@ public:
     ~ViewerWidget() override;
 
     osgViewer::GraphicsWindowEmbedded* getGraphicsWindow() const { return _graphicsWindow.get(); }
+
+    void setMouseEventCallback(MouseEventCallback cb) { _mouseEventCallback = std::move(cb); }
+    void setKeyEventCallback(KeyEventCallback cb) { _keyEventCallback = std::move(cb); }
 
 protected:
     void initializeGL() override;
@@ -452,6 +518,8 @@ private:
     osgViewer::Viewer* _viewer;
     osg::ref_ptr<osgViewer::GraphicsWindowEmbedded> _graphicsWindow;
     bool _firstFrame{true};
+    MouseEventCallback _mouseEventCallback;
+    KeyEventCallback _keyEventCallback;
 };
 
 } // namespace Render

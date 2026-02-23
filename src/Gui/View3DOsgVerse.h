@@ -151,6 +151,7 @@ protected:
     void resizeEvent(QResizeEvent* event) override;
 
 private:
+    bool setCamera(const char* pCamera);
     std::unique_ptr<View3D::IViewer3D> _viewer;  ///< The OsgVerse viewer
 };
 

@@ -30,16 +30,26 @@
 
 #include "OsgVerseViewerAdapter.h"
 #include <Gui/ViewProvider.h>
+#include <Gui/ViewProviderDocumentObject.h>
+#include <Gui/Application.h>
+#include <App/Application.h>
+#include <App/Document.h>
+#include <App/DocumentObject.h>
 #include <Base/Console.h>
+#include <Gui/Render/Backends/OsgVerse/OsgVersePickingService.h>
+#include <Gui/Render/Backends/OsgVerse/OsgVerseSelection.h>
+
+#include <QMouseEvent>
+#include <QKeyEvent>
 
 using namespace Gui::View3D::OsgVerse;
 using namespace Gui::View3D;
 
 OsgVerseViewerAdapter::OsgVerseViewerAdapter(QWidget* parent, const QOpenGLWidget* shareWidget)
-    : _viewer(std::make_unique<Render::OsgVerseViewer>())
+    : SelectionObserver(true, Gui::ResolveMode::OldStyleElement)
+    , _viewer(std::make_unique<Render::OsgVerseViewer>())
 {
     Base::Console().log("OsgVerseViewerAdapter: Constructor called\n");
-    // TODO: Initialize with parent and shareWidget if needed
 }
 
 OsgVerseViewerAdapter::~OsgVerseViewerAdapter()
@@ -67,7 +77,13 @@ void OsgVerseViewerAdapter::resize(int width, int height)
 
 QWidget* OsgVerseViewerAdapter::getWidget()
 {
-    return _viewer ? _viewer->getWidget() : nullptr;
+    if (!_viewer) return nullptr;
+    QWidget* w = _viewer->getWidget();
+    if (w && !_callbacksSetup) {
+        setupEventCallbacks();
+        _callbacksSetup = true;
+    }
+    return w;
 }
 
 QOpenGLWidget* OsgVerseViewerAdapter::getGLWidget()
@@ -108,14 +124,47 @@ void OsgVerseViewerAdapter::updateScene()
 
 void OsgVerseViewerAdapter::setCamera(const CameraParams& params)
 {
-    // TODO: Convert Gui::View3D::CameraParams to Gui::Render::CameraParams and call _viewer->setCamera()
-    Base::Console().warning("OsgVerseViewerAdapter::setCamera not yet implemented\n");
+    if (!_viewer) return;
+
+    Gui::Render::CameraParams rp;
+    rp.position = Gui::Render::Vec3f(
+        static_cast<float>(params.position.x),
+        static_cast<float>(params.position.y),
+        static_cast<float>(params.position.z));
+    rp.target = Gui::Render::Vec3f(
+        static_cast<float>(params.target.x),
+        static_cast<float>(params.target.y),
+        static_cast<float>(params.target.z));
+    rp.upVector = Gui::Render::Vec3f(
+        static_cast<float>(params.upVector.x),
+        static_cast<float>(params.upVector.y),
+        static_cast<float>(params.upVector.z));
+    rp.fieldOfView = static_cast<float>(params.fieldOfView);
+    rp.aspectRatio = static_cast<float>(params.aspectRatio);
+    rp.nearPlane = static_cast<float>(params.nearPlane);
+    rp.farPlane = static_cast<float>(params.farPlane);
+    rp.orthographic = params.orthographic;
+    rp.height = static_cast<float>(params.height);
+
+    _viewer->setCamera(rp);
 }
 
 CameraParams OsgVerseViewerAdapter::getCamera() const
 {
-    // TODO: Implement proper conversion from Gui::Render::CameraParams
-    return CameraParams();
+    if (!_viewer) return CameraParams();
+
+    Gui::Render::CameraParams rp = _viewer->getCamera();
+    CameraParams params;
+    params.position = Base::Vector3d(rp.position.x, rp.position.y, rp.position.z);
+    params.target = Base::Vector3d(rp.target.x, rp.target.y, rp.target.z);
+    params.upVector = Base::Vector3d(rp.upVector.x, rp.upVector.y, rp.upVector.z);
+    params.fieldOfView = rp.fieldOfView;
+    params.aspectRatio = rp.aspectRatio;
+    params.nearPlane = rp.nearPlane;
+    params.farPlane = rp.farPlane;
+    params.orthographic = rp.orthographic;
+    params.height = rp.height;
+    return params;
 }
 
 void OsgVerseViewerAdapter::viewAll()
@@ -157,13 +206,126 @@ bool OsgVerseViewerAdapter::isCameraOrthographic() const
 
 bool OsgVerseViewerAdapter::handleMouseEvent(QMouseEvent* event)
 {
-    // TODO: Implement mouse event handling
-    return false;
+    if (!_viewer || !event) return false;
+
+    static int eventCount = 0;
+    eventCount++;
+
+    switch (event->type()) {
+    case QEvent::MouseButtonPress:
+        if (event->button() == Qt::LeftButton) {
+            Base::Console().log("OsgVerseViewerAdapter: MousePress at (%d, %d)\n",
+                               event->pos().x(), event->pos().y());
+            _mousePressPos = event->pos();
+            _mousePressed = true;
+        }
+        return false;  // Don't consume - let OSG handle camera
+
+    case QEvent::MouseButtonRelease:
+        if (event->button() == Qt::LeftButton && _mousePressed) {
+            _mousePressed = false;
+
+            // Check if this was a click (not a drag)
+            QPoint delta = event->pos() - _mousePressPos;
+            if (delta.manhattanLength() > 6) {
+                return false;  // Was a drag, ignore
+            }
+
+            Base::Console().log("OsgVerseViewerAdapter: MouseRelease CLICK at (%d, %d)\n",
+                               event->pos().x(), event->pos().y());
+
+            // Perform pick for selection
+            auto pickResult = pick(event->pos());
+
+            Base::Console().log("OsgVerseViewerAdapter: Pick result: valid=%d, subElement=%s\n",
+                               pickResult.valid,
+                               pickResult.subElementName.c_str());
+
+            bool ctrlPressed = event->modifiers() & Qt::ControlModifier;
+
+            if (pickResult.valid && pickResult.viewProvider) {
+                auto* vpDoc = dynamic_cast<Gui::ViewProviderDocumentObject*>(pickResult.viewProvider);
+                if (vpDoc) {
+                    auto* obj = vpDoc->getObject();
+                    if (obj && obj->getDocument()) {
+                        const char* docName = obj->getDocument()->getName();
+                        const char* objName = obj->getNameInDocument();
+                        const char* subName = pickResult.subElementName.c_str();
+
+                        if (ctrlPressed) {
+                            // Toggle selection
+                            if (Gui::Selection().isSelected(obj, subName)) {
+                                Gui::Selection().rmvSelection(docName, objName, subName);
+                            } else {
+                                Gui::Selection().addSelection(docName, objName, subName,
+                                    pickResult.point.x, pickResult.point.y, pickResult.point.z);
+                            }
+                        } else {
+                            // Replace selection
+                            Gui::Selection().clearSelection();
+                            Gui::Selection().addSelection(docName, objName, subName,
+                                pickResult.point.x, pickResult.point.y, pickResult.point.z);
+                        }
+                    }
+                }
+            } else if (!ctrlPressed) {
+                // Clicked empty space without Ctrl - clear selection
+                Gui::Selection().clearSelection();
+            }
+        }
+        return false;
+
+    case QEvent::MouseMove:
+    {
+        // Only do preselection when no buttons are pressed (hover)
+        if (event->buttons() != Qt::NoButton) {
+            return false;
+        }
+
+        // Limit log spam
+        static int moveCount = 0;
+        if (++moveCount % 30 == 1) {
+            Base::Console().log("OsgVerseViewerAdapter: MouseMove at (%d, %d)\n",
+                               event->pos().x(), event->pos().y());
+        }
+
+        auto pickResult = pick(event->pos());
+
+        if (pickResult.valid && pickResult.viewProvider) {
+            auto* vpDoc = dynamic_cast<Gui::ViewProviderDocumentObject*>(pickResult.viewProvider);
+            if (vpDoc) {
+                auto* obj = vpDoc->getObject();
+                if (obj && obj->getDocument()) {
+                    Gui::Selection().setPreselect(
+                        obj->getDocument()->getName(),
+                        obj->getNameInDocument(),
+                        pickResult.subElementName.c_str(),
+                        static_cast<float>(pickResult.point.x),
+                        static_cast<float>(pickResult.point.y),
+                        static_cast<float>(pickResult.point.z));
+                }
+            }
+        } else {
+            Gui::Selection().rmvPreselect();
+        }
+        return false;  // Don't consume - let OSG handle camera
+    }
+
+    default:
+        return false;
+    }
 }
 
 bool OsgVerseViewerAdapter::handleKeyEvent(QKeyEvent* event)
 {
-    // TODO: Implement key event handling
+    if (!event) return false;
+
+    if (event->type() == QEvent::KeyPress && event->key() == Qt::Key_Escape) {
+        if (_editingVP) {
+            resetEditingViewProvider();
+            return true;  // Consumed
+        }
+    }
     return false;
 }
 
@@ -179,8 +341,47 @@ bool OsgVerseViewerAdapter::handleWheelEvent(QWheelEvent* event)
 
 PickResult OsgVerseViewerAdapter::pick(const QPoint& pos)
 {
-    // TODO: Implement picking
-    return PickResult();
+    PickResult result;
+
+    if (!_viewer) {
+        Base::Console().warning("OsgVerseViewerAdapter::pick: No viewer\n");
+        return result;
+    }
+
+    auto* pickingService = _viewer->getPickingService();
+    if (!pickingService) {
+        Base::Console().warning("OsgVerseViewerAdapter::pick: No picking service\n");
+        return result;
+    }
+
+    Render::PickResults pickResults = pickingService->pick(pos.x(), pos.y());
+
+    Base::Console().log("OsgVerseViewerAdapter::pick: pos=(%d,%d), hits=%d\n",
+                       pos.x(), pos.y(), static_cast<int>(pickResults.hits.size()));
+
+    if (!pickResults.hasHit()) return result;
+
+    const Render::PickResult& hit = pickResults.closest();
+
+    result.valid = hit.hit;
+    result.point = Base::Vector3d(hit.point.x, hit.point.y, hit.point.z);
+    result.normal = Base::Vector3d(hit.normal.x, hit.normal.y, hit.normal.z);
+    result.distance = static_cast<double>(hit.distance);
+    result.viewProvider = hit.viewProvider;
+    result.subElementName = hit.elementName;
+    result.primitiveIndex = hit.faceIndex >= 0 ? hit.faceIndex : (hit.edgeIndex >= 0 ? hit.edgeIndex : hit.vertexIndex);
+    result.faceIndex = hit.faceIndex;
+    result.edgeIndex = hit.edgeIndex;
+    result.vertexIndex = hit.vertexIndex;
+
+    switch (hit.type) {
+    case Render::PickType::Face:   result.pickType = PickType::Face; break;
+    case Render::PickType::Edge:   result.pickType = PickType::Edge; break;
+    case Render::PickType::Vertex: result.pickType = PickType::Vertex; break;
+    default:                       result.pickType = PickType::None; break;
+    }
+
+    return result;
 }
 
 void OsgVerseViewerAdapter::setSelectionMode(SelectionMode mode)
@@ -258,24 +459,29 @@ std::vector<Gui::ViewProvider*> OsgVerseViewerAdapter::getViewProviders() const
 
 void OsgVerseViewerAdapter::setEditingViewProvider(ViewProvider* vp, int mode)
 {
-    // TODO: Implement
+    if (_editingVP) {
+        resetEditingViewProvider();
+    }
+    _editingVP = vp;
+    _editMode = mode;
+    // Note: ViewProvider::setEditViewer() requires View3DInventorViewer*
+    // For now we just store the state. TODO: Update VP API to support IViewer3D*
 }
 
 Gui::ViewProvider* OsgVerseViewerAdapter::getEditingViewProvider() const
 {
-    // TODO: Implement
-    return nullptr;
+    return _editingVP;
 }
 
 bool OsgVerseViewerAdapter::isEditingViewProvider() const
 {
-    // TODO: Implement
-    return false;
+    return _editingVP != nullptr;
 }
 
 void OsgVerseViewerAdapter::resetEditingViewProvider()
 {
-    // TODO: Implement
+    _editingVP = nullptr;
+    _editMode = 0;
 }
 
 //-----------------------------------------------------------------------
@@ -437,6 +643,149 @@ bool OsgVerseViewerAdapter::saveScreenshot(const QString& filename, int width, i
         return _viewer->saveScreenshot(filename, width, height);
     }
     return false;
+}
+
+//-----------------------------------------------------------------------
+// SelectionObserver
+//-----------------------------------------------------------------------
+
+void OsgVerseViewerAdapter::onSelectionChanged(const Gui::SelectionChanges& msg)
+{
+    if (!_viewer) return;
+
+    static int callCount = 0;
+    callCount++;
+    Base::Console().log("OsgVerseViewerAdapter::onSelectionChanged: CALLED count=%d, Type=%d\n",
+                       callCount, static_cast<int>(msg.Type));
+
+    switch (msg.Type) {
+    case Gui::SelectionChanges::SetPreselect:
+    {
+        Base::Console().log("OsgVerseViewerAdapter::onSelectionChanged: SetPreselect %s.%s\n",
+                           msg.pDocName ? msg.pDocName : "?",
+                           msg.pObjectName ? msg.pObjectName : "?");
+        // Clear old preselection highlight
+        if (_preselectedVP) {
+            auto* selRoot = _viewer->getSelectionRootForVP(_preselectedVP);
+            if (selRoot && selRoot->getSelectionState() == Render::OsgVerseSelectionRoot::SelectionState::Preselected) {
+                selRoot->setSelectionState(Render::OsgVerseSelectionRoot::SelectionState::None);
+            }
+        }
+
+        // Set new preselection
+        auto* vp = resolveViewProvider(msg.pDocName, msg.pObjectName);
+        if (vp) {
+            auto* selRoot = _viewer->getSelectionRootForVP(vp);
+            if (selRoot) {
+                Base::Console().log("OsgVerseViewerAdapter: Setting preselection on VP\n");
+                if (!selRoot->isSelected()) {
+                    selRoot->setSelectionState(Render::OsgVerseSelectionRoot::SelectionState::Preselected);
+                }
+            } else {
+                Base::Console().warning("OsgVerseViewerAdapter: selRoot is NULL for VP!\n");
+            }
+            _preselectedVP = vp;
+        } else {
+            Base::Console().warning("OsgVerseViewerAdapter: resolveViewProvider returned NULL\n");
+        }
+        break;
+    }
+
+    case Gui::SelectionChanges::RmvPreselect:
+    {
+        if (_preselectedVP) {
+            auto* selRoot = _viewer->getSelectionRootForVP(_preselectedVP);
+            if (selRoot && selRoot->isPreselected()) {
+                selRoot->setSelectionState(Render::OsgVerseSelectionRoot::SelectionState::None);
+            }
+            _preselectedVP = nullptr;
+        }
+        break;
+    }
+
+    case Gui::SelectionChanges::AddSelection:
+    {
+        Base::Console().log("OsgVerseViewerAdapter::onSelectionChanged: AddSelection %s.%s\n",
+                           msg.pDocName ? msg.pDocName : "?",
+                           msg.pObjectName ? msg.pObjectName : "?");
+        auto* vp = resolveViewProvider(msg.pDocName, msg.pObjectName);
+        if (vp) {
+            auto* selRoot = _viewer->getSelectionRootForVP(vp);
+            if (selRoot) {
+                Base::Console().log("OsgVerseViewerAdapter: Setting Selected state on selRoot\n");
+                selRoot->setSelectionState(Render::OsgVerseSelectionRoot::SelectionState::Selected);
+            } else {
+                Base::Console().warning("OsgVerseViewerAdapter: selRoot is NULL for VP in AddSelection!\n");
+            }
+        }
+        break;
+    }
+
+    case Gui::SelectionChanges::RmvSelection:
+    {
+        auto* vp = resolveViewProvider(msg.pDocName, msg.pObjectName);
+        if (vp) {
+            auto* selRoot = _viewer->getSelectionRootForVP(vp);
+            if (selRoot) {
+                // Check if VP is still in selection set
+                auto* vpDoc = dynamic_cast<Gui::ViewProviderDocumentObject*>(vp);
+                if (vpDoc && vpDoc->getObject()) {
+                    if (!Gui::Selection().isSelected(vpDoc->getObject())) {
+                        selRoot->setSelectionState(Render::OsgVerseSelectionRoot::SelectionState::None);
+                    }
+                } else {
+                    selRoot->setSelectionState(Render::OsgVerseSelectionRoot::SelectionState::None);
+                }
+            }
+        }
+        break;
+    }
+
+    case Gui::SelectionChanges::ClrSelection:
+    {
+        // Clear all VP highlights
+        auto viewProviders = _viewer->getViewProviders();
+        for (auto* vp : viewProviders) {
+            auto* selRoot = _viewer->getSelectionRootForVP(vp);
+            if (selRoot && selRoot->isSelected()) {
+                selRoot->setSelectionState(Render::OsgVerseSelectionRoot::SelectionState::None);
+            }
+        }
+        break;
+    }
+
+    default:
+        break;
+    }
+}
+
+void OsgVerseViewerAdapter::setupEventCallbacks()
+{
+    if (!_viewer) return;
+
+    Base::Console().log("OsgVerseViewerAdapter::setupEventCallbacks: Setting up callbacks\n");
+
+    _viewer->setMouseEventCallback([this](QMouseEvent* e) {
+        return this->handleMouseEvent(e);
+    });
+    _viewer->setKeyEventCallback([this](QKeyEvent* e) {
+        return this->handleKeyEvent(e);
+    });
+
+    Base::Console().log("OsgVerseViewerAdapter::setupEventCallbacks: Callbacks set up\n");
+}
+
+Gui::ViewProvider* OsgVerseViewerAdapter::resolveViewProvider(const char* docName, const char* objName) const
+{
+    if (!docName || !objName) return nullptr;
+
+    auto* doc = App::GetApplication().getDocument(docName);
+    if (!doc) return nullptr;
+
+    auto* obj = doc->getObject(objName);
+    if (!obj) return nullptr;
+
+    return Gui::Application::Instance->getViewProvider(obj);
 }
 
 #endif // RENDER_HAS_OSGVERSE_BACKEND

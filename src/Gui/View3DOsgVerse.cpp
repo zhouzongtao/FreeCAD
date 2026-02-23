@@ -33,6 +33,7 @@
 #include "View3DOsgVerse.h"
 #include "View3D/ViewerFactory.h"
 #include "Core/RenderManager.h"
+#include "Render/Backends/OsgVerse/OsgVerseViewer.h"
 #include "Document.h"
 #include "Application.h"
 #include "MainWindow.h"
@@ -41,6 +42,8 @@
 #include <Base/Interpreter.h>
 #include <osg/Quat>
 #include <cmath>
+#include <sstream>
+#include <string>
 
 using namespace Gui;
 
@@ -233,6 +236,9 @@ bool View3DOsgVerse::onMsg(const char* pMsg, const char** ppReturn)
         _viewer->viewAll();
         return true;
     }
+    else if (strncmp(pMsg, "SetCamera", 9) == 0) {
+        return setCamera(pMsg + 10);
+    }
     else if (strcmp(pMsg, "ViewAxo") == 0) {
         // TODO: Implement axonometric view
         return true;
@@ -272,11 +278,113 @@ bool View3DOsgVerse::onHasMsg(const char* pMsg) const
         strcmp(pMsg, "ViewAxo") == 0 ||
         strcmp(pMsg, "Orthographic") == 0 ||
         strcmp(pMsg, "Perspective") == 0 ||
-        strcmp(pMsg, "DumpInfo") == 0) {
+        strcmp(pMsg, "DumpInfo") == 0 ||
+        strncmp(pMsg, "SetCamera", 9) == 0) {
         return true;
     }
     
     return false;
+}
+
+// Parse Inventor ASCII camera string and apply to OsgVerse viewer.
+// Format: "PerspectiveCamera { position X Y Z  orientation X Y Z W
+//          nearDistance N  farDistance F  focalDistance D  heightAngle A }"
+// or OrthographicCamera with "height" instead of "heightAngle".
+bool View3DOsgVerse::setCamera(const char* pCamera)
+{
+    if (!_viewer || !pCamera) {
+        return false;
+    }
+
+    std::string camStr(pCamera);
+
+    // Determine camera type
+    bool isOrtho = (camStr.find("OrthographicCamera") != std::string::npos);
+
+    // Helper to extract a float field value
+    auto extractFloat = [&](const char* field) -> float {
+        std::string::size_type pos = camStr.find(field);
+        if (pos == std::string::npos) return 0.0f;
+        pos += std::strlen(field);
+        while (pos < camStr.size() && std::isspace(camStr[pos])) pos++;
+        return std::stof(camStr.substr(pos));
+    };
+
+    // Extract position (3 floats)
+    auto extractVec3 = [&](const char* field, float& x, float& y, float& z) {
+        std::string::size_type pos = camStr.find(field);
+        if (pos == std::string::npos) return;
+        pos += std::strlen(field);
+        std::istringstream iss(camStr.substr(pos));
+        iss >> x >> y >> z;
+    };
+
+    // Extract orientation (4 floats: axis x,y,z + angle in radians)
+    auto extractOrientation = [&](float& ax, float& ay, float& az, float& angle) {
+        std::string::size_type pos = camStr.find("orientation");
+        if (pos == std::string::npos) return;
+        pos += std::strlen("orientation");
+        std::istringstream iss(camStr.substr(pos));
+        iss >> ax >> ay >> az >> angle;
+    };
+
+    float px = 0, py = 0, pz = 0;
+    extractVec3("position", px, py, pz);
+
+    float ax = 0, ay = 0, az = 1, angle = 0;
+    extractOrientation(ax, ay, az, angle);
+
+    float focalDist = extractFloat("focalDistance");
+
+    // Convert Coin3D orientation (axis-angle) to camera direction
+    // Coin3D default camera looks along -Z with Y up.
+    // The orientation rotates from this default.
+    osg::Quat coinRot(angle, osg::Vec3d(ax, ay, az));
+
+    // Coin3D camera: default forward = -Z, default up = Y
+    osg::Vec3d defaultForward(0, 0, -1);
+    osg::Vec3d defaultUp(0, 1, 0);
+
+    osg::Vec3d forward = coinRot * defaultForward;
+    osg::Vec3d up = coinRot * defaultUp;
+
+    // Compute eye and center
+    osg::Vec3d eye(px, py, pz);
+    osg::Vec3d center = eye + forward * static_cast<double>(focalDist);
+
+    // Apply to OsgVerse viewer via CameraParams
+    Gui::View3D::CameraParams params = _viewer->getCamera();
+    params.position.x = static_cast<float>(eye.x());
+    params.position.y = static_cast<float>(eye.y());
+    params.position.z = static_cast<float>(eye.z());
+    params.target.x = static_cast<float>(center.x());
+    params.target.y = static_cast<float>(center.y());
+    params.target.z = static_cast<float>(center.z());
+    params.upVector.x = static_cast<float>(up.x());
+    params.upVector.y = static_cast<float>(up.y());
+    params.upVector.z = static_cast<float>(up.z());
+
+    if (!isOrtho) {
+        float heightAngle = extractFloat("heightAngle");
+        if (heightAngle > 0.01f) {
+            // Convert radians to degrees
+            params.fieldOfView = heightAngle * 180.0f / static_cast<float>(M_PI);
+        }
+    }
+
+    _viewer->setCamera(params);
+
+    // Cancel deferred fitAll — we have explicit camera settings from the document
+    auto* osgViewer = dynamic_cast<Gui::Render::OsgVerseViewer*>(
+        static_cast<Gui::View3D::IViewer3D*>(_viewer.get()));
+    if (osgViewer) {
+        osgViewer->cancelPendingFitAll();
+    }
+
+    Base::Console().message("OsgVerse: SetCamera -> eye=(%.1f,%.1f,%.1f) center=(%.1f,%.1f,%.1f) focalDist=%.1f\n",
+        eye.x(), eye.y(), eye.z(), center.x(), center.y(), center.z(), focalDist);
+
+    return true;
 }
 
 void View3DOsgVerse::print()

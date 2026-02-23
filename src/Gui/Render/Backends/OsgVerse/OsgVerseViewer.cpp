@@ -37,6 +37,7 @@
 #include "OsgVerseLight.h"
 #include "OsgVerseNaviCube.h"
 #include "OsgVerseShaderManager.h"
+#include "OsgVerseSelection.h"
 #include <osgViewer/Viewer>
 #include <osgViewer/GraphicsWindow>
 #include <osgGA/TrackballManipulator>
@@ -95,6 +96,7 @@ OsgVerseViewer::~OsgVerseViewer()
     _viewProviders.clear();
     _nodeToVPMap.clear();
     _vpToNodeMap.clear();
+    _vpToSelectionRoot.clear();
 
     // Stop viewer
     if (_viewer) {
@@ -308,7 +310,60 @@ void OsgVerseViewer::resetCamera()
 
 void OsgVerseViewer::fitAll()
 {
-    if (_viewer) {
+    if (!_viewer || !_engine) {
+        return;
+    }
+
+    osg::Group* sceneRoot = _engine->getOsgSceneRoot();
+    if (!sceneRoot || sceneRoot->getNumChildren() == 0) {
+        return;
+    }
+
+    // Compute actual scene bounding box
+    osg::ComputeBoundsVisitor cbv;
+    sceneRoot->accept(cbv);
+    osg::BoundingBox bb = cbv.getBoundingBox();
+
+    if (!bb.valid()) {
+        _viewer->home();
+        return;
+    }
+
+    osg::BoundingSphere bs;
+    bs.expandBy(bb);
+    float radius = bs.radius();
+
+    if (radius < 1e-6f) {
+        _viewer->home();
+        return;
+    }
+
+    // Position camera via TrackballManipulator — isometric view matching Coin3D
+    osgGA::TrackballManipulator* manip =
+        dynamic_cast<osgGA::TrackballManipulator*>(_viewer->getCameraManipulator());
+    if (manip) {
+        double dist = static_cast<double>(radius) * 2.5;
+        osg::Vec3d center = bs.center();
+
+        // FreeCAD isometric view: camera at (1, -1, 1) direction from center, Z-up
+        osg::Vec3d eyeDir(1.0, -1.0, 1.0);
+        eyeDir.normalize();
+        osg::Vec3d eye = center + eyeDir * dist;
+        osg::Vec3d up(0.0, 0.0, 1.0);
+
+        // Use the same approach as setCamera(): set center/distance/rotation via Manipulator
+        manip->setCenter(center);
+        manip->setDistance(dist);
+
+        osg::Matrixd viewMatrix;
+        viewMatrix.makeLookAt(eye, center, up);
+        osg::Matrixd rotMatrix = viewMatrix;
+        rotMatrix.setTrans(0, 0, 0);
+        manip->setRotation(rotMatrix.getRotate().inverse());
+
+        Base::Console().message("OsgVerse: fitAll -> center=(%.1f,%.1f,%.1f) dist=%.1f\n",
+            center.x(), center.y(), center.z(), dist);
+    } else {
         _viewer->home();
     }
 }
@@ -737,6 +792,16 @@ void OsgVerseViewer::initializeWidget()
     Base::Console().log("OsgVerseViewer::initializeWidget: Creating widget...\n");
     _widget = new ViewerWidget(this, _viewer, _graphicsWindow.get());
     Base::Console().log("OsgVerseViewer::initializeWidget: Widget created successfully\n");
+
+    // 应用存储的回调 / Apply stored callbacks
+    if (_storedMouseEventCallback) {
+        _widget->setMouseEventCallback(_storedMouseEventCallback);
+        Base::Console().log("OsgVerseViewer::initializeWidget: Applied stored mouse callback\n");
+    }
+    if (_storedKeyEventCallback) {
+        _widget->setKeyEventCallback(_storedKeyEventCallback);
+        Base::Console().log("OsgVerseViewer::initializeWidget: Applied stored key callback\n");
+    }
 }
 
 void OsgVerseViewer::setupDefaultCamera()
@@ -761,13 +826,13 @@ void OsgVerseViewer::setupDefaultCamera()
     // 视场角：更宽的视野（60 度）
     // 近裁剪面：足够远，能容纳场景中的物体
 
-    _cameraParams.position = Vec3f(0.0f, -8.0f, 12.0f);  // 后退 8 单位，上方 12 单位
-    _cameraParams.target = Vec3f(0.0f, 0.0f, 0.0f);        // 看向原点
-    _cameraParams.upVector = Vec3f(0.0f, 1.0f, 0.0f);       // Y 轴向上
-    _cameraParams.fieldOfView = 60.0f;                          // 60 度视场角（更宽）
-    _cameraParams.aspectRatio = 1.333f;                        // 宽高比
-    _cameraParams.nearPlane = 0.1f;                             // 近裁剪面距离（100mm）
-    _cameraParams.farPlane = 1000.0f;
+    _cameraParams.position = Vec3f(0.0f, -8.0f, 12.0f);
+    _cameraParams.target = Vec3f(0.0f, 0.0f, 0.0f);
+    _cameraParams.upVector = Vec3f(0.0f, 1.0f, 0.0f);
+    _cameraParams.fieldOfView = 45.0f;  // Match Coin3D's default heightAngle (pi/4)
+    _cameraParams.aspectRatio = 1.333f;
+    _cameraParams.nearPlane = 0.1f;
+    _cameraParams.farPlane = 100000.0f;
 
     // Apply camera parameters
     camera->setProjectionMatrixAsPerspective(
@@ -776,6 +841,11 @@ void OsgVerseViewer::setupDefaultCamera()
         _cameraParams.nearPlane,
         _cameraParams.farPlane
     );
+
+    // Let OSG auto-compute near/far planes based on scene bounding volumes each frame.
+    // Critical for large scenes (e.g. ArchDetail with radius ~124000 units).
+    camera->setComputeNearFarMode(osg::CullSettings::COMPUTE_NEAR_FAR_USING_BOUNDING_VOLUMES);
+    camera->setNearFarRatio(0.00005);
 
     camera->setClearColor(osg::Vec4(_backgroundColor.r, _backgroundColor.g, _backgroundColor.b, _backgroundColor.a));
     camera->setClearMask(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -975,12 +1045,22 @@ void OsgVerseViewer::ViewerWidget::paintGL()
             GLuint defaultFboId = this->defaultFramebufferObject();
             _graphicsWindow->setDefaultFboId(defaultFboId);
             _firstFrame = false;
-            Base::Console().log("OsgVerseViewer::ViewerWidget::paintGL: Set default FBO ID: %u\n", defaultFboId);
         }
+
         _viewer->frame();
 
+        // Deferred fitAll: wait until scene actually has geometry
+        if (_osgVerseViewer && _osgVerseViewer->_pendingFitAll) {
+            osg::Group* root = _osgVerseViewer->_engine
+                ? _osgVerseViewer->_engine->getOsgSceneRoot() : nullptr;
+            if (root && root->getNumChildren() > 2) {
+                // Scene has more than just lights — geometry has been added
+                _osgVerseViewer->fitAll();
+                _osgVerseViewer->_pendingFitAll = false;
+            }
+        }
+
         // Draw NaviCube AFTER main scene (so it appears on top)
-        // OpenGL context is active here
         if (_osgVerseViewer && _osgVerseViewer->_naviCube && _osgVerseViewer->_naviCubeEnabled) {
             _osgVerseViewer->_naviCube->draw();
         }
@@ -1022,6 +1102,12 @@ void OsgVerseViewer::ViewerWidget::mousePressEvent(QMouseEvent* event)
         return;
     }
 
+    // Check adapter callback (for selection tracking press position)
+    if (_mouseEventCallback) {
+        _mouseEventCallback(event);
+        // Don't return - always forward press to OSG for camera manipulation
+    }
+
     if (_graphicsWindow.valid()) {
         const float dpr = devicePixelRatio();
         float x = static_cast<float>(event->position().x()) * dpr;
@@ -1050,6 +1136,12 @@ void OsgVerseViewer::ViewerWidget::mouseReleaseEvent(QMouseEvent* event)
         event->accept();
         update();
         return;
+    }
+
+    // Check adapter callback (for selection on click)
+    if (_mouseEventCallback) {
+        _mouseEventCallback(event);
+        // Don't return - always forward release to OSG
     }
 
     if (_graphicsWindow.valid()) {
@@ -1082,6 +1174,12 @@ void OsgVerseViewer::ViewerWidget::mouseMoveEvent(QMouseEvent* event)
         return;
     }
 
+    // Check adapter callback (for preselection on hover)
+    if (_mouseEventCallback) {
+        _mouseEventCallback(event);
+        // Don't return - always forward move to OSG for camera manipulation
+    }
+
     // 正常处理场景鼠标移动
     // Handle normal scene mouse movement
     if (_graphicsWindow.valid()) {
@@ -1112,6 +1210,13 @@ void OsgVerseViewer::ViewerWidget::wheelEvent(QWheelEvent* event)
 
 void OsgVerseViewer::ViewerWidget::keyPressEvent(QKeyEvent* event)
 {
+    // Check adapter callback (for ESC to exit edit mode)
+    if (_keyEventCallback && _keyEventCallback(event)) {
+        event->accept();
+        update();
+        return;
+    }
+
     if (_graphicsWindow.valid()) {
         _graphicsWindow->getEventQueue()->keyPress(event->key());
     }
@@ -1186,6 +1291,11 @@ void OsgVerseViewer::ensureInitialized()
             // NaviCube 创建失败不应阻止整个初始化
             // NaviCube creation failure should not block overall initialization
         }
+
+        // 创建拾取服务 / Create picking service
+        _pickingService = std::make_unique<OsgVersePickingService>();
+        _pickingService->setOsgVerseViewer(this);
+        Base::Console().log("OsgVerseViewer: PickingService created\n");
 
         _initialized = true;
         Base::Console().log("OsgVerseViewer: Lazy initialization completed successfully\n");
@@ -1331,12 +1441,12 @@ void OsgVerseViewer::setPresetView(PresetView view)
         Vec3d targetVec(target.x(), target.y(), target.z());
         startCameraAnimation(eyeVec, targetVec);
     } else {
-        // 直接设置相机位置
-        // Set camera position directly
-        camera->setViewMatrixAsLookAt(eye, target, up);
-        _cameraParams.position = Vec3f(static_cast<float>(eye.x()), static_cast<float>(eye.y()), static_cast<float>(eye.z()));
-        _cameraParams.target = Vec3f(static_cast<float>(target.x()), static_cast<float>(target.y()), static_cast<float>(target.z()));
-        _cameraParams.up = Vec3f(static_cast<float>(up.x()), static_cast<float>(up.y()), static_cast<float>(up.z()));
+        // Set camera through Manipulator (never set Camera ViewMatrix directly)
+        CameraParams params = _cameraParams;
+        params.position = Vec3f(static_cast<float>(eye.x()), static_cast<float>(eye.y()), static_cast<float>(eye.z()));
+        params.target = Vec3f(static_cast<float>(target.x()), static_cast<float>(target.y()), static_cast<float>(target.z()));
+        params.upVector = Vec3f(static_cast<float>(up.x()), static_cast<float>(up.y()), static_cast<float>(up.z()));
+        setCamera(params);
     }
 
     Base::Console().log("OsgVerseViewer: Switched to preset view %d\n", static_cast<int>(view));
@@ -1515,6 +1625,9 @@ void OsgVerseViewer::addViewProvider(Gui::ViewProvider* vp)
         return;
     }
 
+    // Ensure engine is initialized before adding VPs
+    ensureInitialized();
+
     // 检查是否已存在
     // Check if already exists
     if (_viewProviders.find(vp) != _viewProviders.end()) {
@@ -1525,8 +1638,10 @@ void OsgVerseViewer::addViewProvider(Gui::ViewProvider* vp)
     // 尝试获取对象名称 (getNameInDocument() can return nullptr during document restore)
     // Try to get object name
     std::string objName = "ViewProvider";
+    std::string objTypeName = "Unknown";
     if (auto* vpDoc = dynamic_cast<Gui::ViewProviderDocumentObject*>(vp)) {
         if (vpDoc->getObject()) {
+            objTypeName = vpDoc->getObject()->getTypeId().getName();
             const char* name = vpDoc->getObject()->getNameInDocument();
             if (name) {
                 objName = name;
@@ -1534,7 +1649,7 @@ void OsgVerseViewer::addViewProvider(Gui::ViewProvider* vp)
         }
     }
 
-    Base::Console().log("OsgVerseViewer::addViewProvider: Adding ViewProvider for %s\n", objName.c_str());
+    Base::Console().log("OsgVerse: Adding VP '%s' (type: %s)\n", objName.c_str(), objTypeName.c_str());
 
     // 添加到集合
     // Add to set
@@ -1556,15 +1671,32 @@ void OsgVerseViewer::addViewProvider(Gui::ViewProvider* vp)
     if (auto* vpDoc = dynamic_cast<Gui::ViewProviderDocumentObject*>(vp)) {
         App::DocumentObject* obj = vpDoc->getObject();
         if (obj) {
-            // Check for "Shape" property (present on Part::Feature and derived objects)
+            // Try "Shape" property first, then GeoFeature::getPropertyOfGeometry() fallback
+            const App::PropertyComplexGeoData* geoDataProp = nullptr;
             App::Property* shapeProp = obj->getPropertyByName("Shape");
-            auto* geoDataProp = dynamic_cast<App::PropertyComplexGeoData*>(shapeProp);
+            if (shapeProp) {
+                geoDataProp = dynamic_cast<App::PropertyComplexGeoData*>(shapeProp);
+                if (!geoDataProp) {
+                    Base::Console().log("  '%s': Shape property exists but is not PropertyComplexGeoData (type: %s)\n",
+                                        objName.c_str(), shapeProp->getTypeId().getName());
+                }
+            }
+            if (!geoDataProp) {
+                // Fallback: use GeoFeature::getPropertyOfGeometry()
+                if (auto* geoFeature = dynamic_cast<App::GeoFeature*>(obj)) {
+                    geoDataProp = geoFeature->getPropertyOfGeometry();
+                    if (geoDataProp) {
+                        Base::Console().log("  '%s': Using GeoFeature::getPropertyOfGeometry() fallback\n", objName.c_str());
+                    }
+                }
+            }
+            if (!geoDataProp) {
+                Base::Console().log("  '%s': No geometry property found\n", objName.c_str());
+            }
 
             if (geoDataProp) {
                 const Data::ComplexGeoData* geoData = geoDataProp->getComplexData();
                 if (geoData) {
-                    Base::Console().log("OsgVerseViewer::addViewProvider: Getting mesh for %s via ComplexGeoData\n", objName.c_str());
-
                     try {
                         // Get material list for color info
                         auto* matListProp = dynamic_cast<App::PropertyMaterialList*>(
@@ -1810,34 +1942,72 @@ void OsgVerseViewer::addViewProvider(Gui::ViewProvider* vp)
                     } catch (...) {
                         Base::Console().error("OsgVerseViewer::addViewProvider: Unknown exception during geometry conversion\n");
                     }
+                } else {
+                    Base::Console().log("  '%s': getComplexData() returned null\n", objName.c_str());
                 }
             }
+        } else {
+            Base::Console().log("  '%s': vpDoc->getObject() returned null\n", objName.c_str());
         }
+    } else {
+        Base::Console().log("  VP is not a ViewProviderDocumentObject\n");
     }
 
     // Skip ViewProviders without geometry (FEM constraints, analysis containers, etc.)
     if (!hasGeometry) {
-        Base::Console().log("OsgVerseViewer::addViewProvider: No geometry for %s, skipping\n", objName.c_str());
-        _viewProviders.erase(vp);
+        // Don't erase from _viewProviders - geometry may arrive later via property change
         return;
     }
 
-    // 添加到场景图
-    // Add to scene graph
+    // 添加到场景图（通过 SelectionRoot 包裹）
+    // Add to scene graph (wrapped in SelectionRoot)
     if (_engine) {
         osg::Group* sceneRoot = _engine->getOsgSceneRoot();
         if (sceneRoot) {
-            sceneRoot->addChild(vpGroup);
-            Base::Console().log("OsgVerseViewer::addViewProvider: Added to scene graph\n");
+            // Create SelectionRoot wrapper
+            osg::ref_ptr<OsgVerseSelectionRoot> selRoot = new OsgVerseSelectionRoot();
+            selRoot->setName(objName + "_Selection");
+            selRoot->setPreselectionColor(0.9f, 0.9f, 0.0f);  // Yellow preselection
+            selRoot->setSelectionColor(0.0f, 0.8f, 0.0f);      // Green selection
+
+            // Get the underlying osg::Group from SelectionRoot
+            osg::Group* selOsgGroup = selRoot->getOsgGroup();
+            if (selOsgGroup) {
+                selOsgGroup->addChild(vpGroup);
+
+                // Respect VP visibility — hide node if VP is not visible
+                // (e.g., construction geometry like Wires, Rectangles in Arch)
+                if (!vp->isVisible()) {
+                    selOsgGroup->setNodeMask(0x0);
+                }
+
+                sceneRoot->addChild(selOsgGroup);
+
+                // Save mappings
+                _vpToNodeMap[vp] = selOsgGroup;
+                _nodeToVPMap[selOsgGroup] = vp;
+                _nodeToVPMap[vpGroup.get()] = vp;
+                _vpToSelectionRoot[vp] = selRoot.get();
+
+                Base::Console().log("  '%s': Added to scene graph (sceneRoot now has %u children)\n",
+                                    objName.c_str(), sceneRoot->getNumChildren());
+            } else {
+                // Fallback: add directly without SelectionRoot
+                if (!vp->isVisible()) {
+                    vpGroup->setNodeMask(0x0);
+                }
+                sceneRoot->addChild(vpGroup);
+                _vpToNodeMap[vp] = vpGroup;
+                _nodeToVPMap[vpGroup.get()] = vp;
+            }
+        } else {
+            Base::Console().error("  '%s': _engine->getOsgSceneRoot() returned null!\n", objName.c_str());
         }
+    } else {
+        Base::Console().error("  '%s': _engine is null! Geometry created but NOT added to scene!\n", objName.c_str());
     }
 
-    // 保存映射
-    // Save mapping
-    _vpToNodeMap[vp] = vpGroup;
-    _nodeToVPMap[vpGroup.get()] = vp;
-
-    Base::Console().log("OsgVerseViewer::addViewProvider: Complete\n");
+    Base::Console().log("OsgVerseViewer::addViewProvider: Complete for '%s'\n", objName.c_str());
 
   } catch (const std::exception& e) {
     Base::Console().error("OsgVerseViewer::addViewProvider: CAUGHT exception for %s: %s\n",
@@ -1877,8 +2047,18 @@ void OsgVerseViewer::removeViewProvider(Gui::ViewProvider* vp)
         // 清理映射
         // Clean up mappings
         _nodeToVPMap.erase(node);
+        // Also erase child vpGroup if it was mapped
+        osg::Group* group = node->asGroup();
+        if (group) {
+            for (unsigned int i = 0; i < group->getNumChildren(); ++i) {
+                _nodeToVPMap.erase(group->getChild(i));
+            }
+        }
         _vpToNodeMap.erase(it);
     }
+
+    // Clean up SelectionRoot mapping
+    _vpToSelectionRoot.erase(vp);
 
     // 从集合中移除
     // Remove from set
@@ -1909,4 +2089,66 @@ bool OsgVerseViewer::hasViewProvider(Gui::ViewProvider* vp) const
 std::vector<Gui::ViewProvider*> OsgVerseViewer::getViewProviders() const
 {
     return std::vector<Gui::ViewProvider*>(_viewProviders.begin(), _viewProviders.end());
+}
+
+Gui::ViewProvider* OsgVerseViewer::getViewProviderByNode(osg::Node* node) const
+{
+    if (!node) return nullptr;
+
+    // Direct lookup first
+    auto it = _nodeToVPMap.find(node);
+    if (it != _nodeToVPMap.end()) {
+        return it->second;
+    }
+
+    // Try parent chain (for child geodes/geometries inside a VP group)
+    for (unsigned int i = 0; i < node->getNumParents(); ++i) {
+        osg::Group* parent = node->getParent(i);
+        auto pit = _nodeToVPMap.find(parent);
+        if (pit != _nodeToVPMap.end()) {
+            return pit->second;
+        }
+        // One more level up (SelectionRoot -> vpGroup -> geode)
+        if (parent) {
+            for (unsigned int j = 0; j < parent->getNumParents(); ++j) {
+                auto gpit = _nodeToVPMap.find(parent->getParent(j));
+                if (gpit != _nodeToVPMap.end()) {
+                    return gpit->second;
+                }
+            }
+        }
+    }
+    return nullptr;
+}
+
+OsgVerseSelectionRoot* OsgVerseViewer::getSelectionRootForVP(Gui::ViewProvider* vp) const
+{
+    if (!vp) return nullptr;
+    auto it = _vpToSelectionRoot.find(vp);
+    if (it != _vpToSelectionRoot.end()) {
+        return it->second.get();
+    }
+    return nullptr;
+}
+
+void OsgVerseViewer::setMouseEventCallback(std::function<bool(QMouseEvent*)> cb)
+{
+    _storedMouseEventCallback = std::move(cb);
+    if (_widget) {
+        _widget->setMouseEventCallback(_storedMouseEventCallback);
+        Base::Console().log("OsgVerseViewer::setMouseEventCallback: Applied to existing widget\n");
+    } else {
+        Base::Console().log("OsgVerseViewer::setMouseEventCallback: Stored for later application\n");
+    }
+}
+
+void OsgVerseViewer::setKeyEventCallback(std::function<bool(QKeyEvent*)> cb)
+{
+    _storedKeyEventCallback = std::move(cb);
+    if (_widget) {
+        _widget->setKeyEventCallback(_storedKeyEventCallback);
+        Base::Console().log("OsgVerseViewer::setKeyEventCallback: Applied to existing widget\n");
+    } else {
+        Base::Console().log("OsgVerseViewer::setKeyEventCallback: Stored for later application\n");
+    }
 }

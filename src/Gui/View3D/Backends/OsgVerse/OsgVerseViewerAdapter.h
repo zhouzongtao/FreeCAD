@@ -26,7 +26,9 @@
 #ifdef RENDER_HAS_OSGVERSE_BACKEND
 
 #include <memory>
+#include <QPoint>
 #include <Gui/View3D/IViewer3D.h>
+#include <Gui/Selection/Selection.h>
 #include <Gui/Render/Backends/OsgVerse/OsgVerseViewer.h>
 
 class QOpenGLWidget;
@@ -41,7 +43,7 @@ namespace OsgVerse {
  * This adapter allows OsgVerseViewer (which implements RenderViewer) to be used
  * wherever IViewer3D is expected, following the same pattern as CoinViewer.
  */
-class GuiExport OsgVerseViewerAdapter : public IViewer3D {
+class GuiExport OsgVerseViewerAdapter : public IViewer3D, private Gui::SelectionObserver {
 public:
     /**
      * @brief Constructor
@@ -143,7 +145,27 @@ public:
     bool saveScreenshot(const QString& filename, int width = 0, int height = 0) override;
 
 private:
+    // SelectionObserver interface
+    void onSelectionChanged(const Gui::SelectionChanges& msg) override;
+
+    // Internal helpers
+    void setupEventCallbacks();
+    Gui::ViewProvider* resolveViewProvider(const char* docName, const char* objName) const;
+
     std::unique_ptr<Render::OsgVerseViewer> _viewer;  ///< The wrapped OsgVerseViewer instance
+
+    // Selection state
+    Gui::ViewProvider* _preselectedVP{nullptr};
+    SelectionMode _selectionMode{SelectionMode::None};
+
+    // Edit mode state
+    Gui::ViewProvider* _editingVP{nullptr};
+    int _editMode{0};
+
+    // Mouse tracking for click vs drag detection
+    QPoint _mousePressPos;
+    bool _mousePressed{false};
+    bool _callbacksSetup{false};
 };
 
 } // namespace OsgVerse

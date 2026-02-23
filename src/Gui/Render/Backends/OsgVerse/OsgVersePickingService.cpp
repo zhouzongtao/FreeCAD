@@ -156,6 +156,26 @@ PickResults OsgVersePickingService::pick(int screenX, int screenY,
             result.vertexIndex = static_cast<int>(intersection.indexList[0]);
         }
 
+        // Resolve ViewProvider from nodePath
+        if (_osgViewer) {
+            const osg::NodePath& nodePath = intersection.nodePath;
+            for (auto it = nodePath.rbegin(); it != nodePath.rend(); ++it) {
+                ViewProvider* vp = _osgViewer->getViewProviderByNode(*it);
+                if (vp) {
+                    result.viewProvider = vp;
+                    // Generate sub-element name from face index
+                    if (result.type == PickType::Face && result.faceIndex >= 0) {
+                        result.elementName = "Face" + std::to_string(result.faceIndex + 1);
+                    } else if (result.type == PickType::Edge && result.edgeIndex >= 0) {
+                        result.elementName = "Edge" + std::to_string(result.edgeIndex + 1);
+                    } else if (result.type == PickType::Vertex && result.vertexIndex >= 0) {
+                        result.elementName = "Vertex" + std::to_string(result.vertexIndex + 1);
+                    }
+                    break;
+                }
+            }
+        }
+
         // Check pick type filters
         if (result.type == PickType::Face && !options.pickFaces) continue;
         if (result.type == PickType::Edge && !options.pickEdges) continue;

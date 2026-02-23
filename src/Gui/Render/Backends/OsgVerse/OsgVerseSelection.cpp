@@ -55,6 +55,9 @@ void OsgVerseSelectionRoot::setSelectionState(SelectionState state)
         return;
     }
 
+    Base::Console().log("OsgVerseSelectionRoot::setSelectionState: %d -> %d\n",
+                        static_cast<int>(_selectionState), static_cast<int>(state));
+
     _selectionState = state;
     updateHighlight();
 }
@@ -114,13 +117,24 @@ void OsgVerseSelectionRoot::updateHighlight()
 {
     osg::Group* group = getOsgGroup();
     if (!group) {
+        Base::Console().warning("OsgVerseSelectionRoot::updateHighlight: No osg::Group!\n");
         return;
     }
 
+    Base::Console().log("OsgVerseSelectionRoot::updateHighlight: state=%d, mode=%d\n",
+                        static_cast<int>(_selectionState), static_cast<int>(_highlightMode));
+
     if (_selectionState == SelectionState::None) {
-        // 移除高亮
+        // 移除高亮 - 恢复原始 uniform
         removeOutlineEffect();
+
+        // 清除 highlight uniform，恢复原始颜色
+        if (_highlightStateSet) {
+            _highlightStateSet->removeUniform("u_baseColor");
+            _highlightStateSet->removeUniform("u_colorMode");
+        }
         group->setStateSet(nullptr);
+        Base::Console().log("OsgVerseSelectionRoot::updateHighlight: Cleared highlight\n");
         return;
     }
 
@@ -131,12 +145,16 @@ void OsgVerseSelectionRoot::updateHighlight()
             return;
         }
         highlightColor = _selectionColor;
+        Base::Console().log("OsgVerseSelectionRoot::updateHighlight: Selection color (%.2f, %.2f, %.2f)\n",
+                           highlightColor.r(), highlightColor.g(), highlightColor.b());
     }
     else if (_selectionState == SelectionState::Preselected) {
         if (!_preselectionEnabled) {
             return;
         }
         highlightColor = _preselectionColor;
+        Base::Console().log("OsgVerseSelectionRoot::updateHighlight: Preselection color (%.2f, %.2f, %.2f)\n",
+                           highlightColor.r(), highlightColor.g(), highlightColor.b());
     }
 
     // 根据高亮模式应用效果
@@ -152,13 +170,17 @@ void OsgVerseSelectionRoot::updateHighlight()
     }
 
     if (_highlightMode == HighlightMode::Color || _highlightMode == HighlightMode::Both) {
-        // 颜色高亮 - 使用 Material
-        osg::ref_ptr<osg::Material> material = new osg::Material();
-        material->setEmission(osg::Material::FRONT_AND_BACK, highlightColor * 0.3f);
-        material->setAmbient(osg::Material::FRONT_AND_BACK, highlightColor * 0.5f);
-        material->setDiffuse(osg::Material::FRONT_AND_BACK, highlightColor);
-        _highlightStateSet->setAttributeAndModes(material.get(),
-            osg::StateAttribute::ON | osg::StateAttribute::OVERRIDE);
+        // 颜色高亮 - 使用 uniform (macOS GL 2.1 兼容方式)
+        // 注意：shader 使用 u_baseColor 和 u_colorMode
+        osg::ref_ptr<osg::Uniform> baseColorUniform = new osg::Uniform("u_baseColor", highlightColor);
+        _highlightStateSet->addUniform(baseColorUniform.get());
+
+        // u_colorMode = 0 表示使用 uniform 颜色
+        osg::ref_ptr<osg::Uniform> colorModeUniform = new osg::Uniform("u_colorMode", 0);
+        _highlightStateSet->addUniform(colorModeUniform.get());
+
+        // 设置 OVERRIDE 确保这个 StateSet 覆盖子节点的设置
+        _highlightStateSet->setRenderBinDetails(10, "RenderBin");
     }
 
     if (_highlightMode == HighlightMode::Outline || _highlightMode == HighlightMode::Both) {
@@ -169,6 +191,7 @@ void OsgVerseSelectionRoot::updateHighlight()
     }
 
     group->setStateSet(_highlightStateSet.get());
+    Base::Console().log("OsgVerseSelectionRoot::updateHighlight: Applied StateSet to group\n");
 }
 
 void OsgVerseSelectionRoot::applyOutlineEffect()

@@ -2391,6 +2391,10 @@ MDIView* Document::createView(const Base::Type& typeId, CreateViewMode mode)
             for (App::DocumentObject* obj : child_vps) {
                 viewer->removeViewProvider(getViewProvider(obj));
             }
+
+            // Fit camera to scene after all VPs are added
+            Base::Console().log("Document::createView: Calling viewAll() after adding VPs to OsgVerse view\n");
+            viewer->viewAll();
         }
 
         // Set window title
