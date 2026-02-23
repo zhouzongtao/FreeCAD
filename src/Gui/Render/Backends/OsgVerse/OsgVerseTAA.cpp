@@ -25,6 +25,8 @@
 #ifndef _PreComp_
 # include <osg/StateSet>
 # include <osg/Uniform>
+# include <osg/Camera>
+# include <osg/Vec2>
 #endif
 
 #include "OsgVerseTAA.h"

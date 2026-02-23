@@ -28,6 +28,10 @@
 # include <osg/Uniform>
 # include <osg/BlendFunc>
 # include <osg/Depth>
+# include <osg/Geode>
+# include <osg/Geometry>
+# include <osg/Camera>
+# include <osg/Texture2D>
 #endif
 
 #include "OsgVersePostProcessing.h"
@@ -118,6 +122,13 @@ void PostProcessPass::setUniform(const std::string& name, float value)
 }
 
 void PostProcessPass::setUniform(const std::string& name, int value)
+{
+    if (_camera) {
+        _camera->getOrCreateStateSet()->addUniform(new osg::Uniform(name.c_str(), value));
+    }
+}
+
+void PostProcessPass::setUniform(const std::string& name, const osg::Vec2f& value)
 {
     if (_camera) {
         _camera->getOrCreateStateSet()->addUniform(new osg::Uniform(name.c_str(), value));

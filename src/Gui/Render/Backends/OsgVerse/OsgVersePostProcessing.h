@@ -84,6 +84,9 @@ public:
     /// Set an int uniform
     void setUniform(const std::string& name, int value);
 
+    /// Set a Vec2f uniform
+    void setUniform(const std::string& name, const osg::Vec2f& value);
+
     /// Resize the pass
     void resize(int width, int height);
 

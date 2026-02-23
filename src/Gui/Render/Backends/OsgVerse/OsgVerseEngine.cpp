@@ -48,7 +48,7 @@
 #include <osg/Texture2D>
 #include <osg/Array>
 #include <osg/Stats>
-#include <osg/DrawElements>
+#include <osg/PrimitiveSet>
 #include <osgViewer/Viewer>
 #include <osgDB/Registry>
 
@@ -202,8 +202,7 @@ private:
             auto* pset = geom->getPrimitiveSet(i);
             if (auto* drawElements = dynamic_cast<const osg::DrawElements*>(pset)) {
                 // Index buffer size
-                vboMemory += static_cast<uint64_t>(drawElements->getNumIndices())
-                             * drawElements->getElementSize();
+                vboMemory += static_cast<uint64_t>(drawElements->getTotalDataSize());
             }
         }
     }
