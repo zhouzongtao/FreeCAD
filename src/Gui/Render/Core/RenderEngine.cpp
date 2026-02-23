@@ -203,23 +203,23 @@ BackendInfo RenderEngineFactory::getEngineInfo(BackendType type) const
 BackendType RenderEngineFactory::selectBestEngine() const
 {
     // 优先级顺序 / Priority order:
-    // 1. Coin3D（稳定的默认后端）
-    // 2. OsgVerse（实验性后端，需手动切换）
+    // 1. OsgVerse（现代渲染后端，支持 PBR/阴影/后处理）
+    // 2. Coin3D（遗留后端，作为 fallback）
     // 3. None（无可用引擎）
 
     Base::Console().log("RenderEngineFactory::selectBestEngine: Selecting best engine...\n");
 
-    // 优先使用 Coin3D / Prefer Coin3D (stable default)
-    if (_creators.find(BackendType::Coin3D) != _creators.end()) {
-        Base::Console().log("RenderEngineFactory::selectBestEngine: Using Coin3D as default\n");
-        return BackendType::Coin3D;
-    }
-
-    // 检查 OsgVerse 是否可用 / Check if OsgVerse is available
+    // 优先使用 OsgVerse / Prefer OsgVerse (modern rendering backend)
     auto osgIt = _creators.find(BackendType::OsgVerse);
     if (osgIt != _creators.end()) {
-        Base::Console().log("RenderEngineFactory::selectBestEngine: Coin3D not available, using OsgVerse\n");
+        Base::Console().log("RenderEngineFactory::selectBestEngine: Using OsgVerse as default\n");
         return BackendType::OsgVerse;
+    }
+
+    // Fallback 到 Coin3D / Fallback to Coin3D (legacy)
+    if (_creators.find(BackendType::Coin3D) != _creators.end()) {
+        Base::Console().log("RenderEngineFactory::selectBestEngine: OsgVerse not available, using Coin3D\n");
+        return BackendType::Coin3D;
     }
 
     Base::Console().warning("RenderEngineFactory::selectBestEngine: No engines available!\n");
