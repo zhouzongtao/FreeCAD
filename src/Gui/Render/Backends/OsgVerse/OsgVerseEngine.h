@@ -30,6 +30,14 @@
 #include "../../Core/RenderEngine.h"
 #include "../../Core/RenderNode.h"
 
+// Forward declaration
+namespace Gui {
+namespace Render {
+class OsgVerseShadowMap;
+class PostProcessChain;
+}
+}
+
 // OsgVerse / OSG 前向声明 / Forward declarations
 namespace osg {
     class Node;
@@ -277,9 +285,17 @@ private:
 
     // 统计信息 / Statistics
     mutable RenderStats _stats;
+    uint32_t _statsUpdateInterval{60};     ///< 场景遍历间隔帧数 / Frames between scene traversals
+    uint32_t _framesSinceLastTraversal{0}; ///< 上次遍历后的帧数 / Frames since last traversal
 
     // 事件回调 / Event callback
     EventCallback _eventCallback;
+
+    // Shadow mapping
+    std::unique_ptr<OsgVerseShadowMap> _shadowMap;
+
+    // Post-processing
+    std::unique_ptr<PostProcessChain> _postProcessChain;
 
     // 初始化状态 / Initialization state
     bool _initialized{false};

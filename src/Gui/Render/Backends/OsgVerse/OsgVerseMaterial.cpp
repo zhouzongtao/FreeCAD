@@ -628,7 +628,6 @@ void OsgVerseMaterial::reset()
 
 void OsgVerseMaterial::updateStateSet()
 {
-    // 应用所有当前参数到 StateSet
     // Apply all current parameters to StateSet
     setBaseColor(_baseColor);
     setMetallic(_metallic);
@@ -642,11 +641,25 @@ void OsgVerseMaterial::updateStateSet()
     setDepthTest(_depthTest);
     setDepthWrite(_depthWrite);
 
-    // 应用shader / Apply shader
+    // Bind texture sampler uniforms to their fixed texture units
+    _stateSet->addUniform(new osg::Uniform("baseColorTexture", 0));
+    _stateSet->addUniform(new osg::Uniform("normalTexture", 1));
+    _stateSet->addUniform(new osg::Uniform("metallicRoughnessTexture", 2));
+    _stateSet->addUniform(new osg::Uniform("occlusionTexture", 3));
+    _stateSet->addUniform(new osg::Uniform("emissiveTexture", 4));
+
+    // Initialize texture presence flags to false
+    _stateSet->addUniform(new osg::Uniform("hasBaseColorTexture", false));
+    _stateSet->addUniform(new osg::Uniform("hasNormalTexture", false));
+    _stateSet->addUniform(new osg::Uniform("hasMetallicRoughnessTexture", false));
+    _stateSet->addUniform(new osg::Uniform("hasOcclusionTexture", false));
+    _stateSet->addUniform(new osg::Uniform("hasEmissiveTexture", false));
+
+    // Apply shader
     auto& shaderMgr = OsgVerseShaderManager::instance();
     shaderMgr.applyShader(_stateSet.get(), _shaderType);
 
-    // 应用光源uniforms / Apply light uniforms
+    // Apply light uniforms
     auto& lightMgr = OsgVerseLightManager::instance();
     lightMgr.updateUniforms(_stateSet.get());
 }

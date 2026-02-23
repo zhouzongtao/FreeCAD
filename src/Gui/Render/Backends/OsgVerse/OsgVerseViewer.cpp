@@ -901,11 +901,11 @@ void OsgVerseViewer::setupDefaultLighting()
     }
 
     // Apply GLSL 1.20 Phong shader globally on the scene root.
-    // Child geometry inherits this shader and overrides u_baseColor per-object.
+    // Child geometry inherits this shader and overrides baseColor per-object.
     OsgVerseShaderManager::instance().applyShader(stateSet, ShaderType::Standard);
 
     // Default base color uniform (child geometry overrides this per-object)
-    stateSet->addUniform(new osg::Uniform("u_baseColor", osg::Vec4(0.8f, 0.8f, 0.9f, 1.0f)));
+    stateSet->addUniform(new osg::Uniform("baseColor", osg::Vec4(0.8f, 0.8f, 0.9f, 1.0f)));
 
     Base::Console().log("OsgVerseViewer::setupDefaultLighting: Default lighting setup complete\n");
 }
@@ -1578,7 +1578,7 @@ void OsgVerseViewer::addViewProvider(Gui::ViewProvider* vp)
                             // === Per-face color path ===
                             // Group faces by color, create separate geometry per color group
                             // (gl_Color with BIND_PER_VERTEX is unreliable on macOS GL 2.1,
-                            //  so we use u_baseColor uniform per geometry instead)
+                            //  so we use baseColor uniform per geometry instead)
                             struct ColorGroup {
                                 osg::Vec4 color;
                                 std::vector<osg::Vec3> vertices;
@@ -1686,7 +1686,7 @@ void OsgVerseViewer::addViewProvider(Gui::ViewProvider* vp)
                                 geometry->addPrimitiveSet(ia.get());
 
                                 osg::StateSet* ss = geometry->getOrCreateStateSet();
-                                ss->addUniform(new osg::Uniform("u_baseColor", grp.color));
+                                ss->addUniform(new osg::Uniform("baseColor", grp.color));
                                 ss->addUniform(new osg::Uniform("u_colorMode", 0));
 
                                 osg::ref_ptr<osg::Material> mat = new osg::Material();
@@ -1773,7 +1773,7 @@ void OsgVerseViewer::addViewProvider(Gui::ViewProvider* vp)
                                 geometry->addPrimitiveSet(indexArray.get());
 
                                 osg::StateSet* stateSet = geometry->getOrCreateStateSet();
-                                stateSet->addUniform(new osg::Uniform("u_baseColor", diffuseColor));
+                                stateSet->addUniform(new osg::Uniform("baseColor", diffuseColor));
                                 stateSet->addUniform(new osg::Uniform("u_colorMode", 0));
 
                                 osg::ref_ptr<osg::Material> material = new osg::Material();

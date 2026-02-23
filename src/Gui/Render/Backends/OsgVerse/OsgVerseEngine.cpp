@@ -22,12 +22,16 @@
 
 #include "PreCompiled.h"
 #ifndef _PreComp_
+#include <set>
 #endif
 
 #include "OsgVerseEngine.h"
 #include "OsgVerseNode.h"
 #include "OsgVerseMaterial.h"
 #include "OsgVerseGeometry.h"
+#include "OsgVerseShadowMap.h"
+#include "OsgVersePostProcessing.h"
+#include "OsgVerseShaderManager.h"
 
 #include <osg/Group>
 #include <osg/MatrixTransform>
@@ -35,10 +39,188 @@
 #include <osg/Camera>
 #include <osg/Light>
 #include <osg/LightSource>
+#include <osg/NodeVisitor>
+#include <osg/Geometry>
+#include <osg/Geode>
+#include <osg/Texture2D>
+#include <osg/Array>
+#include <osg/Stats>
+#include <osg/DrawElements>
 #include <osgViewer/Viewer>
 #include <osgDB/Registry>
 
 using namespace Gui::Render;
+
+namespace {
+
+// Visitor that traverses the scene graph to collect geometry statistics
+class StatsVisitor : public osg::NodeVisitor {
+public:
+    uint32_t nodeCount{0};
+    uint32_t geodeCount{0};
+    uint32_t geometryCount{0};
+    uint32_t vertexCount{0};
+    uint32_t triangleCount{0};
+    uint32_t drawCalls{0};
+
+    StatsVisitor()
+        : osg::NodeVisitor(osg::NodeVisitor::TRAVERSE_ALL_CHILDREN)
+    {}
+
+    void apply(osg::Node& node) override
+    {
+        ++nodeCount;
+        traverse(node);
+    }
+
+    void apply(osg::Geode& geode) override
+    {
+        ++nodeCount;
+        ++geodeCount;
+        for (unsigned int i = 0; i < geode.getNumDrawables(); ++i) {
+            auto* geom = geode.getDrawable(i)->asGeometry();
+            if (geom) {
+                countGeometry(geom);
+            }
+        }
+        traverse(geode);
+    }
+
+    void apply(osg::Group& group) override
+    {
+        ++nodeCount;
+        // Check children that are Drawables attached via osg::Geometry directly
+        for (unsigned int i = 0; i < group.getNumChildren(); ++i) {
+            auto* geode = dynamic_cast<osg::Geode*>(group.getChild(i));
+            if (!geode) {
+                // In newer OSG, Geometry can be a child of Group directly
+                auto* geom = dynamic_cast<osg::Geometry*>(group.getChild(i));
+                if (geom) {
+                    ++nodeCount;
+                    countGeometry(geom);
+                }
+            }
+        }
+        traverse(group);
+    }
+
+private:
+    void countGeometry(osg::Geometry* geom)
+    {
+        ++geometryCount;
+        ++drawCalls;
+
+        if (auto* verts = geom->getVertexArray()) {
+            vertexCount += verts->getNumElements();
+        }
+
+        for (unsigned int i = 0; i < geom->getNumPrimitiveSets(); ++i) {
+            auto* pset = geom->getPrimitiveSet(i);
+            if (!pset) continue;
+
+            switch (pset->getMode()) {
+                case GL_TRIANGLES:
+                    triangleCount += pset->getNumIndices() / 3;
+                    break;
+                case GL_TRIANGLE_STRIP:
+                case GL_TRIANGLE_FAN:
+                    if (pset->getNumIndices() >= 3)
+                        triangleCount += pset->getNumIndices() - 2;
+                    break;
+                case GL_QUADS:
+                    triangleCount += (pset->getNumIndices() / 4) * 2;
+                    break;
+                case GL_QUAD_STRIP:
+                    if (pset->getNumIndices() >= 4)
+                        triangleCount += ((pset->getNumIndices() - 2) / 2) * 2;
+                    break;
+                default:
+                    break;
+            }
+        }
+    }
+};
+
+// Visitor that estimates GPU memory usage from geometry and texture data
+class MemoryVisitor : public osg::NodeVisitor {
+public:
+    uint64_t vboMemory{0};
+    uint64_t textureMemory{0};
+
+    MemoryVisitor()
+        : osg::NodeVisitor(osg::NodeVisitor::TRAVERSE_ALL_CHILDREN)
+    {}
+
+    void apply(osg::Node& node) override
+    {
+        collectTextures(node.getStateSet());
+        traverse(node);
+    }
+
+    void apply(osg::Geode& geode) override
+    {
+        collectTextures(geode.getStateSet());
+        for (unsigned int i = 0; i < geode.getNumDrawables(); ++i) {
+            auto* geom = geode.getDrawable(i)->asGeometry();
+            if (geom) {
+                collectGeometryMemory(geom);
+            }
+        }
+        traverse(geode);
+    }
+
+private:
+    std::set<const osg::Array*> _countedArrays;
+    std::set<const osg::Texture*> _countedTextures;
+
+    static uint64_t arrayBytes(const osg::Array* arr)
+    {
+        if (!arr) return 0;
+        return static_cast<uint64_t>(arr->getNumElements()) * arr->getElementSize();
+    }
+
+    void countArray(const osg::Array* arr)
+    {
+        if (!arr || _countedArrays.count(arr)) return;
+        _countedArrays.insert(arr);
+        vboMemory += arrayBytes(arr);
+    }
+
+    void collectGeometryMemory(osg::Geometry* geom)
+    {
+        collectTextures(geom->getStateSet());
+        countArray(geom->getVertexArray());
+        countArray(geom->getNormalArray());
+        countArray(geom->getColorArray());
+        for (unsigned int i = 0; i < geom->getNumTexCoordArrays(); ++i) {
+            countArray(geom->getTexCoordArray(i));
+        }
+        for (unsigned int i = 0; i < geom->getNumPrimitiveSets(); ++i) {
+            auto* pset = geom->getPrimitiveSet(i);
+            if (auto* drawElements = dynamic_cast<const osg::DrawElements*>(pset)) {
+                // Index buffer size
+                vboMemory += static_cast<uint64_t>(drawElements->getNumIndices())
+                             * drawElements->getElementSize();
+            }
+        }
+    }
+
+    void collectTextures(const osg::StateSet* ss)
+    {
+        if (!ss) return;
+        for (unsigned int i = 0; i < ss->getTextureAttributeList().size(); ++i) {
+            auto* tex = dynamic_cast<const osg::Texture2D*>(
+                ss->getTextureAttribute(i, osg::StateAttribute::TEXTURE));
+            if (!tex || _countedTextures.count(tex)) continue;
+            _countedTextures.insert(tex);
+            if (auto* img = tex->getImage()) {
+                textureMemory += static_cast<uint64_t>(img->getTotalSizeInBytes());
+            }
+        }
+    }
+};
+
+} // anonymous namespace
 
 //===========================================================================
 // OsgVerseEngine Implementation
@@ -163,6 +345,11 @@ void OsgVerseEngine::shutdown()
     }
 
     // Release resources
+    if (_shadowMap) {
+        _shadowMap->shutdown();
+        _shadowMap.reset();
+    }
+
     if (_sceneRoot) {
         _sceneRoot->removeChildren(0, _sceneRoot->getNumChildren());
         _sceneRoot = nullptr;
@@ -345,6 +532,7 @@ RenderStats OsgVerseEngine::getStats() const
 void OsgVerseEngine::resetStats()
 {
     _stats = RenderStats();
+    _framesSinceLastTraversal = 0;
 }
 
 //-----------------------------------------------------------------------
@@ -361,8 +549,13 @@ void OsgVerseEngine::releaseUnusedResources()
 
 size_t OsgVerseEngine::getMemoryUsage() const
 {
-    // TODO: Implement proper memory usage calculation
-    return 0;
+    if (!_sceneRoot) {
+        return 0;
+    }
+
+    MemoryVisitor mv;
+    _sceneRoot->accept(mv);
+    return static_cast<size_t>(mv.vboMemory + mv.textureMemory);
 }
 
 //-----------------------------------------------------------------------
@@ -410,7 +603,9 @@ void OsgVerseEngine::setPBREnabled(bool enabled)
 void OsgVerseEngine::setHDREnabled(bool enabled)
 {
     _hdrEnabled = enabled;
-    // TODO: Update rendering pipeline
+    if (_postProcessChain) {
+        _postProcessChain->setEnabled(enabled);
+    }
 }
 
 void OsgVerseEngine::setAntiAliasingMode(int samples)
@@ -428,13 +623,17 @@ void OsgVerseEngine::setAntiAliasingMode(int samples)
 void OsgVerseEngine::setShadowsEnabled(bool enabled)
 {
     _shadowsEnabled = enabled;
-    // TODO: Update shadow rendering
+    if (_shadowMap) {
+        _shadowMap->setEnabled(enabled);
+    }
 }
 
 void OsgVerseEngine::setShadowQuality(int quality)
 {
     _shadowQuality = quality;
-    // TODO: Update shadow quality settings
+    if (_shadowMap) {
+        _shadowMap->setQuality(quality);
+    }
 }
 
 //-----------------------------------------------------------------------
@@ -451,6 +650,22 @@ void OsgVerseEngine::initializeRenderingPipeline()
         stateSet->setMode(GL_BLEND, osg::StateAttribute::ON);
     }
 
+    // Initialize shadow mapping
+    if (_shadowsEnabled && _sceneRoot) {
+        _shadowMap = std::make_unique<OsgVerseShadowMap>();
+        _shadowMap->setQuality(_shadowQuality);
+        _shadowMap->setEnabled(_shadowsEnabled);
+        if (_shadowMap->initialize(_sceneRoot)) {
+            // Add shadow camera to scene root
+            if (_shadowMap->getShadowCamera()) {
+                _sceneRoot->addChild(_shadowMap->getShadowCamera());
+            }
+            // Apply shadow uniforms to scene root state set
+            _shadowMap->applyUniforms(_sceneRoot->getOrCreateStateSet());
+            Base::Console().log("OsgVerseEngine: Shadow mapping initialized\n");
+        }
+    }
+
     // Setup post-processing if enabled
     if (_hdrEnabled || _pbrEnabled) {
         setupPostProcessing();
@@ -459,11 +674,52 @@ void OsgVerseEngine::initializeRenderingPipeline()
 
 void OsgVerseEngine::setupPostProcessing()
 {
-    // TODO: Implement post-processing setup
-    // - HDR tone mapping
-    // - SSAO
-    // - Bloom
-    // - TAA
+    if (!_sceneRoot) return;
+
+    // Create post-processing chain
+    _postProcessChain = std::make_unique<PostProcessChain>();
+
+    // Use a default viewport size; will be resized when viewer is set
+    int width = 1024;
+    int height = 768;
+
+    if (!_postProcessChain->initialize(width, height, _sceneRoot)) {
+        Base::Console().warning("OsgVerseEngine: Failed to initialize post-processing chain\n");
+        _postProcessChain.reset();
+        return;
+    }
+
+    // Create tone mapping pass
+    auto toneMapPass = std::make_shared<PostProcessPass>("ToneMap");
+    auto* toneMapProgram = OsgVerseShaderManager::instance().getProgram(ShaderType::ToneMap);
+    if (toneMapProgram) {
+        toneMapPass->setProgram(toneMapProgram);
+        toneMapPass->setUniform("u_toneMapMode", 0);  // Reinhard by default
+        toneMapPass->setUniform("u_exposure", 1.0f);
+    }
+    _postProcessChain->addPass(toneMapPass);
+
+    // Create gamma correction pass (final pass)
+    auto gammaPass = std::make_shared<PostProcessPass>("GammaCorrection");
+    auto* gammaProgram = OsgVerseShaderManager::instance().getProgram(ShaderType::GammaCorrection);
+    if (gammaProgram) {
+        gammaPass->setProgram(gammaProgram);
+        gammaPass->setUniform("u_gamma", 2.2f);
+    }
+    _postProcessChain->addPass(gammaPass);
+
+    // Build the chain
+    _postProcessChain->rebuildChain();
+
+    // Add pass cameras to scene
+    if (_postProcessChain->getPassRoot()) {
+        _sceneRoot->addChild(_postProcessChain->getPassRoot());
+    }
+
+    // Initially disabled — enable via setHDREnabled(true)
+    _postProcessChain->setEnabled(false);
+
+    Base::Console().log("OsgVerseEngine: Post-processing chain initialized\n");
 }
 
 void OsgVerseEngine::updateStats()
@@ -472,15 +728,44 @@ void OsgVerseEngine::updateStats()
         return;
     }
 
-    // Update frame statistics
-    osgViewer::ViewerBase::Scenes scenes;
-    _viewer->getScenes(scenes);
-    if (!scenes.empty()) {
-        osg::Node* sceneData = scenes[0]->getSceneData();
-        if (sceneData) {
-            // Count nodes and drawables
-            // TODO: Implement proper statistics gathering
+    ++_stats.frameCount;
+    ++_framesSinceLastTraversal;
+
+    // Frame timing from osg::Stats
+    osg::Stats* viewerStats = _viewer->getViewerStats();
+    if (viewerStats) {
+        double frameBegin = 0.0, frameEnd = 0.0;
+        int fn = static_cast<int>(_viewer->getFrameStamp()->getFrameNumber());
+        if (viewerStats->getAttribute(fn, "Frame begin time", frameBegin) &&
+            viewerStats->getAttribute(fn, "Frame end time", frameEnd)) {
+            _stats.frameTime = (frameEnd - frameBegin) * 1000.0;  // seconds -> ms
+            if (_stats.frameTime > 0.0) {
+                _stats.fps = 1000.0 / _stats.frameTime;
+            }
         }
+    }
+
+    // Expensive scene traversal only every N frames
+    if (_framesSinceLastTraversal >= _statsUpdateInterval && _sceneRoot) {
+        _framesSinceLastTraversal = 0;
+
+        StatsVisitor sv;
+        _sceneRoot->accept(sv);
+
+        _stats.nodeCount = sv.nodeCount;
+        _stats.geodeCount = sv.geodeCount;
+        _stats.geometryCount = sv.geometryCount;
+        _stats.vertexCount = sv.vertexCount;
+        _stats.triangleCount = sv.triangleCount;
+        _stats.drawCalls = sv.drawCalls;
+
+        // Also update memory stats during traversal
+        MemoryVisitor mv;
+        _sceneRoot->accept(mv);
+
+        _stats.vboMemory = mv.vboMemory;
+        _stats.textureMemory = mv.textureMemory;
+        _stats.gpuMemoryUsed = mv.vboMemory + mv.textureMemory;
     }
 }
 

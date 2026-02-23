@@ -59,6 +59,8 @@ if(BUILD_WITH_OSGVERSE)
         OsgVerseShaderManager.h
         OsgVerseLight.h
         OsgVerseNaviCube.h
+        OsgVerseShadowMap.h
+        OsgVersePostProcessing.h
     )
 
     # 收集源文件 / Collect source files
@@ -76,6 +78,8 @@ if(BUILD_WITH_OSGVERSE)
         OsgVerseShaderManager.cpp
         OsgVerseLight.cpp
         OsgVerseNaviCube.cpp
+        OsgVerseShadowMap.cpp
+        OsgVersePostProcessing.cpp
     )
 
     # 添加到 FreeCADGui 库 / Add to FreeCADGui library

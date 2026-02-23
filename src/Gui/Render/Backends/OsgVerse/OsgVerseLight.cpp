@@ -114,57 +114,40 @@ void OsgVerseLight::updateUniforms(osg::StateSet* stateSet, int index) const
         return;
     }
 
-    // 创建 uniform 名称前缀 / Create uniform name prefix
-    std::string prefix = "u_lights[" + std::to_string(index) + "].";
+    // GLSL 1.20 compatible: flat arrays instead of struct arrays
+    // Uniform names: u_lights_type[i], u_lights_color[i], etc.
+    std::string idx = "[" + std::to_string(index) + "]";
 
-    // 光源类型 / Light type
-    auto typeUniform = stateSet->getOrCreateUniform(prefix + "type", osg::Uniform::INT);
+    // Light type
+    auto typeUniform = stateSet->getOrCreateUniform("u_lights_type" + idx, osg::Uniform::INT);
     typeUniform->set(static_cast<int>(_type));
 
-    // 光源颜色和强度 / Light color and intensity
+    // Light color * intensity
     osg::Vec3 colorIntensity(_color.r * _intensity, _color.g * _intensity, _color.b * _intensity);
-    auto colorUniform = stateSet->getOrCreateUniform(prefix + "color", osg::Uniform::FLOAT_VEC3);
+    auto colorUniform = stateSet->getOrCreateUniform("u_lights_color" + idx, osg::Uniform::FLOAT_VEC3);
     colorUniform->set(colorIntensity);
 
-    // 根据类型设置不同的参数 / Set different parameters based on type
-    switch (_type) {
-        case LightType::Directional: {
-            auto dirUniform = stateSet->getOrCreateUniform(prefix + "direction", osg::Uniform::FLOAT_VEC3);
-            dirUniform->set(_direction);
-            break;
-        }
-        case LightType::Point: {
-            auto posUniform = stateSet->getOrCreateUniform(prefix + "position", osg::Uniform::FLOAT_VEC3);
-            posUniform->set(_position);
+    // Position (for point and spot lights)
+    auto posUniform = stateSet->getOrCreateUniform("u_lights_position" + idx, osg::Uniform::FLOAT_VEC3);
+    posUniform->set(_position);
 
-            auto attUniform = stateSet->getOrCreateUniform(prefix + "attenuation", osg::Uniform::FLOAT_VEC3);
-            attUniform->set(osg::Vec3(_constantAttenuation, _linearAttenuation, _quadraticAttenuation));
+    // Direction (for directional and spot lights)
+    auto dirUniform = stateSet->getOrCreateUniform("u_lights_direction" + idx, osg::Uniform::FLOAT_VEC3);
+    dirUniform->set(_direction);
 
-            auto rangeUniform = stateSet->getOrCreateUniform(prefix + "range", osg::Uniform::FLOAT);
-            rangeUniform->set(_range);
-            break;
-        }
-        case LightType::Spot: {
-            auto posUniform = stateSet->getOrCreateUniform(prefix + "position", osg::Uniform::FLOAT_VEC3);
-            posUniform->set(_position);
+    // Attenuation
+    auto attUniform = stateSet->getOrCreateUniform("u_lights_attenuation" + idx, osg::Uniform::FLOAT_VEC3);
+    attUniform->set(osg::Vec3(_constantAttenuation, _linearAttenuation, _quadraticAttenuation));
 
-            auto dirUniform = stateSet->getOrCreateUniform(prefix + "direction", osg::Uniform::FLOAT_VEC3);
-            dirUniform->set(_direction);
+    // Range
+    auto rangeUniform = stateSet->getOrCreateUniform("u_lights_range" + idx, osg::Uniform::FLOAT);
+    rangeUniform->set(_range);
 
-            auto attUniform = stateSet->getOrCreateUniform(prefix + "attenuation", osg::Uniform::FLOAT_VEC3);
-            attUniform->set(osg::Vec3(_constantAttenuation, _linearAttenuation, _quadraticAttenuation));
-
-            auto rangeUniform = stateSet->getOrCreateUniform(prefix + "range", osg::Uniform::FLOAT);
-            rangeUniform->set(_range);
-
-            // 转换角度为余弦值 / Convert angles to cosine values
-            float innerCos = std::cos(_innerConeAngle * M_PI / 180.0f);
-            float outerCos = std::cos(_outerConeAngle * M_PI / 180.0f);
-            auto coneUniform = stateSet->getOrCreateUniform(prefix + "coneAngles", osg::Uniform::FLOAT_VEC2);
-            coneUniform->set(osg::Vec2(innerCos, outerCos));
-            break;
-        }
-    }
+    // Cone angles (cosine values, for spot lights)
+    float innerCos = std::cos(_innerConeAngle * M_PI / 180.0f);
+    float outerCos = std::cos(_outerConeAngle * M_PI / 180.0f);
+    auto coneUniform = stateSet->getOrCreateUniform("u_lights_coneAngles" + idx, osg::Uniform::FLOAT_VEC2);
+    coneUniform->set(osg::Vec2(innerCos, outerCos));
 }
 
 //===========================================================================

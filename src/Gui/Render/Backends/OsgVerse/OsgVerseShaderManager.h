@@ -37,6 +37,55 @@ namespace Gui {
 namespace Render {
 
 /**
+ * @brief Common GLSL 1.20 shader code snippets for reuse across shaders
+ *
+ * All snippets are GLSL 1.20 compatible for macOS GL 2.1.
+ * Use by concatenating into shader source strings.
+ */
+namespace ShaderSnippets {
+
+/// Reinhard tone mapping: color / (color + 1)
+inline const char* toneMapReinhard() {
+    return
+        "vec3 toneMapReinhard(vec3 color) {\n"
+        "    return color / (color + vec3(1.0));\n"
+        "}\n";
+}
+
+/// Per-component gamma correction (avoids pow(vec3) which can NaN on macOS)
+inline const char* gammaCorrect() {
+    return
+        "vec3 gammaCorrect(vec3 color) {\n"
+        "    return vec3(\n"
+        "        pow(max(color.r, 0.0), 1.0/2.2),\n"
+        "        pow(max(color.g, 0.0), 1.0/2.2),\n"
+        "        pow(max(color.b, 0.0), 1.0/2.2));\n"
+        "}\n";
+}
+
+/// Simple Lambertian diffuse factor
+inline const char* lambertian() {
+    return
+        "float lambertian(vec3 N, vec3 L) {\n"
+        "    return max(dot(N, L), 0.0);\n"
+        "}\n";
+}
+
+/// Blinn-Phong specular factor
+inline const char* blinnPhong() {
+    return
+        "float blinnPhong(vec3 N, vec3 H, float shininess) {\n"
+        "    return pow(max(dot(N, H), 0.0), shininess);\n"
+        "}\n";
+}
+
+/// Simple string-based include preprocessor
+/// Replaces occurrences of `#pragma include "snippet_name"` with actual code
+std::string processIncludes(const std::string& source);
+
+} // namespace ShaderSnippets
+
+/**
  * @brief Shader类型枚举 / Shader type enumeration
  */
 enum class ShaderType {
@@ -44,7 +93,9 @@ enum class ShaderType {
     PBR,               ///< PBR金属/粗糙度工作流 / PBR metallic/roughness workflow
     Wireframe,         ///< 线框渲染 / Wireframe rendering
     Flat,              ///< 平面着色 / Flat shading
-    Unlit              ///< 无光照 / Unlit
+    Unlit,             ///< 无光照 / Unlit
+    ToneMap,           ///< HDR tone mapping post-process
+    GammaCorrection    ///< Final gamma correction post-process
 };
 
 /**
@@ -187,6 +238,16 @@ private:
      * @brief 创建无光照shader / Create unlit shader
      */
     osg::Program* createUnlitShader();
+
+    /**
+     * @brief Create HDR tone mapping post-process shader
+     */
+    osg::Program* createToneMapShader();
+
+    /**
+     * @brief Create gamma correction post-process shader
+     */
+    osg::Program* createGammaCorrectionShader();
 
     /**
      * @brief 从字符串创建shader / Create shader from string
