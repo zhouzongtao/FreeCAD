@@ -61,6 +61,9 @@ if(BUILD_WITH_OSGVERSE)
         OsgVerseNaviCube.h
         OsgVerseShadowMap.h
         OsgVersePostProcessing.h
+        OsgVerseBloom.h
+        OsgVerseTAA.h
+        OsgVerseSSAO.h
     )
 
     # 收集源文件 / Collect source files
@@ -80,6 +83,9 @@ if(BUILD_WITH_OSGVERSE)
         OsgVerseNaviCube.cpp
         OsgVerseShadowMap.cpp
         OsgVersePostProcessing.cpp
+        OsgVerseBloom.cpp
+        OsgVerseTAA.cpp
+        OsgVerseSSAO.cpp
     )
 
     # 添加到 FreeCADGui 库 / Add to FreeCADGui library

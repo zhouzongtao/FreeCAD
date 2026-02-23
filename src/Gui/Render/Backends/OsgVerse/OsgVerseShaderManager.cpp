@@ -135,6 +135,27 @@ osg::Program* OsgVerseShaderManager::getProgram(ShaderType type)
         case ShaderType::GammaCorrection:
             program = createGammaCorrectionShader();
             break;
+        case ShaderType::BloomBrightExtract:
+            program = createBloomBrightExtractShader();
+            break;
+        case ShaderType::BloomBlur:
+            program = createBloomBlurShader();
+            break;
+        case ShaderType::BloomComposite:
+            program = createBloomCompositeShader();
+            break;
+        case ShaderType::TAA:
+            program = createTAAShader();
+            break;
+        case ShaderType::SSAO:
+            program = createSSAOShader();
+            break;
+        case ShaderType::SSAOBlur:
+            program = createSSAOBlurShader();
+            break;
+        case ShaderType::SSAOComposite:
+            program = createSSAOCompositeShader();
+            break;
         default:
             Base::Console().error("OsgVerseShaderManager: Unknown shader type\n");
             return nullptr;
@@ -842,4 +863,371 @@ osg::Program* OsgVerseShaderManager::createGammaCorrectionShader()
         "}\n";
 
     return createProgram("GammaCorrection", vertexSource, fragmentSource);
+}
+
+osg::Program* OsgVerseShaderManager::createBloomBrightExtractShader()
+{
+    Base::Console().log("OsgVerseShaderManager: Creating bloom bright extract shader (GLSL 1.20)\n");
+
+    const std::string vertexSource =
+        "#version 120\n"
+        "varying vec2 vTexCoord;\n"
+        "void main() {\n"
+        "    gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex;\n"
+        "    vTexCoord = gl_MultiTexCoord0.xy;\n"
+        "}\n";
+
+    const std::string fragmentSource =
+        "#version 120\n"
+        "varying vec2 vTexCoord;\n"
+        "uniform sampler2D u_inputTexture;\n"
+        "uniform float u_bloomThreshold;\n"
+        "void main() {\n"
+        "    vec3 color = texture2D(u_inputTexture, vTexCoord).rgb;\n"
+        "    float brightness = dot(color, vec3(0.2126, 0.7152, 0.0722));\n"
+        "    if (brightness > u_bloomThreshold) {\n"
+        "        gl_FragColor = vec4(color, 1.0);\n"
+        "    } else {\n"
+        "        gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);\n"
+        "    }\n"
+        "}\n";
+
+    return createProgram("BloomBrightExtract", vertexSource, fragmentSource);
+}
+
+osg::Program* OsgVerseShaderManager::createBloomBlurShader()
+{
+    Base::Console().log("OsgVerseShaderManager: Creating bloom blur shader (GLSL 1.20)\n");
+
+    const std::string vertexSource =
+        "#version 120\n"
+        "varying vec2 vTexCoord;\n"
+        "void main() {\n"
+        "    gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex;\n"
+        "    vTexCoord = gl_MultiTexCoord0.xy;\n"
+        "}\n";
+
+    // 9-tap separable Gaussian blur
+    // GLSL 1.20: no array initializers, assign element by element
+    const std::string fragmentSource =
+        "#version 120\n"
+        "varying vec2 vTexCoord;\n"
+        "uniform sampler2D u_inputTexture;\n"
+        "uniform int u_horizontal;\n"
+        "uniform vec2 u_texelSize;\n"
+        "void main() {\n"
+        "    float weights[5];\n"
+        "    weights[0] = 0.227027;\n"
+        "    weights[1] = 0.1945946;\n"
+        "    weights[2] = 0.1216216;\n"
+        "    weights[3] = 0.054054;\n"
+        "    weights[4] = 0.016216;\n"
+        "    vec3 result = texture2D(u_inputTexture, vTexCoord).rgb * weights[0];\n"
+        "    vec2 offset;\n"
+        "    if (u_horizontal == 1) {\n"
+        "        offset = vec2(u_texelSize.x, 0.0);\n"
+        "    } else {\n"
+        "        offset = vec2(0.0, u_texelSize.y);\n"
+        "    }\n"
+        "    for (int i = 1; i < 5; i++) {\n"
+        "        result += texture2D(u_inputTexture, vTexCoord + offset * float(i)).rgb * weights[i];\n"
+        "        result += texture2D(u_inputTexture, vTexCoord - offset * float(i)).rgb * weights[i];\n"
+        "    }\n"
+        "    gl_FragColor = vec4(result, 1.0);\n"
+        "}\n";
+
+    return createProgram("BloomBlur", vertexSource, fragmentSource);
+}
+
+osg::Program* OsgVerseShaderManager::createBloomCompositeShader()
+{
+    Base::Console().log("OsgVerseShaderManager: Creating bloom composite shader (GLSL 1.20)\n");
+
+    const std::string vertexSource =
+        "#version 120\n"
+        "varying vec2 vTexCoord;\n"
+        "void main() {\n"
+        "    gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex;\n"
+        "    vTexCoord = gl_MultiTexCoord0.xy;\n"
+        "}\n";
+
+    const std::string fragmentSource =
+        "#version 120\n"
+        "varying vec2 vTexCoord;\n"
+        "uniform sampler2D u_inputTexture;\n"
+        "uniform sampler2D u_sceneTexture;\n"
+        "uniform float u_bloomIntensity;\n"
+        "void main() {\n"
+        "    vec3 scene = texture2D(u_sceneTexture, vTexCoord).rgb;\n"
+        "    vec3 bloom = texture2D(u_inputTexture, vTexCoord).rgb;\n"
+        "    gl_FragColor = vec4(scene + bloom * u_bloomIntensity, 1.0);\n"
+        "}\n";
+
+    return createProgram("BloomComposite", vertexSource, fragmentSource);
+}
+
+osg::Program* OsgVerseShaderManager::createSSAOShader()
+{
+    Base::Console().log("OsgVerseShaderManager: Creating SSAO shader (GLSL 1.20)\n");
+
+    const std::string vertexSource =
+        "#version 120\n"
+        "varying vec2 vTexCoord;\n"
+        "void main() {\n"
+        "    gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex;\n"
+        "    vTexCoord = gl_MultiTexCoord0.xy;\n"
+        "}\n";
+
+    const std::string fragmentSource =
+        "#version 120\n"
+        "varying vec2 vTexCoord;\n"
+        "\n"
+        "uniform sampler2D u_inputTexture;\n"
+        "uniform sampler2D u_depthTexture;\n"
+        "uniform sampler2D u_noiseTexture;\n"
+        "\n"
+        "uniform vec3 u_ssaoKernel[32];\n"
+        "uniform int u_kernelSize;\n"
+        "uniform float u_ssaoRadius;\n"
+        "uniform float u_ssaoBias;\n"
+        "uniform float u_ssaoIntensity;\n"
+        "uniform vec2 u_screenSize;\n"
+        "uniform mat4 u_projMatrix;\n"
+        "uniform mat4 u_invProjMatrix;\n"
+        "\n"
+        "// Reconstruct view-space position from depth\n"
+        "vec3 viewPosFromDepth(vec2 uv, float depth) {\n"
+        "    // Convert to NDC [-1, 1]\n"
+        "    vec4 ndc = vec4(uv * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);\n"
+        "    vec4 viewPos = u_invProjMatrix * ndc;\n"
+        "    return viewPos.xyz / viewPos.w;\n"
+        "}\n"
+        "\n"
+        "void main() {\n"
+        "    float depth = texture2D(u_depthTexture, vTexCoord).r;\n"
+        "    // Skip background (depth == 1.0)\n"
+        "    if (depth >= 1.0) {\n"
+        "        gl_FragColor = vec4(1.0, 1.0, 1.0, 1.0);\n"
+        "        return;\n"
+        "    }\n"
+        "\n"
+        "    vec3 fragPos = viewPosFromDepth(vTexCoord, depth);\n"
+        "\n"
+        "    // Reconstruct normal from depth using dFdx/dFdy\n"
+        "    vec3 dPdx = dFdx(fragPos);\n"
+        "    vec3 dPdy = dFdy(fragPos);\n"
+        "    vec3 normal = normalize(cross(dPdx, dPdy));\n"
+        "\n"
+        "    // Tile noise texture over screen (4x4 noise)\n"
+        "    vec2 noiseScale = u_screenSize / 4.0;\n"
+        "    vec3 randomVec = texture2D(u_noiseTexture, vTexCoord * noiseScale).xyz;\n"
+        "\n"
+        "    // Gram-Schmidt to build TBN\n"
+        "    vec3 tangent = normalize(randomVec - normal * dot(randomVec, normal));\n"
+        "    vec3 bitangent = cross(normal, tangent);\n"
+        "    // TBN transforms from tangent space to view space\n"
+        "    // mat3 in GLSL 1.20: columns are tangent, bitangent, normal\n"
+        "\n"
+        "    float occlusion = 0.0;\n"
+        "    // Loop with constant upper bound for GLSL 1.20\n"
+        "    for (int i = 0; i < 32; i++) {\n"
+        "        if (i >= u_kernelSize) break;\n"
+        "\n"
+        "        // Transform sample from tangent to view space\n"
+        "        vec3 s = u_ssaoKernel[i];\n"
+        "        vec3 samplePos = tangent * s.x + bitangent * s.y + normal * s.z;\n"
+        "        samplePos = fragPos + samplePos * u_ssaoRadius;\n"
+        "\n"
+        "        // Project sample to screen space\n"
+        "        vec4 offset = u_projMatrix * vec4(samplePos, 1.0);\n"
+        "        offset.xy /= offset.w;\n"
+        "        offset.xy = offset.xy * 0.5 + 0.5;\n"
+        "\n"
+        "        // Sample depth at projected position\n"
+        "        float sampleDepth = texture2D(u_depthTexture, offset.xy).r;\n"
+        "        vec3 sampleViewPos = viewPosFromDepth(offset.xy, sampleDepth);\n"
+        "\n"
+        "        // Range check and occlusion test\n"
+        "        float rangeCheck = smoothstep(0.0, 1.0,\n"
+        "            u_ssaoRadius / max(abs(fragPos.z - sampleViewPos.z), 0.0001));\n"
+        "        occlusion += (sampleViewPos.z >= samplePos.z + u_ssaoBias ? 1.0 : 0.0) * rangeCheck;\n"
+        "    }\n"
+        "\n"
+        "    occlusion = occlusion / float(u_kernelSize);\n"
+        "    float ao = 1.0 - occlusion * u_ssaoIntensity;\n"
+        "    ao = clamp(ao, 0.0, 1.0);\n"
+        "    gl_FragColor = vec4(ao, ao, ao, 1.0);\n"
+        "}\n";
+
+    return createProgram("SSAO", vertexSource, fragmentSource);
+}
+
+osg::Program* OsgVerseShaderManager::createSSAOBlurShader()
+{
+    Base::Console().log("OsgVerseShaderManager: Creating SSAO blur shader (GLSL 1.20)\n");
+
+    const std::string vertexSource =
+        "#version 120\n"
+        "varying vec2 vTexCoord;\n"
+        "void main() {\n"
+        "    gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex;\n"
+        "    vTexCoord = gl_MultiTexCoord0.xy;\n"
+        "}\n";
+
+    // Bilateral 4x4 box blur: depth-aware to preserve edges
+    const std::string fragmentSource =
+        "#version 120\n"
+        "varying vec2 vTexCoord;\n"
+        "uniform sampler2D u_inputTexture;\n"
+        "uniform sampler2D u_depthTexture;\n"
+        "uniform vec2 u_screenSize;\n"
+        "\n"
+        "void main() {\n"
+        "    vec2 texelSize = 1.0 / u_screenSize;\n"
+        "    float centerDepth = texture2D(u_depthTexture, vTexCoord).r;\n"
+        "    float result = 0.0;\n"
+        "    float totalWeight = 0.0;\n"
+        "\n"
+        "    for (int x = -2; x <= 1; x++) {\n"
+        "        for (int y = -2; y <= 1; y++) {\n"
+        "            vec2 offset = vec2(float(x), float(y)) * texelSize;\n"
+        "            vec2 sampleUV = vTexCoord + offset;\n"
+        "            float sampleAO = texture2D(u_inputTexture, sampleUV).r;\n"
+        "            float sampleDepth = texture2D(u_depthTexture, sampleUV).r;\n"
+        "\n"
+        "            // Bilateral weight: reject samples with very different depth\n"
+        "            float depthDiff = abs(centerDepth - sampleDepth);\n"
+        "            float w = (depthDiff < 0.001) ? 1.0 : 0.0;\n"
+        "\n"
+        "            result += sampleAO * w;\n"
+        "            totalWeight += w;\n"
+        "        }\n"
+        "    }\n"
+        "\n"
+        "    result = (totalWeight > 0.0) ? result / totalWeight : texture2D(u_inputTexture, vTexCoord).r;\n"
+        "    gl_FragColor = vec4(result, result, result, 1.0);\n"
+        "}\n";
+
+    return createProgram("SSAOBlur", vertexSource, fragmentSource);
+}
+
+osg::Program* OsgVerseShaderManager::createSSAOCompositeShader()
+{
+    Base::Console().log("OsgVerseShaderManager: Creating SSAO composite shader (GLSL 1.20)\n");
+
+    const std::string vertexSource =
+        "#version 120\n"
+        "varying vec2 vTexCoord;\n"
+        "void main() {\n"
+        "    gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex;\n"
+        "    vTexCoord = gl_MultiTexCoord0.xy;\n"
+        "}\n";
+
+    // Composite: multiply scene color by AO factor
+    // u_inputTexture = blurred AO (grayscale), u_sceneTexture = scene color
+    const std::string fragmentSource =
+        "#version 120\n"
+        "varying vec2 vTexCoord;\n"
+        "uniform sampler2D u_inputTexture;\n"
+        "uniform sampler2D u_sceneTexture;\n"
+        "\n"
+        "void main() {\n"
+        "    vec3 sceneColor = texture2D(u_sceneTexture, vTexCoord).rgb;\n"
+        "    float ao = texture2D(u_inputTexture, vTexCoord).r;\n"
+        "    gl_FragColor = vec4(sceneColor * ao, 1.0);\n"
+        "}\n";
+
+    return createProgram("SSAOComposite", vertexSource, fragmentSource);
+}
+
+osg::Program* OsgVerseShaderManager::createTAAShader()
+{
+    Base::Console().log("OsgVerseShaderManager: Creating TAA resolve shader (GLSL 1.20)\n");
+
+    const std::string vertexSource =
+        "#version 120\n"
+        "varying vec2 vTexCoord;\n"
+        "void main() {\n"
+        "    gl_Position = gl_ModelViewProjectionMatrix * gl_Vertex;\n"
+        "    vTexCoord = gl_MultiTexCoord0.xy;\n"
+        "}\n";
+
+    // TAA resolve fragment shader — GLSL 1.20
+    // Reprojects history via depth-based motion vectors, clamps to 3x3 neighborhood
+    // Uses int uniform for bool (GLSL 1.20 bool uniform support is spotty)
+    const std::string fragmentSource =
+        "#version 120\n"
+        "varying vec2 vTexCoord;\n"
+        "\n"
+        "uniform sampler2D u_inputTexture;\n"
+        "uniform sampler2D u_historyTexture;\n"
+        "uniform sampler2D u_depthTexture;\n"
+        "\n"
+        "uniform mat4 u_currentMVP;\n"
+        "uniform mat4 u_prevMVP;\n"
+        "uniform mat4 u_invCurrentMVP;\n"
+        "\n"
+        "uniform vec2 u_screenSize;\n"
+        "uniform float u_blendFactor;\n"
+        "uniform int u_historyValid;\n"
+        "uniform vec2 u_jitterOffset;\n"
+        "\n"
+        "void main() {\n"
+        "    vec2 unjitteredUV = vTexCoord - u_jitterOffset / u_screenSize;\n"
+        "    vec3 currentColor = texture2D(u_inputTexture, unjitteredUV).rgb;\n"
+        "\n"
+        "    if (u_historyValid == 0) {\n"
+        "        gl_FragColor = vec4(currentColor, 1.0);\n"
+        "        return;\n"
+        "    }\n"
+        "\n"
+        "    // Reconstruct world position from depth for reprojection\n"
+        "    float depth = texture2D(u_depthTexture, vTexCoord).r;\n"
+        "    vec4 ndcPos = vec4(vTexCoord * 2.0 - 1.0, depth * 2.0 - 1.0, 1.0);\n"
+        "    vec4 worldPos = u_invCurrentMVP * ndcPos;\n"
+        "    worldPos = worldPos / worldPos.w;\n"
+        "\n"
+        "    // Reproject to previous frame\n"
+        "    vec4 prevClip = u_prevMVP * worldPos;\n"
+        "    vec2 prevUV = (prevClip.xy / prevClip.w) * 0.5 + 0.5;\n"
+        "\n"
+        "    // Off-screen: use current frame only\n"
+        "    if (prevUV.x < 0.0 || prevUV.x > 1.0 || prevUV.y < 0.0 || prevUV.y > 1.0) {\n"
+        "        gl_FragColor = vec4(currentColor, 1.0);\n"
+        "        return;\n"
+        "    }\n"
+        "\n"
+        "    vec3 historyColor = texture2D(u_historyTexture, prevUV).rgb;\n"
+        "\n"
+        "    // Neighborhood clamping — unrolled 3x3 (GLSL 1.20 safe)\n"
+        "    vec2 texelSize = 1.0 / u_screenSize;\n"
+        "    vec3 minColor = currentColor;\n"
+        "    vec3 maxColor = currentColor;\n"
+        "    vec3 n;\n"
+        "    n = texture2D(u_inputTexture, unjitteredUV + vec2(-1.0, -1.0) * texelSize).rgb;\n"
+        "    minColor = min(minColor, n); maxColor = max(maxColor, n);\n"
+        "    n = texture2D(u_inputTexture, unjitteredUV + vec2( 0.0, -1.0) * texelSize).rgb;\n"
+        "    minColor = min(minColor, n); maxColor = max(maxColor, n);\n"
+        "    n = texture2D(u_inputTexture, unjitteredUV + vec2( 1.0, -1.0) * texelSize).rgb;\n"
+        "    minColor = min(minColor, n); maxColor = max(maxColor, n);\n"
+        "    n = texture2D(u_inputTexture, unjitteredUV + vec2(-1.0,  0.0) * texelSize).rgb;\n"
+        "    minColor = min(minColor, n); maxColor = max(maxColor, n);\n"
+        "    n = texture2D(u_inputTexture, unjitteredUV + vec2( 1.0,  0.0) * texelSize).rgb;\n"
+        "    minColor = min(minColor, n); maxColor = max(maxColor, n);\n"
+        "    n = texture2D(u_inputTexture, unjitteredUV + vec2(-1.0,  1.0) * texelSize).rgb;\n"
+        "    minColor = min(minColor, n); maxColor = max(maxColor, n);\n"
+        "    n = texture2D(u_inputTexture, unjitteredUV + vec2( 0.0,  1.0) * texelSize).rgb;\n"
+        "    minColor = min(minColor, n); maxColor = max(maxColor, n);\n"
+        "    n = texture2D(u_inputTexture, unjitteredUV + vec2( 1.0,  1.0) * texelSize).rgb;\n"
+        "    minColor = min(minColor, n); maxColor = max(maxColor, n);\n"
+        "\n"
+        "    // Clamp history to neighborhood\n"
+        "    historyColor = clamp(historyColor, minColor, maxColor);\n"
+        "\n"
+        "    // Blend: low alpha = more history, high alpha = more current\n"
+        "    vec3 result = mix(historyColor, currentColor, u_blendFactor);\n"
+        "    gl_FragColor = vec4(result, 1.0);\n"
+        "}\n";
+
+    return createProgram("TAAResolve", vertexSource, fragmentSource);
 }

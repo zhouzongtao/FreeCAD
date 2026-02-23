@@ -32,6 +32,9 @@
 #include "OsgVerseShadowMap.h"
 #include "OsgVersePostProcessing.h"
 #include "OsgVerseShaderManager.h"
+#include "OsgVerseBloom.h"
+#include "OsgVerseTAA.h"
+#include "OsgVerseSSAO.h"
 
 #include <osg/Group>
 #include <osg/MatrixTransform>
@@ -345,6 +348,21 @@ void OsgVerseEngine::shutdown()
     }
 
     // Release resources
+    if (_taa) {
+        _taa->shutdown();
+        _taa.reset();
+    }
+
+    if (_bloom) {
+        _bloom->shutdown();
+        _bloom.reset();
+    }
+
+    if (_ssao) {
+        _ssao->shutdown();
+        _ssao.reset();
+    }
+
     if (_shadowMap) {
         _shadowMap->shutdown();
         _shadowMap.reset();
@@ -465,7 +483,22 @@ void OsgVerseEngine::updateScene()
 void OsgVerseEngine::render()
 {
     if (_viewer && _initialized) {
+        // TAA: apply jitter before rendering
+        if (_taa && _taa->isEnabled()) {
+            _taa->applyJitter(_viewer->getCamera(), _frameCount);
+        }
+
         _viewer->frame();
+
+        // TAA: update history after rendering
+        if (_taa && _taa->isEnabled() && _viewer->getCamera()) {
+            osg::Camera* cam = _viewer->getCamera();
+            osg::Matrix currentMVP = cam->getViewMatrix() * cam->getProjectionMatrix();
+            _taa->update(currentMVP, _prevMVP);
+            _prevMVP = currentMVP;
+        }
+
+        ++_frameCount;
         updateStats();
     }
 }
@@ -636,6 +669,77 @@ void OsgVerseEngine::setShadowQuality(int quality)
     }
 }
 
+void OsgVerseEngine::setBloomEnabled(bool enabled)
+{
+    if (_bloom) {
+        _bloom->setEnabled(enabled);
+    }
+}
+
+bool OsgVerseEngine::isBloomEnabled() const
+{
+    return _bloom && _bloom->isEnabled();
+}
+
+void OsgVerseEngine::setBloomThreshold(float threshold)
+{
+    if (_bloom) {
+        _bloom->setThreshold(threshold);
+    }
+}
+
+void OsgVerseEngine::setBloomIntensity(float intensity)
+{
+    if (_bloom) {
+        _bloom->setIntensity(intensity);
+    }
+}
+
+void OsgVerseEngine::setTAAEnabled(bool enabled)
+{
+    if (_taa) {
+        _taa->setEnabled(enabled);
+    }
+}
+
+bool OsgVerseEngine::isTAAEnabled() const
+{
+    return _taa && _taa->isEnabled();
+}
+
+void OsgVerseEngine::setTAABlendFactor(float factor)
+{
+    if (_taa) {
+        _taa->setBlendFactor(factor);
+    }
+}
+
+void OsgVerseEngine::setSSAOEnabled(bool enabled)
+{
+    if (_ssao) {
+        _ssao->setEnabled(enabled);
+    }
+}
+
+bool OsgVerseEngine::isSSAOEnabled() const
+{
+    return _ssao && _ssao->isEnabled();
+}
+
+void OsgVerseEngine::setSSAORadius(float radius)
+{
+    if (_ssao) {
+        _ssao->setRadius(radius);
+    }
+}
+
+void OsgVerseEngine::setSSAOIntensity(float intensity)
+{
+    if (_ssao) {
+        _ssao->setIntensity(intensity);
+    }
+}
+
 //-----------------------------------------------------------------------
 // Private Methods
 //-----------------------------------------------------------------------
@@ -687,6 +791,43 @@ void OsgVerseEngine::setupPostProcessing()
         Base::Console().warning("OsgVerseEngine: Failed to initialize post-processing chain\n");
         _postProcessChain.reset();
         return;
+    }
+
+    // Create and add SSAO passes (before bloom and tone mapping)
+    // Chain order: Scene -> SSAO -> SSAOBlur -> SSAOComposite -> Bloom -> ToneMap -> Gamma
+    _ssao = std::make_unique<OsgVerseSSAO>();
+    if (_ssao->initialize(width, height)) {
+        _ssao->setDepthTexture(_postProcessChain->getSceneDepthTexture());
+        _ssao->setSceneColorTexture(_postProcessChain->getSceneColorTexture());
+        _postProcessChain->addPass(_ssao->getSSAOPass());
+        _postProcessChain->addPass(_ssao->getBlurPass());
+        _postProcessChain->addPass(_ssao->getCompositePass());
+        Base::Console().log("OsgVerseEngine: SSAO passes added to chain\n");
+    }
+
+    // Create and add bloom passes (after SSAO, before tone mapping)
+    // Chain order: Scene -> SSAO -> SSAOBlur -> SSAOComposite -> BloomExtract -> BlurH -> BlurV -> BloomComposite -> ToneMap -> Gamma
+    _bloom = std::make_unique<OsgVerseBloom>();
+    if (_bloom->initialize(width, height)) {
+        _bloom->setSceneTexture(_postProcessChain->getSceneColorTexture());
+        auto bloomPasses = _bloom->getPasses();
+        for (auto& pass : bloomPasses) {
+            _postProcessChain->addPass(pass);
+        }
+        Base::Console().log("OsgVerseEngine: Bloom passes added to chain\n");
+    }
+
+    // Create TAA resolve pass (after bloom, before tone mapping)
+    // Chain: Scene -> [SSAO] -> [Bloom] -> TAA -> ToneMap -> Gamma
+    _taa = std::make_unique<OsgVerseTAA>();
+    if (_taa->initialize(width, height)) {
+        _taa->setCurrentFrameTexture(_postProcessChain->getSceneColorTexture());
+        _taa->setDepthTexture(_postProcessChain->getSceneDepthTexture());
+        auto resolvePass = _taa->getResolvePass();
+        if (resolvePass) {
+            _postProcessChain->addPass(resolvePass);
+        }
+        Base::Console().log("OsgVerseEngine: TAA resolve pass added to chain\n");
     }
 
     // Create tone mapping pass

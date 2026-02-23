@@ -26,6 +26,7 @@
 #include <memory>
 #include <string>
 
+#include <osg/Matrix>
 #include <FCGlobal.h>
 #include "../../Core/RenderEngine.h"
 #include "../../Core/RenderNode.h"
@@ -35,6 +36,9 @@ namespace Gui {
 namespace Render {
 class OsgVerseShadowMap;
 class PostProcessChain;
+class OsgVerseBloom;
+class OsgVerseSSAO;
+class OsgVerseTAA;
 }
 }
 
@@ -251,6 +255,61 @@ public:
      */
     int getShadowQuality() const { return _shadowQuality; }
 
+    /**
+     * @brief Enable/disable bloom effect
+     */
+    void setBloomEnabled(bool enabled);
+
+    /**
+     * @brief Check if bloom is enabled
+     */
+    bool isBloomEnabled() const;
+
+    /**
+     * @brief Set bloom brightness threshold
+     */
+    void setBloomThreshold(float threshold);
+
+    /**
+     * @brief Set bloom intensity
+     */
+    void setBloomIntensity(float intensity);
+
+    /**
+     * @brief Enable/disable SSAO effect
+     */
+    void setSSAOEnabled(bool enabled);
+
+    /**
+     * @brief Check if SSAO is enabled
+     */
+    bool isSSAOEnabled() const;
+
+    /**
+     * @brief Set SSAO sample radius
+     */
+    void setSSAORadius(float radius);
+
+    /**
+     * @brief Set SSAO intensity
+     */
+    void setSSAOIntensity(float intensity);
+
+    /**
+     * @brief Enable/disable TAA
+     */
+    void setTAAEnabled(bool enabled);
+
+    /**
+     * @brief Check if TAA is enabled
+     */
+    bool isTAAEnabled() const;
+
+    /**
+     * @brief Set TAA blend factor (0.01-1.0, default 0.1)
+     */
+    void setTAABlendFactor(float factor);
+
 private:
     /**
      * @brief 初始化渲染管线 / Initialize rendering pipeline
@@ -296,6 +355,17 @@ private:
 
     // Post-processing
     std::unique_ptr<PostProcessChain> _postProcessChain;
+
+    // Bloom effect
+    std::unique_ptr<OsgVerseBloom> _bloom;
+
+    // TAA
+    std::unique_ptr<OsgVerseTAA> _taa;
+    osg::Matrix _prevMVP;
+    int _frameCount{0};
+
+    // SSAO effect
+    std::unique_ptr<OsgVerseSSAO> _ssao;
 
     // 初始化状态 / Initialization state
     bool _initialized{false};

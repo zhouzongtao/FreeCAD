@@ -95,7 +95,14 @@ enum class ShaderType {
     Flat,              ///< 平面着色 / Flat shading
     Unlit,             ///< 无光照 / Unlit
     ToneMap,           ///< HDR tone mapping post-process
-    GammaCorrection    ///< Final gamma correction post-process
+    GammaCorrection,   ///< Final gamma correction post-process
+    BloomBrightExtract,///< Bloom bright area extraction
+    BloomBlur,         ///< Bloom Gaussian blur (separable)
+    BloomComposite,    ///< Bloom composite (scene + bloom)
+    TAA,               ///< Temporal Anti-Aliasing resolve
+    SSAO,              ///< Screen-space ambient occlusion
+    SSAOBlur,          ///< SSAO bilateral blur
+    SSAOComposite      ///< SSAO composite (scene * AO)
 };
 
 /**
@@ -248,6 +255,41 @@ private:
      * @brief Create gamma correction post-process shader
      */
     osg::Program* createGammaCorrectionShader();
+
+    /**
+     * @brief Create bloom bright extraction shader
+     */
+    osg::Program* createBloomBrightExtractShader();
+
+    /**
+     * @brief Create bloom Gaussian blur shader (separable)
+     */
+    osg::Program* createBloomBlurShader();
+
+    /**
+     * @brief Create bloom composite shader
+     */
+    osg::Program* createBloomCompositeShader();
+
+    /**
+     * @brief Create TAA resolve shader
+     */
+    osg::Program* createTAAShader();
+
+    /**
+     * @brief Create SSAO shader
+     */
+    osg::Program* createSSAOShader();
+
+    /**
+     * @brief Create SSAO bilateral blur shader
+     */
+    osg::Program* createSSAOBlurShader();
+
+    /**
+     * @brief Create SSAO composite shader
+     */
+    osg::Program* createSSAOCompositeShader();
 
     /**
      * @brief 从字符串创建shader / Create shader from string
