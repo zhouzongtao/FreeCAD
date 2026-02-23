@@ -757,26 +757,10 @@ void OsgVerseEngine::initializeRenderingPipeline()
         stateSet->setMode(GL_BLEND, osg::StateAttribute::ON);
     }
 
-    // Initialize shadow mapping
-    if (_shadowsEnabled && _sceneRoot) {
-        _shadowMap = std::make_unique<OsgVerseShadowMap>();
-        _shadowMap->setQuality(_shadowQuality);
-        _shadowMap->setEnabled(_shadowsEnabled);
-        if (_shadowMap->initialize(_sceneRoot)) {
-            // Add shadow camera to scene root
-            if (_shadowMap->getShadowCamera()) {
-                _sceneRoot->addChild(_shadowMap->getShadowCamera());
-            }
-            // Apply shadow uniforms to scene root state set
-            _shadowMap->applyUniforms(_sceneRoot->getOrCreateStateSet());
-            Base::Console().log("OsgVerseEngine: Shadow mapping initialized\n");
-        }
-    }
-
-    // Setup post-processing if enabled
-    if (_hdrEnabled || _pbrEnabled) {
-        setupPostProcessing();
-    }
+    // TODO: Shadow mapping and post-processing are disabled for now.
+    // They create FBO cameras that cause crashes during OSG scene compilation.
+    // Need to investigate proper initialization timing with GL context.
+    // See: OsgVerseShadowMap, PostProcessChain, OsgVerseSSAO, OsgVerseBloom, OsgVerseTAA
 }
 
 void OsgVerseEngine::setupPostProcessing()
