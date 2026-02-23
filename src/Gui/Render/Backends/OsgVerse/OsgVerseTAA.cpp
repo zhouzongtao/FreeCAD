@@ -77,6 +77,7 @@ bool OsgVerseTAA::initialize(int width, int height)
 
     // Create resolve pass
     _resolvePass = std::make_shared<PostProcessPass>("TAAResolve");
+    _resolvePass->initialize(width, height);
 
     auto* program = OsgVerseShaderManager::instance().getProgram(ShaderType::TAA);
     if (program) {

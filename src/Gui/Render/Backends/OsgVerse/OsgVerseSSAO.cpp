@@ -49,6 +49,7 @@ bool OsgVerseSSAO::initialize(int width, int height)
 
     // Create SSAO pass (outputs grayscale AO)
     _ssaoPass = std::make_shared<PostProcessPass>("SSAO");
+    _ssaoPass->initialize(width, height);
     auto* ssaoProgram = OsgVerseShaderManager::instance().getProgram(ShaderType::SSAO);
     if (ssaoProgram) {
         _ssaoPass->setProgram(ssaoProgram);
@@ -56,6 +57,7 @@ bool OsgVerseSSAO::initialize(int width, int height)
 
     // Create blur pass (bilateral blur on AO)
     _blurPass = std::make_shared<PostProcessPass>("SSAOBlur");
+    _blurPass->initialize(width, height);
     auto* blurProgram = OsgVerseShaderManager::instance().getProgram(ShaderType::SSAOBlur);
     if (blurProgram) {
         _blurPass->setProgram(blurProgram);
@@ -63,6 +65,7 @@ bool OsgVerseSSAO::initialize(int width, int height)
 
     // Create composite pass (scene_color * AO)
     _compositePass = std::make_shared<PostProcessPass>("SSAOComposite");
+    _compositePass->initialize(width, height);
     auto* compositeProgram = OsgVerseShaderManager::instance().getProgram(ShaderType::SSAOComposite);
     if (compositeProgram) {
         _compositePass->setProgram(compositeProgram);

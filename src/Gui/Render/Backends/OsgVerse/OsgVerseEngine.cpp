@@ -318,10 +318,8 @@ bool OsgVerseEngine::initialize()
         _sceneRoot->setName("OsgVerseSceneRoot");
         Base::Console().log("OsgVerseEngine::initialize: Scene root created\n");
 
-        // Initialize rendering pipeline
-        Base::Console().log("OsgVerseEngine::initialize: Initializing rendering pipeline...\n");
-        initializeRenderingPipeline();
-        Base::Console().log("OsgVerseEngine::initialize: Rendering pipeline initialized\n");
+        // Note: initializeRenderingPipeline() is deferred until setViewer() is called,
+        // because post-processing passes create FBO cameras that require a GL context.
 
         _initialized = true;
         Base::Console().log("OsgVerseEngine::initialize: Initialization complete\n");
@@ -623,6 +621,12 @@ void OsgVerseEngine::setViewer(osgViewer::Viewer* viewer)
 
     if (_viewer && _sceneRoot) {
         _viewer->setSceneData(_sceneRoot);
+
+        // Now that viewer and GL context are available, initialize rendering pipeline
+        // (post-processing passes create FBO cameras that need GL context)
+        Base::Console().log("OsgVerseEngine::setViewer: Initializing rendering pipeline...\n");
+        initializeRenderingPipeline();
+        Base::Console().log("OsgVerseEngine::setViewer: Rendering pipeline initialized\n");
     }
 }
 
