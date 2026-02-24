@@ -73,6 +73,14 @@ void View3DOsgVersePy::init_type()
     add_noargs_method("viewIsometric", &View3DOsgVersePy::viewIsometric, "viewIsometric()");
     add_noargs_method("viewDimetric", &View3DOsgVersePy::viewDimetric, "viewDimetric()");
     add_noargs_method("viewTrimetric", &View3DOsgVersePy::viewTrimetric, "viewTrimetric()");
+    add_varargs_method("viewDefaultOrientation", &View3DOsgVersePy::viewDefaultOrientation,
+        "viewDefaultOrientation(ori_str='', scale=-1)\n"
+        "Set the camera back to the default orientation\n");
+    add_varargs_method("viewPosition", &View3DOsgVersePy::viewPosition,
+        "viewPosition(pla, steps, ms)\n"
+        "Move the camera to a Placement orientation\n");
+    add_noargs_method("viewRotateLeft", &View3DOsgVersePy::viewRotateLeft, "viewRotateLeft()");
+    add_noargs_method("viewRotateRight", &View3DOsgVersePy::viewRotateRight, "viewRotateRight()");
     add_noargs_method("zoomIn", &View3DOsgVersePy::zoomIn, "zoomIn()");
     add_noargs_method("zoomOut", &View3DOsgVersePy::zoomOut, "zoomOut()");
 
@@ -112,6 +120,9 @@ void View3DOsgVersePy::init_type()
         "for all objects at the given screen position.\n"
         "If no geometry was found 'None' is returned, instead.\n");
     add_noargs_method("getSize", &View3DOsgVersePy::getSize, "getSize()");
+    add_varargs_method("getObjectInfoRay", &View3DOsgVersePy::getObjectInfoRay,
+        "getObjectInfoRay(tuple(3D vector,3D vector) or tuple of 6 floats) -> dictionary or None\n\n"
+        "Vectors represent start point and direction of intersection ray\n");
     add_varargs_method("getPoint", &View3DOsgVersePy::getPointOnFocalPlane,
         "Same as getPointOnFocalPlane");
     add_varargs_method("getPointOnFocalPlane", &View3DOsgVersePy::getPointOnFocalPlane,
@@ -143,6 +154,15 @@ void View3DOsgVersePy::init_type()
         "startAnimating(axis, velocity)");
     add_noargs_method("stopAnimating", &View3DOsgVersePy::stopAnimating,
         "stopAnimating()");
+    add_varargs_method("setAnimationEnabled", &View3DOsgVersePy::setAnimationEnabled,
+        "setAnimationEnabled(bool)");
+    add_noargs_method("isAnimationEnabled", &View3DOsgVersePy::isAnimationEnabled,
+        "isAnimationEnabled()");
+
+    add_varargs_method("setPopupMenuEnabled", &View3DOsgVersePy::setPopupMenuEnabled,
+        "setPopupMenuEnabled(bool)");
+    add_noargs_method("isPopupMenuEnabled", &View3DOsgVersePy::isPopupMenuEnabled,
+        "isPopupMenuEnabled()");
 
     add_varargs_method("setAnnotation", &View3DOsgVersePy::setAnnotation,
         "setAnnotation(name, buffer)");
@@ -153,6 +173,8 @@ void View3DOsgVersePy::init_type()
         "setStereoType(type)");
     add_noargs_method("getStereoType", &View3DOsgVersePy::getStereoType,
         "getStereoType()");
+    add_noargs_method("listStereoTypes", &View3DOsgVersePy::listStereoTypes,
+        "listStereoTypes()");
 
     add_varargs_method("saveVectorGraphic", &View3DOsgVersePy::saveVectorGraphic,
         "saveVectorGraphic(filename, type)");
@@ -162,8 +184,12 @@ void View3DOsgVersePy::init_type()
 
     add_varargs_method("setCornerCrossVisible", &View3DOsgVersePy::setCornerCrossVisible,
         "setCornerCrossVisible(bool): Defines corner axis cross visibility");
+    add_noargs_method("isCornerCrossVisible", &View3DOsgVersePy::isCornerCrossVisible,
+        "isCornerCrossVisible(): Returns current corner axis cross visibility");
     add_varargs_method("setCornerCrossSize", &View3DOsgVersePy::setCornerCrossSize,
         "setCornerCrossSize(int): Defines corner axis cross size");
+    add_noargs_method("getCornerCrossSize", &View3DOsgVersePy::getCornerCrossSize,
+        "getCornerCrossSize(): Returns current corner axis cross size");
 
     add_varargs_method("getViewProvidersOfType", &View3DOsgVersePy::getViewProvidersOfType,
         "getViewProvidersOfType(name)\nreturns a list of view providers for the given type");
@@ -194,6 +220,9 @@ void View3DOsgVersePy::init_type()
         "toggle: -1 toggle, 1 show, 0 hide\n");
     add_noargs_method("hasClippingPlane", &View3DOsgVersePy::hasClippingPlane,
         "hasClippingPlane(): check whether this clipping plane is active");
+
+    add_varargs_method("setName", &View3DOsgVersePy::setName,
+        "setName(str): sets the name of the view");
 
     add_noargs_method("cast_to_base", &View3DOsgVersePy::cast_to_base,
         "cast_to_base() cast to MDIView class");
@@ -1057,7 +1086,7 @@ Py::Object View3DOsgVersePy::setAnnotation(const Py::Tuple& args)
     if (!PyArg_ParseTuple(args.ptr(), "ss", &psAnnoName, &psBuffer)) {
         throw Py::Exception();
     }
-    Base::Console().DeveloperWarning("View3DOsgVersePy",
+    Base::Console().developerWarning("View3DOsgVersePy",
         "setAnnotation() is not supported in OsgVerse backend\n");
     return Py::None();
 }
@@ -1068,7 +1097,7 @@ Py::Object View3DOsgVersePy::removeAnnotation(const Py::Tuple& args)
     if (!PyArg_ParseTuple(args.ptr(), "s", &psAnnoName)) {
         throw Py::Exception();
     }
-    Base::Console().DeveloperWarning("View3DOsgVersePy",
+    Base::Console().developerWarning("View3DOsgVersePy",
         "removeAnnotation() is not supported in OsgVerse backend\n");
     return Py::None();
 }
@@ -1079,7 +1108,7 @@ Py::Object View3DOsgVersePy::setStereoType(const Py::Tuple& args)
     if (!PyArg_ParseTuple(args.ptr(), "s", &type)) {
         throw Py::Exception();
     }
-    Base::Console().DeveloperWarning("View3DOsgVersePy",
+    Base::Console().developerWarning("View3DOsgVersePy",
         "setStereoType() is not supported in OsgVerse backend\n");
     return Py::None();
 }
@@ -1096,7 +1125,7 @@ Py::Object View3DOsgVersePy::saveVectorGraphic(const Py::Tuple& args)
     if (!PyArg_ParseTuple(args.ptr(), "s|i", &filename, &type)) {
         throw Py::Exception();
     }
-    Base::Console().DeveloperWarning("View3DOsgVersePy",
+    Base::Console().developerWarning("View3DOsgVersePy",
         "saveVectorGraphic() is not supported in OsgVerse backend\n");
     return Py::Boolean(false);
 }
@@ -1472,6 +1501,180 @@ Py::Object View3DOsgVersePy::removeEventCallbackPivy(const Py::Tuple& args)
         _callbacks.remove(method);
         Py_DECREF(method);
     }
+    return Py::None();
+}
+
+// =========================================================================
+// New methods (gap closure)
+// =========================================================================
+
+Py::Object View3DOsgVersePy::viewDefaultOrientation(const Py::Tuple& args)
+{
+    char* ori_str = nullptr;
+    double scale = -1.0;
+    if (!PyArg_ParseTuple(args.ptr(), "|sd", &ori_str, &scale)) {
+        throw Py::Exception();
+    }
+    // Reset to home position via the viewer interface
+    auto* viewer = getView3DOsgVersePtr()->getViewerInterface();
+    if (viewer) {
+        viewer->resetToHomePosition();
+    }
+    return Py::None();
+}
+
+Py::Object View3DOsgVersePy::viewPosition(const Py::Tuple& args)
+{
+    // Accept placement, steps, ms for API compatibility
+    // OsgVerse doesn't support animated transitions yet, just set the orientation
+    PyObject* pla = nullptr;
+    int steps = 0;
+    int ms = 0;
+    if (!PyArg_ParseTuple(args.ptr(), "|Oii", &pla, &steps, &ms)) {
+        throw Py::Exception();
+    }
+    if (pla) {
+        try {
+            Py::Object plaObj(pla);
+            if (plaObj.hasAttr("Rotation")) {
+                Py::Object rotObj = plaObj.getAttr("Rotation");
+                if (PyObject_TypeCheck(rotObj.ptr(), &Base::RotationPy::Type)) {
+                    Base::Rotation rot = static_cast<Base::Rotation>(Py::Rotation(rotObj.ptr(), false));
+                    Base::Vector3d forward(0, 0, -1);
+                    Base::Vector3d up(0, 1, 0);
+                    rot.multVec(forward, forward);
+                    rot.multVec(up, up);
+                    auto* viewer = getView3DOsgVersePtr()->getViewerInterface();
+                    if (viewer) {
+                        auto cam = viewer->getCamera();
+                        double dist = (cam.target - cam.position).Length();
+                        if (dist < 0.1) dist = 10.0;
+                        cam.target = cam.position + forward * dist;
+                        cam.upVector = up;
+                        viewer->setCamera(cam);
+                    }
+                }
+            }
+        }
+        catch (const Py::Exception&) { throw; }
+        catch (...) {}
+    }
+    return Py::None();
+}
+
+Py::Object View3DOsgVersePy::viewRotateLeft()
+{
+    try {
+        auto* viewer = getView3DOsgVersePtr()->getViewerInterface();
+        if (!viewer) throw Py::RuntimeError("No viewer available");
+        auto cam = viewer->getCamera();
+        Base::Vector3d forward = cam.target - cam.position;
+        forward.Normalize();
+        // Rotate up vector 90 degrees around forward axis
+        Base::Rotation rot(forward, M_PI / 2.0);
+        Base::Vector3d newUp;
+        rot.multVec(cam.upVector, newUp);
+        cam.upVector = newUp;
+        viewer->setCamera(cam);
+    }
+    catch (const Base::Exception& e) { throw Py::RuntimeError(e.what()); }
+    return Py::None();
+}
+
+Py::Object View3DOsgVersePy::viewRotateRight()
+{
+    try {
+        auto* viewer = getView3DOsgVersePtr()->getViewerInterface();
+        if (!viewer) throw Py::RuntimeError("No viewer available");
+        auto cam = viewer->getCamera();
+        Base::Vector3d forward = cam.target - cam.position;
+        forward.Normalize();
+        // Rotate up vector -90 degrees around forward axis
+        Base::Rotation rot(forward, -M_PI / 2.0);
+        Base::Vector3d newUp;
+        rot.multVec(cam.upVector, newUp);
+        cam.upVector = newUp;
+        viewer->setCamera(cam);
+    }
+    catch (const Base::Exception& e) { throw Py::RuntimeError(e.what()); }
+    return Py::None();
+}
+
+Py::Object View3DOsgVersePy::getObjectInfoRay(const Py::Tuple& args)
+{
+    // Ray-based picking is not yet implemented in OsgVerse backend
+    // Accept the call for API compatibility
+    return Py::None();
+}
+
+Py::Object View3DOsgVersePy::setAnimationEnabled(const Py::Tuple& args)
+{
+    int ok;
+    if (!PyArg_ParseTuple(args.ptr(), "i", &ok)) {
+        throw Py::Exception();
+    }
+    auto* viewer = getView3DOsgVersePtr()->getViewerInterface();
+    if (viewer) {
+        viewer->setAnimationEnabled(ok != 0);
+    }
+    return Py::None();
+}
+
+Py::Object View3DOsgVersePy::isAnimationEnabled()
+{
+    auto* viewer = getView3DOsgVersePtr()->getViewerInterface();
+    if (viewer) {
+        return Py::Boolean(viewer->isAnimationEnabled());
+    }
+    return Py::Boolean(false);
+}
+
+Py::Object View3DOsgVersePy::setPopupMenuEnabled(const Py::Tuple& args)
+{
+    int ok;
+    if (!PyArg_ParseTuple(args.ptr(), "i", &ok)) {
+        throw Py::Exception();
+    }
+    auto* viewer = getView3DOsgVersePtr()->getViewerInterface();
+    if (viewer) {
+        viewer->setPopupMenuEnabled(ok != 0);
+    }
+    return Py::None();
+}
+
+Py::Object View3DOsgVersePy::isPopupMenuEnabled()
+{
+    auto* viewer = getView3DOsgVersePtr()->getViewerInterface();
+    if (viewer) {
+        return Py::Boolean(viewer->isPopupMenuEnabled());
+    }
+    return Py::Boolean(true);
+}
+
+Py::Object View3DOsgVersePy::listStereoTypes()
+{
+    Py::List list;
+    list.append(Py::String("None"));
+    return list;
+}
+
+Py::Object View3DOsgVersePy::isCornerCrossVisible()
+{
+    return Py::Boolean(false);
+}
+
+Py::Object View3DOsgVersePy::getCornerCrossSize()
+{
+    return Py::Long(0);
+}
+
+Py::Object View3DOsgVersePy::setName(const Py::Tuple& args)
+{
+    char* buffer;
+    if (!PyArg_ParseTuple(args.ptr(), "s", &buffer)) {
+        throw Py::Exception();
+    }
+    getView3DOsgVersePtr()->setWindowTitle(QString::fromUtf8(buffer));
     return Py::None();
 }
 

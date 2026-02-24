@@ -75,6 +75,10 @@ public:
     Py::Object viewIsometric();
     Py::Object viewDimetric();
     Py::Object viewTrimetric();
+    Py::Object viewDefaultOrientation(const Py::Tuple&);
+    Py::Object viewPosition(const Py::Tuple&);
+    Py::Object viewRotateLeft();
+    Py::Object viewRotateRight();
     Py::Object zoomIn();
     Py::Object zoomOut();
 
@@ -84,6 +88,7 @@ public:
     Py::Object getPointOnViewport(const Py::Tuple&);
     Py::Object getObjectInfo(const Py::Tuple&);
     Py::Object getObjectsInfo(const Py::Tuple&);
+    Py::Object getObjectInfoRay(const Py::Tuple&);
     Py::Object getSize();
     Py::Object getCursorPos();
     Py::Object boxZoom(const Py::Tuple& args, const Py::Dict&);
@@ -96,6 +101,12 @@ public:
     // Animation
     Py::Object startAnimating(const Py::Tuple&);
     Py::Object stopAnimating();
+    Py::Object setAnimationEnabled(const Py::Tuple&);
+    Py::Object isAnimationEnabled();
+
+    // Popup menu
+    Py::Object setPopupMenuEnabled(const Py::Tuple&);
+    Py::Object isPopupMenuEnabled();
 
     // Annotation (stubs)
     Py::Object setAnnotation(const Py::Tuple&);
@@ -104,6 +115,7 @@ public:
     // Stereo (stubs)
     Py::Object setStereoType(const Py::Tuple&);
     Py::Object getStereoType();
+    Py::Object listStereoTypes();
 
     // Vector graphics (stub)
     Py::Object saveVectorGraphic(const Py::Tuple&);
@@ -113,7 +125,9 @@ public:
 
     // Corner cross
     Py::Object setCornerCrossVisible(const Py::Tuple&);
+    Py::Object isCornerCrossVisible();
     Py::Object setCornerCrossSize(const Py::Tuple&);
+    Py::Object getCornerCrossSize();
 
     // ViewProvider query
     Py::Object getViewProvidersOfType(const Py::Tuple&);
@@ -131,6 +145,7 @@ public:
     Py::Object redraw();
     Py::Object setAxisCross(const Py::Tuple&);
     Py::Object hasAxisCross();
+    Py::Object setName(const Py::Tuple&);
 
 private:
     using method_varargs_handler = PyObject* (*)(PyObject* _self, PyObject* _args);

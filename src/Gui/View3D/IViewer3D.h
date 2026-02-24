@@ -40,7 +40,7 @@
 #include <FCGlobal.h>
 #include <Base/BoundBox.h>
 #include <Base/Placement.h>
-#include <Base/Vector2D.h>
+#include <Base/Tools2D.h>
 #include <Base/Vector3D.h>
 #include <Base/Matrix.h>
 #include <Gui/Render/Core/RenderTypes.h>
@@ -544,7 +544,7 @@ public:
      * @param y 屏幕 Y 坐标
      * @return 焦平面上的 3D 世界坐标
      */
-    virtual Base::Vector3d getPointOnFocalPlane(int x, int y) const = 0;
+    virtual Base::Vector3d getPointOnFocalPlane(int x, int y) const { (void)x; (void)y; return Base::Vector3d(); }
 
     /**
      * @brief 设置编辑根节点
@@ -555,7 +555,7 @@ public:
      *             如果为 nullptr，则将当前编辑 VP 的子节点移到编辑根
      * @param mat 编辑变换矩阵（可选）
      */
-    virtual void setupEditingRoot(void* node = nullptr, const Base::Matrix4D* mat = nullptr) = 0;
+    virtual void setupEditingRoot(void* node = nullptr, const Base::Matrix4D* mat = nullptr) { (void)node; (void)mat; }
 
     /**
      * @brief 重置编辑根节点
@@ -564,14 +564,14 @@ public:
      *
      * @param updateLinks 是否更新 ViewProviderLink 引用
      */
-    virtual void resetEditingRoot(bool updateLinks = true) = 0;
+    virtual void resetEditingRoot(bool updateLinks = true) { (void)updateLinks; }
 
     /**
      * @brief 设置编辑变换矩阵
      *
      * @param mat 变换矩阵
      */
-    virtual void setEditingTransform(const Base::Matrix4D& mat) = 0;
+    virtual void setEditingTransform(const Base::Matrix4D& mat) { (void)mat; }
 
     //-----------------------------------------------------------------------
     // Seek 功能（Phase G）
@@ -586,7 +586,7 @@ public:
      * @param screenY 屏幕 Y 坐标
      * @return true 如果成功拾取到点并开始动画
      */
-    virtual bool seekToPoint(int screenX, int screenY) = 0;
+    virtual bool seekToPoint(int screenX, int screenY) { (void)screenX; (void)screenY; return false; }
 
     /**
      * @brief 飞行到世界坐标点
@@ -595,7 +595,7 @@ public:
      *
      * @param worldPos 目标世界坐标
      */
-    virtual void seekToPoint(const Base::Vector3d& worldPos) = 0;
+    virtual void seekToPoint(const Base::Vector3d& worldPos) { (void)worldPos; }
 
     //-----------------------------------------------------------------------
     // 拾取半径（Phase G）
@@ -604,12 +604,12 @@ public:
     /**
      * @brief 获取拾取半径（像素）
      */
-    virtual float getPickRadius() const = 0;
+    virtual float getPickRadius() const { return 5.0f; }
 
     /**
      * @brief 设置拾取半径（像素）
      */
-    virtual void setPickRadius(float radius) = 0;
+    virtual void setPickRadius(float radius) { (void)radius; }
 
     //-----------------------------------------------------------------------
     // 渲染模式覆盖（Phase H）
@@ -623,12 +623,12 @@ public:
      * @param mode 模式字符串（如 "Wireframe", "Shaded", "Flat Lines" 等）
      *             空字符串表示取消覆盖
      */
-    virtual void setOverrideMode(const std::string& mode) = 0;
+    virtual void setOverrideMode(const std::string& mode) { (void)mode; }
 
     /**
      * @brief 获取当前渲染模式覆盖
      */
-    virtual std::string getOverrideMode() const = 0;
+    virtual std::string getOverrideMode() const { return std::string(); }
 
     //-----------------------------------------------------------------------
     // 坐标投影系统 / Coordinate Projection

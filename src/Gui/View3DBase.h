@@ -53,6 +53,10 @@ public:
     // Abstract interface - must be implemented by derived classes
     virtual View3D::IViewer3D* getViewerInterface() = 0;
     virtual BackendType getBackendType() const = 0;
+
+    // Clipping plane support (implemented by derived classes)
+    virtual void toggleClippingPlane() {}
+    virtual bool hasClippingPlane() const { return false; }
 };
 
 }  // namespace Gui

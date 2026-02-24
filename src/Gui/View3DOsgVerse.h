@@ -153,12 +153,14 @@ public:
     /**
      * @brief Toggle clipping plane through the focal plane
      */
-    void toggleClippingPlane();
+    void toggleClippingPlane() override;
+
+    bool setCamera(const char* pCamera);
 
     /**
      * @brief Check if clipping plane is active
      */
-    bool hasClippingPlane() const;
+    bool hasClippingPlane() const override;
 
     /**
      * @brief Dump view information
