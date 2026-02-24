@@ -49,6 +49,7 @@
 #include <Gui/BitmapFactory.h>
 #include <Gui/CommandT.h>
 #include <Gui/MainWindow.h>
+#include <Gui/View3DBase.h>
 #include <Gui/View3DInventor.h>
 #include <Gui/View3DInventorViewer.h>
 #include <Gui/Application.h>
@@ -391,23 +392,19 @@ void PartGui::DlgProjectionOnSurface::get_camera_direction()
 {
     auto mainWindow = Gui::getMainWindow();
 
-    auto mdiObject = dynamic_cast<Gui::View3DInventor*>(mainWindow->activeWindow());
+    auto mdiObject = dynamic_cast<Gui::View3DBase*>(mainWindow->activeWindow());
     if (!mdiObject) {
         return;
     }
-    auto camerRotation = mdiObject->getViewer()->getCameraOrientation();
+    auto* viewer = mdiObject->getViewerInterface();
+    if (!viewer) {
+        return;
+    }
+    Base::Vector3d viewDir = viewer->getViewDirection();
 
-    SbVec3f lookAt(0, 0, -1);
-    camerRotation.multVec(lookAt, lookAt);
-
-    float valX {};
-    float valY {};
-    float valZ {};
-    lookAt.getValue(valX, valY, valZ);
-
-    ui->doubleSpinBoxDirX->setValue(valX);
-    ui->doubleSpinBoxDirY->setValue(valY);
-    ui->doubleSpinBoxDirZ->setValue(valZ);
+    ui->doubleSpinBoxDirX->setValue(viewDir.x);
+    ui->doubleSpinBoxDirY->setValue(viewDir.y);
+    ui->doubleSpinBoxDirZ->setValue(viewDir.z);
 }
 
 void PartGui::DlgProjectionOnSurface::store_current_selected_parts(
@@ -1400,23 +1397,19 @@ void DlgProjectOnSurface::onGetCurrentCamDirClicked()
 {
     auto mainWindow = Gui::getMainWindow();
 
-    auto mdiObject = dynamic_cast<Gui::View3DInventor*>(mainWindow->activeWindow());
+    auto mdiObject = dynamic_cast<Gui::View3DBase*>(mainWindow->activeWindow());
     if (!mdiObject) {
         return;
     }
-    auto camerRotation = mdiObject->getViewer()->getCameraOrientation();
+    auto* viewer = mdiObject->getViewerInterface();
+    if (!viewer) {
+        return;
+    }
+    Base::Vector3d viewDir = viewer->getViewDirection();
 
-    SbVec3f lookAt(0, 0, -1);
-    camerRotation.multVec(lookAt, lookAt);
-
-    float valX {};
-    float valY {};
-    float valZ {};
-    lookAt.getValue(valX, valY, valZ);
-
-    ui->doubleSpinBoxDirX->setValue(valX);
-    ui->doubleSpinBoxDirY->setValue(valY);
-    ui->doubleSpinBoxDirZ->setValue(valZ);
+    ui->doubleSpinBoxDirX->setValue(viewDir.x);
+    ui->doubleSpinBoxDirY->setValue(viewDir.y);
+    ui->doubleSpinBoxDirZ->setValue(viewDir.z);
     setDirection();
 }
 

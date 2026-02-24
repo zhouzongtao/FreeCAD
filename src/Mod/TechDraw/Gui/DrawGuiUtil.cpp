@@ -54,6 +54,7 @@
 #include <Gui/MainWindow.h>
 #include <Gui/MDIView.h>
 #include <Gui/Selection/Selection.h>
+#include <Gui/View3DBase.h>
 #include <Gui/View3DInventor.h>
 #include <Gui/View3DInventorViewer.h>
 #include <Gui/PrefWidgets.h>
@@ -589,12 +590,11 @@ std::pair<Base::Vector3d, Base::Vector3d> DrawGuiUtil::get3DDirAndRot()
     Base::Vector3d viewUp(0.0, 0.0, 1.0);     // default to top
     Base::Vector3d viewRight(1.0, 0.0, 0.0);  // default to right
     std::list<Gui::MDIView*> mdis = Gui::Application::Instance->activeDocument()->getMDIViews();
-    Gui::View3DInventor* view;
-    Gui::View3DInventorViewer* viewer = nullptr;
+    Gui::View3D::IViewer3D* viewer = nullptr;
     for (auto& m : mdis) {  // find the 3D viewer
-        view = dynamic_cast<Gui::View3DInventor*>(m);
+        auto view = dynamic_cast<Gui::View3DBase*>(m);
         if (view) {
-            viewer = view->getViewer();
+            viewer = view->getViewerInterface();
             break;
         }
     }
@@ -602,27 +602,21 @@ std::pair<Base::Vector3d, Base::Vector3d> DrawGuiUtil::get3DDirAndRot()
         return std::make_pair(viewDir, viewRight);
     }
 
-    // Coin is giving us a values like 0.000000134439 instead of 0.000000000000.
-    // This small difference caused circles to be projected as ellipses among other
-    // problems.
-    // Since SbVec3f is single precision floating point, it is only good to 6-9
-    // significant decimal digits, and the rest of TechDraw works with doubles
-    // that are good to 15-18 significant decimal digits.
-    // But. When a float is promoted to double the value is supposed to be unchanged!
-    // So where do the garbage digits come from???
-    // In any case, if we restrict directions to 6 digits, we avoid the problem.
+    // Restrict directions to 6 digits to avoid floating point precision issues.
+    // Coin's SbVec3f is single precision, but IViewer3D returns doubles.
+    // We still round to avoid garbage digits from float→double promotion.
     int digits(6);
-    SbVec3f dvec = viewer->getViewDirection();
-    double dvecX = roundToDigits(dvec[0], digits);
-    double dvecY = roundToDigits(dvec[1], digits);
-    double dvecZ = roundToDigits(dvec[2], digits);
+    Base::Vector3d dvec = viewer->getViewDirection();
+    double dvecX = roundToDigits(dvec.x, digits);
+    double dvecY = roundToDigits(dvec.y, digits);
+    double dvecZ = roundToDigits(dvec.z, digits);
     viewDir = Base::Vector3d(dvecX, dvecY, dvecZ);
     viewDir = viewDir * (-1.0);  // Inventor dir is opposite TD projection dir
 
-    SbVec3f upvec = viewer->getUpDirection();
-    double upvecX = roundToDigits(upvec[0], digits);
-    double upvecY = roundToDigits(upvec[1], digits);
-    double upvecZ = roundToDigits(upvec[2], digits);
+    Base::Vector3d upvec = viewer->getUpDirection();
+    double upvecX = roundToDigits(upvec.x, digits);
+    double upvecY = roundToDigits(upvec.y, digits);
+    double upvecZ = roundToDigits(upvec.z, digits);
     viewUp = Base::Vector3d(upvecX, upvecY, upvecZ);
 
     Base::Vector3d right = viewUp.Cross(viewDir);

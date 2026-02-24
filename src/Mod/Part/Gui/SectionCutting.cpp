@@ -46,6 +46,7 @@
 #include <Gui/Document.h>
 #include <Gui/MainWindow.h>
 #include <Gui/PrefWidgets.h>
+#include <Gui/View3DBase.h>
 #include <Gui/View3DInventor.h>
 #include <Gui/View3DInventorViewer.h>
 #include <Gui/ViewProviderGeometryObject.h>
@@ -2443,6 +2444,21 @@ SbBox3f SectionCut::getViewBoundingBox()
         Base::Console().error("Section cut error: there is no active document\n");
         return Box;  // return an empty box
     }
+
+    // Try backend-agnostic path first via View3DBase
+    auto viewBase = dynamic_cast<Gui::View3DBase*>(docGui->getActiveView());
+    if (viewBase) {
+        if (auto* viewer = viewBase->getViewerInterface()) {
+            Base::Vector3d bmin, bmax;
+            viewer->getBoundingBox(bmin, bmax);
+            Box.setBounds(SbVec3f(bmin.x, bmin.y, bmin.z), SbVec3f(bmax.x, bmax.y, bmax.z));
+            if (!Box.isEmpty()) {
+                return Box;
+            }
+        }
+    }
+
+    // Fallback to Coin3D-specific path for precise bounding box
     auto view = dynamic_cast<Gui::View3DInventor*>(docGui->getActiveView());
     if (!view) {
         Base::Console().error("Section cut error: could not get the active view\n");

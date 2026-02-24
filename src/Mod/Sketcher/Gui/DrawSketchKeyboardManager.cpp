@@ -45,9 +45,11 @@ DrawSketchKeyboardManager::DrawSketchKeyboardManager()
     auto doc = Gui::Application::Instance->activeDocument();
 
     if (doc) {
-        auto temp = dynamic_cast<Gui::View3DInventor*>(doc->getActiveView());
+        auto temp = dynamic_cast<Gui::View3DBase*>(doc->getActiveView());
         if (temp) {
-            vpViewer = temp->getViewer();
+            if (auto* viewer = temp->getViewerInterface()) {
+                vpViewer = viewer->getWidget();
+            }
             keyMode = KeyboardEventHandlingMode::ViewProvider;
         }
     }

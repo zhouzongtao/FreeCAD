@@ -762,4 +762,284 @@ bool OsgVerseViewerAdapter::saveScreenshot(const QString& filename, int width, i
     return false;
 }
 
+void OsgVerseViewerAdapter::addEventCallback(EventType type, EventCallbackFunc cb, void* userData)
+{
+    if (_viewer) {
+        auto osgType = static_cast<Render::OsgVerseViewer::EventType>(static_cast<int>(type));
+        Render::OsgVerseViewer::EventCallbackFunc wrapper =
+            [cb](Render::OsgVerseViewer::EventType et, void* ev, void* ud) -> bool {
+                auto iType = static_cast<EventType>(static_cast<int>(et));
+                return cb(iType, ev, ud);
+            };
+        _viewer->addEventCallback(osgType, wrapper, userData);
+    }
+}
+
+void OsgVerseViewerAdapter::removeEventCallback(EventType type, EventCallbackFunc /*cb*/, void* userData)
+{
+    if (_viewer) {
+        auto osgType = static_cast<Render::OsgVerseViewer::EventType>(static_cast<int>(type));
+        // OsgVerseViewer::removeEventCallback matches by type + userData
+        _viewer->removeEventCallback(osgType, nullptr, userData);
+    }
+}
+
+//===========================================================================
+// Selection Polygon
+//===========================================================================
+
+std::vector<std::pair<int,int>> OsgVerseViewerAdapter::getSelectionPolygon(bool* isClosed) const
+{
+    if (_viewer) {
+        return _viewer->getSelectionPolygon(isClosed);
+    }
+    if (isClosed) *isClosed = false;
+    return {};
+}
+
+std::vector<std::pair<float,float>> OsgVerseViewerAdapter::getSelectionPolygonNormalized(bool* isClosed) const
+{
+    if (_viewer) {
+        return _viewer->getSelectionPolygonNormalized(isClosed);
+    }
+    if (isClosed) *isClosed = false;
+    return {};
+}
+
+//===========================================================================
+// Ray Picking
+//===========================================================================
+
+Base::Vector3d OsgVerseViewerAdapter::getPointOnRay(const QPoint& screenPos, const ViewProvider* vp) const
+{
+    if (_viewer) {
+        return _viewer->getPointOnRay(screenPos, vp);
+    }
+    return Base::Vector3d();
+}
+
+Base::Vector3d OsgVerseViewerAdapter::getPointOnRay(const Base::Vector3d& rayOrigin,
+                                                     const Base::Vector3d& rayDir,
+                                                     const ViewProvider* vp) const
+{
+    if (_viewer) {
+        return _viewer->getPointOnRay(rayOrigin, rayDir, vp);
+    }
+    return Base::Vector3d();
+}
+
+//===========================================================================
+// Viewport on Placement Plane
+//===========================================================================
+
+Base::BoundBox2d OsgVerseViewerAdapter::getViewportOnXYPlaneOfPlacement(const Base::Placement& plc) const
+{
+    if (_viewer) {
+        return _viewer->getViewportOnXYPlaneOfPlacement(plc);
+    }
+    return Base::BoundBox2d(0, 0, 0, 0);
+}
+
+//===========================================================================
+// Coordinate Projection (forwarded to OsgVerseViewer)
+//===========================================================================
+
+Base::Vector3d OsgVerseViewerAdapter::getViewDirection() const
+{
+    if (_viewer) return _viewer->getViewDirection();
+    return Base::Vector3d(0, 0, -1);
+}
+
+Base::Vector3d OsgVerseViewerAdapter::getUpDirection() const
+{
+    if (_viewer) return _viewer->getUpDirection();
+    return Base::Vector3d(0, 1, 0);
+}
+
+QPoint OsgVerseViewerAdapter::getPointOnViewport(const Base::Vector3d& pt) const
+{
+    if (_viewer) return _viewer->getPointOnViewport(pt);
+    return QPoint(0, 0);
+}
+
+Base::Vector3d OsgVerseViewerAdapter::getPointOnLine(const QPoint& screenPos,
+                                                      const Base::Vector3d& axisCenter,
+                                                      const Base::Vector3d& axis) const
+{
+    if (_viewer) return _viewer->getPointOnLine(screenPos, axisCenter, axis);
+    return Base::Vector3d();
+}
+
+Base::Vector3d OsgVerseViewerAdapter::getPointOnXYPlaneOfPlacement(const QPoint& screenPos,
+                                                                    const Base::Placement& plc) const
+{
+    if (_viewer) return _viewer->getPointOnXYPlaneOfPlacement(screenPos, plc);
+    return Base::Vector3d();
+}
+
+void OsgVerseViewerAdapter::projectPointToLine(const QPoint& screenPos,
+                                                Base::Vector3d& pt1,
+                                                Base::Vector3d& pt2) const
+{
+    if (_viewer) {
+        _viewer->projectPointToLine(screenPos, pt1, pt2);
+    } else {
+        pt1 = pt2 = Base::Vector3d();
+    }
+}
+
+Base::Vector2d OsgVerseViewerAdapter::getNormalizedPosition(const QPoint& screenPos) const
+{
+    if (_viewer) return _viewer->getNormalizedPosition(screenPos);
+    return Base::Vector2d(0.5, 0.5);
+}
+
+Base::Vector3d OsgVerseViewerAdapter::projectOnNearPlane(const Base::Vector2d& pt) const
+{
+    if (_viewer) return _viewer->projectOnNearPlane(pt);
+    return Base::Vector3d();
+}
+
+Base::Vector3d OsgVerseViewerAdapter::projectOnFarPlane(const Base::Vector2d& pt) const
+{
+    if (_viewer) return _viewer->projectOnFarPlane(pt);
+    return Base::Vector3d();
+}
+
+Base::Vector3d OsgVerseViewerAdapter::getCenterPointOnFocalPlane() const
+{
+    if (_viewer) return _viewer->getCenterPointOnFocalPlane();
+    return Base::Vector3d();
+}
+
+void OsgVerseViewerAdapter::getNearPlane(Base::Vector3d& pt, Base::Vector3d& normal) const
+{
+    if (_viewer) {
+        _viewer->getNearPlane(pt, normal);
+    } else {
+        pt = Base::Vector3d();
+        normal = Base::Vector3d(0, 0, 1);
+    }
+}
+
+void OsgVerseViewerAdapter::getFarPlane(Base::Vector3d& pt, Base::Vector3d& normal) const
+{
+    if (_viewer) {
+        _viewer->getFarPlane(pt, normal);
+    } else {
+        pt = Base::Vector3d();
+        normal = Base::Vector3d(0, 0, -1);
+    }
+}
+
+void OsgVerseViewerAdapter::getDimensions(float& height, float& width) const
+{
+    if (_viewer) {
+        _viewer->getDimensions(height, width);
+    } else {
+        height = width = 0;
+    }
+}
+
+float OsgVerseViewerAdapter::getMaxDimension() const
+{
+    if (_viewer) return _viewer->getMaxDimension();
+    return 0;
+}
+
+//===========================================================================
+// Editing Extensions (forwarded to OsgVerseViewer)
+//===========================================================================
+
+void OsgVerseViewerAdapter::setEditing(bool edit)
+{
+    if (_viewer) _viewer->setEditing(edit);
+}
+
+bool OsgVerseViewerAdapter::isEditing() const
+{
+    if (_viewer) return _viewer->isEditing();
+    return false;
+}
+
+void OsgVerseViewerAdapter::setEditingCursor(const QCursor& cursor)
+{
+    if (_viewer) _viewer->setEditingCursor(cursor);
+}
+
+void OsgVerseViewerAdapter::setComponentCursor(const QCursor& cursor)
+{
+    if (_viewer) _viewer->setComponentCursor(cursor);
+}
+
+void OsgVerseViewerAdapter::setRedirectToSceneGraph(bool redirect)
+{
+    if (_viewer) _viewer->setRedirectToSceneGraph(redirect);
+}
+
+bool OsgVerseViewerAdapter::isRedirectedToSceneGraph() const
+{
+    if (_viewer) return _viewer->isRedirectedToSceneGraph();
+    return false;
+}
+
+void OsgVerseViewerAdapter::setSelectionEnabled(bool enable)
+{
+    if (_viewer) _viewer->setSelectionEnabled(enable);
+}
+
+bool OsgVerseViewerAdapter::isSelectionEnabled() const
+{
+    if (_viewer) return _viewer->isSelectionEnabled();
+    return true;
+}
+
+void OsgVerseViewerAdapter::boxZoom(int x1, int y1, int x2, int y2)
+{
+    if (_viewer) _viewer->boxZoom(x1, y1, x2, y2);
+}
+
+void OsgVerseViewerAdapter::savePicture(int width, int height, int samples,
+                                         const QColor& bg, QImage& img) const
+{
+    if (_viewer) {
+        _viewer->savePicture(width, height, samples, bg, img);
+    }
+}
+
+void OsgVerseViewerAdapter::alignToSelection()
+{
+    if (_viewer) _viewer->alignToSelection();
+}
+
+void OsgVerseViewerAdapter::setPopupMenuEnabled(bool on)
+{
+    if (_viewer) _viewer->setPopupMenuEnabled(on);
+}
+
+bool OsgVerseViewerAdapter::isPopupMenuEnabled() const
+{
+    if (_viewer) return _viewer->isPopupMenuEnabled();
+    return true;
+}
+
+//===========================================================================
+// Graphics Overlay (forwarded to OsgVerseViewer)
+//===========================================================================
+
+void OsgVerseViewerAdapter::addGraphicsItem(void* item)
+{
+    if (_viewer) _viewer->addGraphicsItem(item);
+}
+
+void OsgVerseViewerAdapter::removeGraphicsItem(void* item)
+{
+    if (_viewer) _viewer->removeGraphicsItem(item);
+}
+
+void OsgVerseViewerAdapter::clearGraphicsItems()
+{
+    if (_viewer) _viewer->clearGraphicsItems();
+}
+
 #endif // RENDER_HAS_OSGVERSE_BACKEND

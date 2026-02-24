@@ -60,6 +60,7 @@
 #include <Gui/Selection/SoFCUnifiedSelection.h>
 // #include <Gui/Inventor/SoFCSwitch.h>
 #include <Gui/Utilities.h>
+#include <Gui/View3DBase.h>
 #include <Gui/View3DInventor.h>
 #include <Gui/View3DInventorViewer.h>
 #include <Mod/Part/App/Geometry.h>
@@ -733,12 +734,12 @@ void ViewProviderSketch::purgeHandler()
     Gui::Selection().clearSelection();
 
     // ensure that we are in sketch only selection mode
-    auto* view = dynamic_cast<Gui::View3DInventor*>(Gui::Application::Instance->editDocument()->getActiveView());
+    auto* view = dynamic_cast<Gui::View3DBase*>(Gui::Application::Instance->editDocument()->getActiveView());
 
     if(view) {
-        Gui::View3DInventorViewer* viewer;
-        viewer = static_cast<Gui::View3DInventor*>(view)->getViewer();
-        viewer->setSelectionEnabled(false);
+        if (auto* viewer = view->getViewerInterface()) {
+            viewer->setSelectionEnabled(false);
+        }
     }
 
     // Give back the focus to the MDI to make sure VPSketch receive keyboard events.
@@ -2079,12 +2080,13 @@ void ViewProviderSketch::moveConstraint(Sketcher::Constraint* Constr, int constN
 
         double offsetVal = 0.0;
         if (offset == OffsetConstraint) {
-            if (auto* view = qobject_cast<Gui::View3DInventor*>(this->getActiveView())) {
-                Gui::View3DInventorViewer* viewer = view->getViewer();
-                float fHeight = -1.0;
-                float fWidth = -1.0;
-                viewer->getDimensions(fHeight, fWidth);
-                offsetVal = (fHeight + fWidth) * 0.01;
+            if (auto* view = dynamic_cast<Gui::View3DBase*>(this->getActiveView())) {
+                if (auto* viewer = view->getViewerInterface()) {
+                    float fHeight = -1.0;
+                    float fWidth = -1.0;
+                    viewer->getDimensions(fHeight, fWidth);
+                    offsetVal = (fHeight + fWidth) * 0.01;
+                }
             }
         }
 
@@ -3155,8 +3157,10 @@ void ViewProviderSketch::draw(bool temp /*=false*/, bool rebuildinformationoverl
     }
 
     Gui::MDIView* mdi = this->getActiveView();
-    if (mdi && mdi->isDerivedFrom<Gui::View3DInventor>()) {
-        static_cast<Gui::View3DInventor*>(mdi)->getViewer()->redraw();
+    if (mdi && mdi->isDerivedFrom<Gui::View3DBase>()) {
+        if (auto* viewer = static_cast<Gui::View3DBase*>(mdi)->getViewerInterface()) {
+            viewer->updateScene();
+        }
     }
 }
 
@@ -3231,7 +3235,7 @@ void ViewProviderSketch::slotSolverUpdate()
             + getSketchObject()->getHighestCurveIndex() + 1
         == getSolvedSketch().getGeometrySize()) {
         Gui::MDIView* mdi = Gui::Application::Instance->editDocument()->getActiveView();
-        if (mdi->isDerivedFrom<Gui::View3DInventor>())
+        if (mdi->isDerivedFrom<Gui::View3DBase>())
             draw(false, true);
 
         signalConstraintsChanged();
@@ -3942,12 +3946,13 @@ void ViewProviderSketch::onCameraChanged(SoCamera* cam)
     }
 
     // Stretch the axes to cover the whole viewport.
-    Gui::View3DInventor* view = qobject_cast<Gui::View3DInventor*>(this->getActiveView());
+    Gui::View3DBase* view = dynamic_cast<Gui::View3DBase*>(this->getActiveView());
     if (view) {
-        Base::Placement plc = getEditingPlacement();
-        const Base::BoundBox2d vpBBox = view->getViewer()
-                ->getViewportOnXYPlaneOfPlacement(plc);
-        editCoinManager->updateAxesLength(vpBBox);
+        if (auto* viewer = view->getViewerInterface()) {
+            Base::Placement plc = getEditingPlacement();
+            const Base::BoundBox2d vpBBox = viewer->getViewportOnXYPlaneOfPlacement(plc);
+            editCoinManager->updateAxesLength(vpBBox);
+        }
     }
 
     drawGrid(true);
@@ -4408,9 +4413,12 @@ int ViewProviderSketch::defaultFontSizePixels() const
 
 qreal ViewProviderSketch::getDevicePixelRatio() const
 {
-    if (auto activeView = qobject_cast<Gui::View3DInventor*>(this->getActiveView())) {
-        auto glWidget = activeView->getViewer()->getGLWidget();
-        return glWidget->devicePixelRatio();
+    if (auto activeView = dynamic_cast<Gui::View3DBase*>(this->getActiveView())) {
+        if (auto* viewer = activeView->getViewerInterface()) {
+            if (auto* glWidget = viewer->getGLWidget()) {
+                return glWidget->devicePixelRatio();
+            }
+        }
     }
 
     return QApplication::primaryScreen()->devicePixelRatio();
@@ -4779,8 +4787,13 @@ void ViewProviderSketch::generateContextMenu()
     }
     // create context menu
     Gui::Application::Instance->setupContextMenu("Sketch", &menu);
-    QMenu contextMenu(
-        qobject_cast<Gui::View3DInventor*>(this->getActiveView())->getViewer()->getGLWidget());
+    QWidget* parentWidget = nullptr;
+    if (auto* view = dynamic_cast<Gui::View3DBase*>(this->getActiveView())) {
+        if (auto* viewer = view->getViewerInterface()) {
+            parentWidget = viewer->getGLWidget();
+        }
+    }
+    QMenu contextMenu(parentWidget);
     Gui::MenuManager::getInstance()->setupContextMenu(&menu, contextMenu);
     contextMenu.exec(QCursor::pos());
 }

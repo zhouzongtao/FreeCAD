@@ -78,6 +78,7 @@
 #include "Tree.h"
 #include "TreeParams.h"
 #include "Utilities.h"
+#include "View3DBase.h"
 #include "View3DInventor.h"
 #include "View3DInventorViewer.h"
 #ifdef RENDER_HAS_OSGVERSE_BACKEND
@@ -803,11 +804,11 @@ void StdCmdDrawStyle::languageChange()
 
 void StdCmdDrawStyle::updateIcon(const MDIView* view)
 {
-    const auto view3d = dynamic_cast<const Gui::View3DInventor*>(view);
+    const auto view3d = dynamic_cast<const Gui::View3DBase*>(view);
     if (!view3d) {
         return;
     }
-    Gui::View3DInventorViewer* viewer = view3d->getViewer();
+    auto* viewer = const_cast<Gui::View3DBase*>(view3d)->getViewerInterface();
     if (!viewer) {
         return;
     }
@@ -4217,14 +4218,16 @@ StdStoreWorkingView::StdStoreWorkingView()
 void StdStoreWorkingView::activated(int iMsg)
 {
     Q_UNUSED(iMsg);
-    if (auto view = dynamic_cast<Gui::View3DInventor*>(Gui::getMainWindow()->activeWindow())) {
-        view->getViewer()->saveHomePosition();
+    if (auto view = dynamic_cast<Gui::View3DBase*>(Gui::getMainWindow()->activeWindow())) {
+        if (auto* viewer = view->getViewerInterface()) {
+            viewer->saveHomePosition();
+        }
     }
 }
 
 bool StdStoreWorkingView::isActive()
 {
-    return dynamic_cast<Gui::View3DInventor*>(Gui::getMainWindow()->activeWindow());
+    return dynamic_cast<Gui::View3DBase*>(Gui::getMainWindow()->activeWindow());
 }
 
 //===========================================================================
@@ -4247,17 +4250,24 @@ StdRecallWorkingView::StdRecallWorkingView()
 void StdRecallWorkingView::activated(int iMsg)
 {
     Q_UNUSED(iMsg);
-    if (auto view = dynamic_cast<Gui::View3DInventor*>(Gui::getMainWindow()->activeWindow())) {
-        if (view->getViewer()->hasHomePosition()) {
-            view->getViewer()->resetToHomePosition();
+    if (auto view = dynamic_cast<Gui::View3DBase*>(Gui::getMainWindow()->activeWindow())) {
+        if (auto* viewer = view->getViewerInterface()) {
+            if (viewer->hasHomePosition()) {
+                viewer->resetToHomePosition();
+            }
         }
     }
 }
 
 bool StdRecallWorkingView::isActive()
 {
-    auto view = dynamic_cast<Gui::View3DInventor*>(Gui::getMainWindow()->activeWindow());
-    return view && view->getViewer()->hasHomePosition();
+    auto view = dynamic_cast<Gui::View3DBase*>(Gui::getMainWindow()->activeWindow());
+    if (view) {
+        if (auto* viewer = view->getViewerInterface()) {
+            return viewer->hasHomePosition();
+        }
+    }
+    return false;
 }
 
 //===========================================================================

@@ -111,7 +111,7 @@ struct DocumentP
     std::string _editSubname;
     std::string _editSubElement;
     Base::Matrix4D _editingTransform;
-    View3DInventorViewer* _editingViewer;
+    View3D::IViewer3D* _editingViewer;
     std::set<const App::DocumentObject*> _editObjs;
 
     Application* _pcAppWnd;
@@ -306,11 +306,13 @@ struct DocumentP
         return true;
     }
 
-    void setEditingViewerIfPossible(View3DInventor* view3d, int ModNum)
+    void setEditingViewerIfPossible(View3DBase* view3d, int ModNum)
     {
         if (view3d) {
-            view3d->getViewer()->setEditingViewProvider(_editViewProvider, ModNum);
-            _editingViewer = view3d->getViewer();
+            if (auto* viewer = view3d->getViewerInterface()) {
+                viewer->setEditingViewProvider(_editViewProvider, ModNum);
+                _editingViewer = viewer;
+            }
         }
     }
 
@@ -633,21 +635,21 @@ void Document::resetIfEditing()
     }
 }
 
-View3DInventor* Document::openEditingView3D(const ViewProviderDocumentObject* vp)
+View3DBase* Document::openEditingView3D(const ViewProviderDocumentObject* vp)
 {
-    auto view3d = dynamic_cast<View3DInventor*>(getActiveView());
+    auto view3d = dynamic_cast<View3DBase*>(getActiveView());
     // if the currently active view is not the 3d view search for it and activate it
     if (view3d) {
         getMainWindow()->setActiveWindow(view3d);
     }
     else {
-        view3d = dynamic_cast<View3DInventor*>(setActiveView(vp));
+        view3d = dynamic_cast<View3DBase*>(setActiveView(vp));
     }
 
     return view3d;
 }
 
-View3DInventor* Document::openEditingView3D(const App::DocumentObject* obj)
+View3DBase* Document::openEditingView3D(const App::DocumentObject* obj)
 {
     if (auto vp
         = freecad_cast<ViewProviderDocumentObject*>(Application::Instance->getViewProvider(obj))) {
@@ -713,9 +715,11 @@ void Document::setEditingTransform(const Base::Matrix4D& mat)
 {
     d->_editObjs.clear();
     d->_editingTransform = mat;
-    auto activeView = dynamic_cast<View3DInventor*>(getActiveView());
+    auto activeView = dynamic_cast<View3DBase*>(getActiveView());
     if (activeView) {
-        activeView->getViewer()->setEditingTransform(mat);
+        if (auto* viewer = activeView->getViewerInterface()) {
+            viewer->setEditingTransform(mat);
+        }
     }
 }
 
@@ -739,9 +743,11 @@ void Document::_resetEdit()
     std::list<Gui::BaseView*>::iterator it;
     if (d->_editViewProvider) {
         for (it = d->baseViews.begin(); it != d->baseViews.end(); ++it) {
-            auto activeView = dynamic_cast<View3DInventor*>(*it);
+            auto activeView = dynamic_cast<View3DBase*>(*it);
             if (activeView) {
-                activeView->getViewer()->resetEditingViewProvider();
+                if (auto* viewer = activeView->getViewerInterface()) {
+                    viewer->resetEditingViewProvider();
+                }
             }
         }
 
@@ -801,9 +807,13 @@ ViewProvider* Document::getInEdit(
 
     if (d->_editViewProvider) {
         // there is only one 3d view which is in edit mode
-        auto activeView = dynamic_cast<View3DInventor*>(getActiveView());
-        if (activeView && activeView->getViewer()->isEditingViewProvider()) {
-            return d->_editViewProvider;
+        auto activeView = dynamic_cast<View3DBase*>(getActiveView());
+        if (activeView) {
+            if (auto* viewer = activeView->getViewerInterface()) {
+                if (viewer->isEditingViewProvider()) {
+                    return d->_editViewProvider;
+                }
+            }
         }
     }
 
@@ -833,9 +843,11 @@ void Document::setAnnotationViewProvider(const char* name, ViewProvider* pcProvi
 
     // cycling to all views of the document
     for (vIt = d->baseViews.begin(); vIt != d->baseViews.end(); ++vIt) {
-        auto activeView = dynamic_cast<View3DInventor*>(*vIt);
+        auto activeView = dynamic_cast<View3DBase*>(*vIt);
         if (activeView) {
-            activeView->getViewer()->addViewProvider(pcProvider);
+            if (auto* viewer = activeView->getViewerInterface()) {
+                viewer->addViewProvider(pcProvider);
+            }
         }
     }
 }
@@ -875,8 +887,10 @@ ViewProvider* Document::takeAnnotationViewProvider(const char* name)
 
     // cycling to all views of the document
     for (auto vIt : d->baseViews) {
-        if (auto activeView = dynamic_cast<View3DInventor*>(vIt)) {
-            activeView->getViewer()->removeViewProvider(vp);
+        if (auto activeView = dynamic_cast<View3DBase*>(vIt)) {
+            if (auto* viewer = activeView->getViewerInterface()) {
+                viewer->removeViewProvider(vp);
+            }
         }
     }
 
@@ -1053,23 +1067,12 @@ void Document::slotNewObject(const App::DocumentObject& Obj)
         std::list<Gui::BaseView*>::iterator vIt;
         // cycling to all views of the document
         for (vIt = d->baseViews.begin(); vIt != d->baseViews.end(); ++vIt) {
-            // Handle View3DInventor (Coin3D backend)
-            auto activeView = dynamic_cast<View3DInventor*>(*vIt);
+            auto activeView = dynamic_cast<View3DBase*>(*vIt);
             if (activeView) {
-                activeView->getViewer()->addViewProvider(pcProvider);
-                continue;
-            }
-
-#ifdef RENDER_HAS_OSGVERSE_BACKEND
-            // Handle View3DOsgVerse (OsgVerse backend)
-            auto osgVerseView = dynamic_cast<View3DOsgVerse*>(*vIt);
-            if (osgVerseView) {
-                auto* viewer = osgVerseView->getViewerInterface();
-                if (viewer) {
+                if (auto* viewer = activeView->getViewerInterface()) {
                     viewer->addViewProvider(pcProvider);
                 }
             }
-#endif
         }
 
         // adding to the tree
@@ -1111,23 +1114,12 @@ void Document::slotDeletedObject(const App::DocumentObject& Obj)
     if (viewProvider && viewProvider->isDerivedFrom(ViewProviderDocumentObject::getClassTypeId())) {
         // go through the views
         for (vIt = d->baseViews.begin(); vIt != d->baseViews.end(); ++vIt) {
-            // Handle View3DInventor (Coin3D backend)
-            auto activeView = dynamic_cast<View3DInventor*>(*vIt);
+            auto activeView = dynamic_cast<View3DBase*>(*vIt);
             if (activeView) {
-                activeView->getViewer()->removeViewProvider(viewProvider);
-                continue;
-            }
-
-#ifdef RENDER_HAS_OSGVERSE_BACKEND
-            // Handle View3DOsgVerse (OsgVerse backend)
-            auto osgVerseView = dynamic_cast<View3DOsgVerse*>(*vIt);
-            if (osgVerseView) {
-                auto* viewer = osgVerseView->getViewerInterface();
-                if (viewer) {
+                if (auto* viewer = activeView->getViewerInterface()) {
                     viewer->removeViewProvider(viewProvider);
                 }
             }
-#endif
         }
 
         // removing from tree
@@ -2943,13 +2935,14 @@ Gui::MDIView* Document::getViewOfViewProvider(const Gui::ViewProvider* vp) const
 
 Gui::MDIView* Document::getEditingViewOfViewProvider(Gui::ViewProvider* vp) const
 {
-    std::list<MDIView*> mdis = getMDIViewsOfType(View3DInventor::getClassTypeId());
+    std::list<MDIView*> mdis = getMDIViewsOfType(View3DBase::getClassTypeId());
     for (const auto& mdi : mdis) {
-        auto view = static_cast<View3DInventor*>(mdi);
-        View3DInventorViewer* viewer = view->getViewer();
-        // there is only one 3d view which is in edit mode
-        if (viewer->hasViewProvider(vp) && viewer->isEditingViewProvider()) {
-            return mdi;
+        auto view = static_cast<View3DBase*>(mdi);
+        if (auto* viewer = view->getViewerInterface()) {
+            // there is only one 3d view which is in edit mode
+            if (viewer->hasViewProvider(vp) && viewer->isEditingViewProvider()) {
+                return mdi;
+            }
         }
     }
 
@@ -3204,16 +3197,19 @@ void Document::handleChildren3D(ViewProvider* viewProvider, bool deleting)
                         // cycling to all views of the document to remove the viewprovider from the
                         // viewer itself
                         for (Gui::BaseView* vIt : d->baseViews) {
-                            auto activeView = dynamic_cast<View3DInventor*>(vIt);
-                            if (activeView
-                                && activeView->getViewer()->hasViewProvider(ChildViewProvider)) {
-                                // @Note hasViewProvider()
-                                // remove the viewprovider serves the purpose of detaching the
-                                // inventor nodes from the top level root in the viewer. However, if
-                                // some of the children were grouped beneath the object earlier they
-                                // are not anymore part of the toplevel inventor node. we need to
-                                // check for that.
-                                activeView->getViewer()->removeViewProvider(ChildViewProvider);
+                            auto activeView = dynamic_cast<View3DBase*>(vIt);
+                            if (activeView) {
+                                if (auto* viewer = activeView->getViewerInterface()) {
+                                    if (viewer->hasViewProvider(ChildViewProvider)) {
+                                        // @Note hasViewProvider()
+                                        // remove the viewprovider serves the purpose of detaching the
+                                        // inventor nodes from the top level root in the viewer. However, if
+                                        // some of the children were grouped beneath the object earlier they
+                                        // are not anymore part of the toplevel inventor node. we need to
+                                        // check for that.
+                                        viewer->removeViewProvider(ChildViewProvider);
+                                    }
+                                }
                             }
                         }
                     }
@@ -3228,9 +3224,13 @@ void Document::handleChildren3D(ViewProvider* viewProvider, bool deleting)
                 }
 
                 for (BaseView* view : d->baseViews) {
-                    auto activeView = dynamic_cast<View3DInventor*>(view);
-                    if (activeView && !activeView->getViewer()->hasViewProvider(vpd)) {
-                        activeView->getViewer()->addViewProvider(vpd);
+                    auto activeView = dynamic_cast<View3DBase*>(view);
+                    if (activeView) {
+                        if (auto* viewer = activeView->getViewerInterface()) {
+                            if (!viewer->hasViewProvider(vpd)) {
+                                viewer->addViewProvider(vpd);
+                            }
+                        }
                     }
                 }
             }

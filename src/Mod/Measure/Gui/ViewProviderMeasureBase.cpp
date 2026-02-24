@@ -46,6 +46,7 @@
 #include <Gui/Document.h>
 #include <Gui/ViewParams.h>
 #include <Gui/Inventor/MarkerBitmaps.h>
+#include <Gui/View3DBase.h>
 #include <Gui/View3DInventor.h>
 #include <Gui/View3DInventorViewer.h>
 
@@ -458,21 +459,21 @@ Base::Vector3d ViewProviderMeasureBase::getTextDirection(Base::Vector3d elementD
     Base::Vector3d viewDirection;
     Base::Vector3d upDirection;
 
-    Gui::View3DInventor* view = nullptr;
+    Gui::View3DBase* view = nullptr;
     try {
-        view = dynamic_cast<Gui::View3DInventor*>(this->getActiveView());
+        view = dynamic_cast<Gui::View3DBase*>(this->getActiveView());
     }
     catch (const Base::RuntimeError&) {
         Base::Console().log("ViewProviderMeasureBase::getTextDirection: Could not get active view\n");
     }
 
     if (view) {
-        Gui::View3DInventorViewer* viewer = view->getViewer();
-        viewDirection = toVector3d(viewer->getViewDirection()).Normalize();
-        upDirection = toVector3d(viewer->getUpDirection()).Normalize();
-        // Measure doesn't work with this kind of active view.  Might be dependency graph, might be
-        // TechDraw, or ????
-        // throw Base::RuntimeError("Measure doesn't work with this kind of active view.");
+        if (auto* viewer = view->getViewerInterface()) {
+            viewDirection = viewer->getViewDirection();
+            viewDirection.Normalize();
+            upDirection = viewer->getUpDirection();
+            upDirection.Normalize();
+        }
     }
     else {
         viewDirection = Base::Vector3d(0.0, 1.0, 0.0);
@@ -555,6 +556,40 @@ float ViewProviderMeasureBase::getViewScale()
 {
     float scale = 1.0;
 
+    // Try backend-agnostic path first
+    auto viewBase = dynamic_cast<Gui::View3DBase*>(this->getActiveView());
+    if (viewBase) {
+        if (auto* viewer = viewBase->getViewerInterface()) {
+            auto cam = viewer->getCamera();
+            if (cam.orthographic) {
+                // For orthographic: scale = viewport_pixels / world_height
+                float worldH, worldW;
+                viewer->getDimensions(worldH, worldW);
+                if (worldH > 0) {
+                    auto* widget = viewer->getWidget();
+                    if (widget) {
+                        scale = widget->height() / worldH;
+                    }
+                }
+            }
+            else {
+                // For perspective: approximate scale at focal distance
+                float worldH, worldW;
+                viewer->getDimensions(worldH, worldW);
+                if (worldH > 0) {
+                    auto* widget = viewer->getWidget();
+                    if (widget) {
+                        scale = widget->height() / worldH;
+                    }
+                }
+            }
+            if (scale > 0) {
+                return scale;
+            }
+        }
+    }
+
+    // Fallback to Coin3D-specific path
     Gui::View3DInventor* view = dynamic_cast<Gui::View3DInventor*>(this->getActiveView());
     if (!view) {
         Base::Console().log("ViewProviderMeasureBase::getViewScale: Could not get active view\n");
@@ -711,6 +746,17 @@ Base::Vector3d ViewProviderMeasure::getTextPosition()
     // Return the initial position relative to the base position
     auto basePoint = getBasePosition();
 
+    // Try backend-agnostic path first
+    auto viewBase = dynamic_cast<Gui::View3DBase*>(this->getActiveView());
+    if (viewBase) {
+        if (auto* viewer = viewBase->getViewerInterface()) {
+            QPoint screenPos = viewer->getPointOnViewport(basePoint);
+            Base::Vector3d textPos3d = viewer->getPointOnFocalPlane(screenPos.x() + 30, screenPos.y() + 30);
+            return textPos3d - basePoint;
+        }
+    }
+
+    // Fallback to Coin3D path
     Gui::View3DInventor* view = dynamic_cast<Gui::View3DInventor*>(this->getActiveView());
     if (!view) {
         Base::Console().log("ViewProviderMeasureBase::getTextPosition: Could not get active view\n");

@@ -58,6 +58,7 @@
 #include <Gui/Inventor/Draggers/SoTransformDragger.h>
 #include <Gui/MDIView.h>
 #include <Gui/MainWindow.h>
+#include <Gui/View3DBase.h>
 #include <Gui/View3DInventor.h>
 #include <Gui/View3DInventorViewer.h>
 #include <Gui/ViewProviderLink.h>
@@ -1096,9 +1097,11 @@ void ViewProviderAssembly::endMove()
     movingJoint = nullptr;
 
     // enable selection after the move
-    auto* view = dynamic_cast<Gui::View3DInventor*>(getDocument()->getActiveView());
+    auto* view = dynamic_cast<Gui::View3DBase*>(getDocument()->getActiveView());
     if (view) {
-        view->getViewer()->setSelectionEnabled(true);
+        if (auto* viewer = view->getViewerInterface()) {
+            viewer->setSelectionEnabled(true);
+        }
     }
 
     ParameterGrp::handle hGrp = App::GetApplication().GetParameterGroupByPath(

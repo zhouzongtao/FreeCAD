@@ -40,6 +40,7 @@
 #include <FCGlobal.h>
 #include <Base/Vector3D.h>
 #include <Base/Vector2D.h>
+#include <Base/BoundBox.h>
 #include <Base/Matrix.h>
 #include <Base/Placement.h>
 #include "../../Core/RenderViewer.h"
@@ -718,6 +719,33 @@ public:
     void boxZoom(int x1, int y1, int x2, int y2);
 
     //-----------------------------------------------------------------------
+    // Selection Polygon / 选择多边形
+    //-----------------------------------------------------------------------
+
+    /** Get selection polygon vertices in screen coordinates */
+    std::vector<std::pair<int,int>> getSelectionPolygon(bool* isClosed = nullptr) const;
+
+    /** Get selection polygon vertices in normalized device coordinates */
+    std::vector<std::pair<float,float>> getSelectionPolygonNormalized(bool* isClosed = nullptr) const;
+
+    //-----------------------------------------------------------------------
+    // Ray Picking / 射线拾取
+    //-----------------------------------------------------------------------
+
+    /** Get intersection point of screen ray with ViewProvider geometry */
+    Base::Vector3d getPointOnRay(const QPoint& screenPos, const Gui::ViewProvider* vp) const;
+
+    /** Get intersection point of 3D ray with ViewProvider geometry */
+    Base::Vector3d getPointOnRay(const Base::Vector3d& rayOrigin, const Base::Vector3d& rayDir, const Gui::ViewProvider* vp) const;
+
+    //-----------------------------------------------------------------------
+    // Viewport on Placement Plane / 视口投影到放置平面
+    //-----------------------------------------------------------------------
+
+    /** Get viewport bounding box projected onto XY plane of a placement */
+    Base::BoundBox2d getViewportOnXYPlaneOfPlacement(const Base::Placement& plc) const;
+
+    //-----------------------------------------------------------------------
     // Align to Selection / 对齐到选择
     //-----------------------------------------------------------------------
 
@@ -926,6 +954,10 @@ private:
 
     // Dimensions / 尺寸标注
     bool _dimensionsVisible{true};
+
+    // Selection polygon / 选择多边形
+    mutable std::vector<std::pair<int,int>> _selectionPolygon;
+    mutable bool _selectionPolygonClosed{false};
 };
 
 /**

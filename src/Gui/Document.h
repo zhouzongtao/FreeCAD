@@ -61,6 +61,7 @@ namespace Gui
 
 class BaseView;
 class MDIView;
+class View3DBase;
 class View3DInventor;
 class ViewProvider;
 class ViewProviderDocumentObject;
@@ -247,8 +248,8 @@ public:
         const ViewProviderDocumentObject* vp = nullptr,
         Base::Type typeId = Base::Type()
     );
-    View3DInventor* openEditingView3D(const ViewProviderDocumentObject* vp);
-    View3DInventor* openEditingView3D(const App::DocumentObject* obj);
+    View3DBase* openEditingView3D(const ViewProviderDocumentObject* vp);
+    View3DBase* openEditingView3D(const App::DocumentObject* obj);
     //@}
 
     /** @name View provider handling  */

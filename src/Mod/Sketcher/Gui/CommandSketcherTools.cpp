@@ -43,6 +43,7 @@
 #include <Gui/Document.h>
 #include <Gui/MainWindow.h>
 #include <Gui/Notifications.h>
+#include <Gui/View3DBase.h>
 #include <Gui/View3DInventor.h>
 #include <Gui/Selection/Selection.h>
 #include <Gui/Selection/SelectionObject.h>
@@ -2545,12 +2546,12 @@ void SketcherGui::centerScale(double scaleFactor)
     scaler->setSketchGui(vp);
     scaler->executeCommands();
 
-    if (auto* view3d = dynamic_cast<Gui::View3DInventor*>(doc->getActiveView())) {
-        auto viewer = view3d->getViewer();
-        bool isAnimating = viewer->isAnimationEnabled();
-
-        viewer->setAnimationEnabled(false);
-        viewer->scale(scaleFactor);
-        viewer->setAnimationEnabled(isAnimating);
+    if (auto* view3d = dynamic_cast<Gui::View3DBase*>(doc->getActiveView())) {
+        if (auto* viewer = view3d->getViewerInterface()) {
+            bool isAnimating = viewer->isAnimationEnabled();
+            viewer->setAnimationEnabled(false);
+            viewer->scale(scaleFactor);
+            viewer->setAnimationEnabled(isAnimating);
+        }
     }
 }

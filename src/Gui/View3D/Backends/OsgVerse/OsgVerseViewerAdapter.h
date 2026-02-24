@@ -162,6 +162,57 @@ public:
     QImage grabImage(int width = 0, int height = 0) override;
     bool saveScreenshot(const QString& filename, int width = 0, int height = 0) override;
 
+    // Event callbacks
+    void addEventCallback(EventType type, EventCallbackFunc cb, void* userData = nullptr) override;
+    void removeEventCallback(EventType type, EventCallbackFunc cb, void* userData = nullptr) override;
+
+    // Selection polygon
+    std::vector<std::pair<int,int>> getSelectionPolygon(bool* isClosed = nullptr) const override;
+    std::vector<std::pair<float,float>> getSelectionPolygonNormalized(bool* isClosed = nullptr) const override;
+
+    // Ray picking
+    Base::Vector3d getPointOnRay(const QPoint& screenPos, const ViewProvider* vp) const override;
+    Base::Vector3d getPointOnRay(const Base::Vector3d& rayOrigin, const Base::Vector3d& rayDir, const ViewProvider* vp) const override;
+
+    // Viewport on placement plane
+    Base::BoundBox2d getViewportOnXYPlaneOfPlacement(const Base::Placement& plc) const override;
+
+    // Coordinate projection (forwarded to OsgVerseViewer)
+    Base::Vector3d getViewDirection() const override;
+    Base::Vector3d getUpDirection() const override;
+    QPoint getPointOnViewport(const Base::Vector3d& pt) const override;
+    Base::Vector3d getPointOnLine(const QPoint& screenPos, const Base::Vector3d& axisCenter, const Base::Vector3d& axis) const override;
+    Base::Vector3d getPointOnXYPlaneOfPlacement(const QPoint& screenPos, const Base::Placement& plc) const override;
+    void projectPointToLine(const QPoint& screenPos, Base::Vector3d& pt1, Base::Vector3d& pt2) const override;
+    Base::Vector2d getNormalizedPosition(const QPoint& screenPos) const override;
+    Base::Vector3d projectOnNearPlane(const Base::Vector2d& pt) const override;
+    Base::Vector3d projectOnFarPlane(const Base::Vector2d& pt) const override;
+    Base::Vector3d getCenterPointOnFocalPlane() const override;
+    void getNearPlane(Base::Vector3d& pt, Base::Vector3d& normal) const override;
+    void getFarPlane(Base::Vector3d& pt, Base::Vector3d& normal) const override;
+    void getDimensions(float& height, float& width) const override;
+    float getMaxDimension() const override;
+
+    // Editing extensions
+    void setEditing(bool edit) override;
+    bool isEditing() const override;
+    void setEditingCursor(const QCursor& cursor) override;
+    void setComponentCursor(const QCursor& cursor) override;
+    void setRedirectToSceneGraph(bool redirect) override;
+    bool isRedirectedToSceneGraph() const override;
+    void setSelectionEnabled(bool enable) override;
+    bool isSelectionEnabled() const override;
+    void boxZoom(int x1, int y1, int x2, int y2) override;
+    void savePicture(int width, int height, int samples, const QColor& bg, QImage& img) const override;
+    void alignToSelection() override;
+    void setPopupMenuEnabled(bool on) override;
+    bool isPopupMenuEnabled() const override;
+
+    // Graphics overlay
+    void addGraphicsItem(void* item) override;
+    void removeGraphicsItem(void* item) override;
+    void clearGraphicsItems() override;
+
 private:
     std::unique_ptr<Render::OsgVerseViewer> _viewer;  ///< The wrapped OsgVerseViewer instance
     std::unique_ptr<Render::OsgVersePickingService> _pickingService;  ///< Picking service

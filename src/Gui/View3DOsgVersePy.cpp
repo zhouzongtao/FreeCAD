@@ -22,10 +22,15 @@
 
 #ifdef RENDER_HAS_OSGVERSE_BACKEND
 
+#include <array>
 #include <QCursor>
 #include <QDir>
 #include <QFileInfo>
 #include <QImage>
+#include <QKeyEvent>
+#include <QKeySequence>
+#include <QMouseEvent>
+#include <QWheelEvent>
 
 #include <App/Application.h>
 #include <App/Document.h>
@@ -66,6 +71,8 @@ void View3DOsgVersePy::init_type()
     add_noargs_method("viewAxometric", &View3DOsgVersePy::viewIsometric, "viewAxonometric()");
     add_noargs_method("viewAxonometric", &View3DOsgVersePy::viewIsometric, "viewAxonometric()");
     add_noargs_method("viewIsometric", &View3DOsgVersePy::viewIsometric, "viewIsometric()");
+    add_noargs_method("viewDimetric", &View3DOsgVersePy::viewDimetric, "viewDimetric()");
+    add_noargs_method("viewTrimetric", &View3DOsgVersePy::viewTrimetric, "viewTrimetric()");
     add_noargs_method("zoomIn", &View3DOsgVersePy::zoomIn, "zoomIn()");
     add_noargs_method("zoomOut", &View3DOsgVersePy::zoomOut, "zoomOut()");
 
@@ -99,6 +106,11 @@ void View3DOsgVersePy::init_type()
         "dictionary also contains the coordinates of the appropriate 3d point of\n"
         "the underlying geometry in the scenegraph.\n"
         "If no geometry was found 'None' is returned, instead.\n");
+    add_varargs_method("getObjectsInfo", &View3DOsgVersePy::getObjectsInfo,
+        "getObjectsInfo(tuple(int,int), [pick_radius]) -> list of dictionaries or None\n\n"
+        "Return a list of dictionaries with the name of document, object and component\n"
+        "for all objects at the given screen position.\n"
+        "If no geometry was found 'None' is returned, instead.\n");
     add_noargs_method("getSize", &View3DOsgVersePy::getSize, "getSize()");
     add_varargs_method("getPoint", &View3DOsgVersePy::getPointOnFocalPlane,
         "Same as getPointOnFocalPlane");
@@ -127,6 +139,51 @@ void View3DOsgVersePy::init_type()
     add_noargs_method("hasAxisCross", &View3DOsgVersePy::hasAxisCross,
         "check if the big axis-cross is on or off()");
 
+    add_varargs_method("startAnimating", &View3DOsgVersePy::startAnimating,
+        "startAnimating(axis, velocity)");
+    add_noargs_method("stopAnimating", &View3DOsgVersePy::stopAnimating,
+        "stopAnimating()");
+
+    add_varargs_method("setAnnotation", &View3DOsgVersePy::setAnnotation,
+        "setAnnotation(name, buffer)");
+    add_varargs_method("removeAnnotation", &View3DOsgVersePy::removeAnnotation,
+        "removeAnnotation(name)");
+
+    add_varargs_method("setStereoType", &View3DOsgVersePy::setStereoType,
+        "setStereoType(type)");
+    add_noargs_method("getStereoType", &View3DOsgVersePy::getStereoType,
+        "getStereoType()");
+
+    add_varargs_method("saveVectorGraphic", &View3DOsgVersePy::saveVectorGraphic,
+        "saveVectorGraphic(filename, type)");
+
+    add_noargs_method("graphicsView", &View3DOsgVersePy::graphicsView,
+        "graphicsView(): Access this view as QGraphicsView");
+
+    add_varargs_method("setCornerCrossVisible", &View3DOsgVersePy::setCornerCrossVisible,
+        "setCornerCrossVisible(bool): Defines corner axis cross visibility");
+    add_varargs_method("setCornerCrossSize", &View3DOsgVersePy::setCornerCrossSize,
+        "setCornerCrossSize(int): Defines corner axis cross size");
+
+    add_varargs_method("getViewProvidersOfType", &View3DOsgVersePy::getViewProvidersOfType,
+        "getViewProvidersOfType(name)\nreturns a list of view providers for the given type");
+
+    add_varargs_method("addEventCallback", &View3DOsgVersePy::addEventCallback,
+        "addEventCallback(eventtype, callable) -> callable");
+    add_varargs_method("removeEventCallback", &View3DOsgVersePy::removeEventCallback,
+        "removeEventCallback(eventtype, callable)");
+    add_varargs_method("addEventCallbackPivy", &View3DOsgVersePy::addEventCallbackPivy,
+        "addEventCallbackPivy(eventtype, callable) -> callable");
+    add_varargs_method("removeEventCallbackPivy", &View3DOsgVersePy::removeEventCallbackPivy,
+        "removeEventCallbackPivy(eventtype, callable)");
+    add_varargs_method("addEventCallbackSWIG", &View3DOsgVersePy::addEventCallbackPivy,
+        "Deprecated -- use addEventCallbackPivy()");
+    add_varargs_method("removeEventCallbackSWIG", &View3DOsgVersePy::removeEventCallbackPivy,
+        "Deprecated -- use removeEventCallbackPivy()");
+
+    add_keyword_method("boxZoom", &View3DOsgVersePy::boxZoom,
+        "boxZoom(XMin, YMin, XMax, YMax)");
+
     add_varargs_method("saveImage", &View3DOsgVersePy::saveImage, "saveImage()");
     add_noargs_method("redraw", &View3DOsgVersePy::redraw,
         "redraw(): renders the scene on screen (useful for animations)");
@@ -148,6 +205,11 @@ View3DOsgVersePy::View3DOsgVersePy(View3DOsgVerse* vi)
 
 View3DOsgVersePy::~View3DOsgVersePy()
 {
+    for (auto* cb : _callbacks) {
+        Py_DECREF(cb);
+    }
+    _callbacks.clear();
+    _callbackWrappers.clear();
 }
 
 View3DOsgVerse* View3DOsgVersePy::getView3DOsgVersePtr()
@@ -865,6 +927,552 @@ Py::Object View3DOsgVersePy::toggleClippingPlane(const Py::Tuple& args, const Py
 Py::Object View3DOsgVersePy::hasClippingPlane()
 {
     return Py::Boolean(getView3DOsgVersePtr()->hasClippingPlane());
+}
+
+Py::Object View3DOsgVersePy::viewDimetric()
+{
+    try {
+        // Dimetric view: standard CAD dimetric orientation
+        // Uses the same quaternion convention as the Coin3D backend
+        auto* viewer = getView3DOsgVersePtr()->getViewerInterface();
+        if (!viewer) {
+            throw Py::RuntimeError("No viewer available");
+        }
+        auto cam = viewer->getCamera();
+        // Dimetric rotation quaternion (matching Camera::Dimetric from Coin3D)
+        // Elevation ~20°, azimuth ~20°
+        Base::Rotation rot(0.567952, 0.103751, -0.146128, 0.803205);
+        Base::Vector3d forward(0, 0, -1);
+        Base::Vector3d up(0, 1, 0);
+        rot.multVec(forward, forward);
+        rot.multVec(up, up);
+        double dist = (cam.target - cam.position).Length();
+        if (dist < 0.1) dist = 10.0;
+        cam.target = cam.position + forward * dist;
+        cam.upVector = up;
+        viewer->setCamera(cam);
+    }
+    catch (const Base::Exception& e) { throw Py::RuntimeError(e.what()); }
+    return Py::None();
+}
+
+Py::Object View3DOsgVersePy::viewTrimetric()
+{
+    try {
+        auto* viewer = getView3DOsgVersePtr()->getViewerInterface();
+        if (!viewer) {
+            throw Py::RuntimeError("No viewer available");
+        }
+        auto cam = viewer->getCamera();
+        // Trimetric rotation quaternion (matching Camera::Trimetric from Coin3D)
+        // Elevation ~15°, azimuth ~30°
+        Base::Rotation rot(0.446015, 0.119509, -0.229575, 0.856706);
+        Base::Vector3d forward(0, 0, -1);
+        Base::Vector3d up(0, 1, 0);
+        rot.multVec(forward, forward);
+        rot.multVec(up, up);
+        double dist = (cam.target - cam.position).Length();
+        if (dist < 0.1) dist = 10.0;
+        cam.target = cam.position + forward * dist;
+        cam.upVector = up;
+        viewer->setCamera(cam);
+    }
+    catch (const Base::Exception& e) { throw Py::RuntimeError(e.what()); }
+    return Py::None();
+}
+
+Py::Object View3DOsgVersePy::getObjectsInfo(const Py::Tuple& args)
+{
+    PyObject* object;
+    float r = 5.0f;
+    if (!PyArg_ParseTuple(args.ptr(), "O|f", &object, &r)) {
+        throw Py::Exception();
+    }
+    try {
+        const Py::Tuple tuple(object);
+        Py::Long x(tuple[0]);
+        Py::Long y(tuple[1]);
+
+        auto* viewer = getView3DOsgVersePtr()->getViewerInterface();
+        if (!viewer) {
+            return Py::None();
+        }
+
+        float oldRadius = viewer->getPickRadius();
+        viewer->setPickRadius(r);
+        View3D::PickResult result = viewer->pick(QPoint((long)x, (long)y));
+        viewer->setPickRadius(oldRadius);
+
+        if (!result.valid) {
+            return Py::None();
+        }
+
+        Py::List list;
+        Py::Dict dict;
+        dict.setItem("x", Py::Float(result.point.x));
+        dict.setItem("y", Py::Float(result.point.y));
+        dict.setItem("z", Py::Float(result.point.z));
+
+        if (result.viewProvider && result.viewProvider->isDerivedFrom<ViewProviderDocumentObject>()) {
+            if (!result.viewProvider->isSelectable()) {
+                return Py::None();
+            }
+            auto vpd = static_cast<ViewProviderDocumentObject*>(result.viewProvider);
+            auto obj = vpd->getObject();
+            if (obj) {
+                dict.setItem("Document", Py::String(obj->getDocument()->getName()));
+                dict.setItem("Object", Py::String(obj->getNameInDocument()));
+                dict.setItem("Component", Py::String(result.subElementName));
+            }
+        }
+        list.append(dict);
+        return list;
+    }
+    catch (const Py::Exception&) {
+        throw;
+    }
+}
+
+Py::Object View3DOsgVersePy::startAnimating(const Py::Tuple& args)
+{
+    float x, y, z;
+    float velocity;
+    if (!PyArg_ParseTuple(args.ptr(), "ffff", &x, &y, &z, &velocity)) {
+        throw Py::Exception();
+    }
+    // Accept the call for API compatibility; OsgVerse handles spin internally
+    return Py::None();
+}
+
+Py::Object View3DOsgVersePy::stopAnimating()
+{
+    // Accept the call for API compatibility
+    return Py::None();
+}
+
+Py::Object View3DOsgVersePy::setAnnotation(const Py::Tuple& args)
+{
+    char* psAnnoName;
+    char* psBuffer;
+    if (!PyArg_ParseTuple(args.ptr(), "ss", &psAnnoName, &psBuffer)) {
+        throw Py::Exception();
+    }
+    Base::Console().DeveloperWarning("View3DOsgVersePy",
+        "setAnnotation() is not supported in OsgVerse backend\n");
+    return Py::None();
+}
+
+Py::Object View3DOsgVersePy::removeAnnotation(const Py::Tuple& args)
+{
+    char* psAnnoName;
+    if (!PyArg_ParseTuple(args.ptr(), "s", &psAnnoName)) {
+        throw Py::Exception();
+    }
+    Base::Console().DeveloperWarning("View3DOsgVersePy",
+        "removeAnnotation() is not supported in OsgVerse backend\n");
+    return Py::None();
+}
+
+Py::Object View3DOsgVersePy::setStereoType(const Py::Tuple& args)
+{
+    char* type;
+    if (!PyArg_ParseTuple(args.ptr(), "s", &type)) {
+        throw Py::Exception();
+    }
+    Base::Console().DeveloperWarning("View3DOsgVersePy",
+        "setStereoType() is not supported in OsgVerse backend\n");
+    return Py::None();
+}
+
+Py::Object View3DOsgVersePy::getStereoType()
+{
+    return Py::String("None");
+}
+
+Py::Object View3DOsgVersePy::saveVectorGraphic(const Py::Tuple& args)
+{
+    char* filename;
+    int type = 0;
+    if (!PyArg_ParseTuple(args.ptr(), "s|i", &filename, &type)) {
+        throw Py::Exception();
+    }
+    Base::Console().DeveloperWarning("View3DOsgVersePy",
+        "saveVectorGraphic() is not supported in OsgVerse backend\n");
+    return Py::Boolean(false);
+}
+
+Py::Object View3DOsgVersePy::graphicsView()
+{
+    return Py::None();
+}
+
+Py::Object View3DOsgVersePy::setCornerCrossVisible(const Py::Tuple& args)
+{
+    int visible;
+    if (!PyArg_ParseTuple(args.ptr(), "i", &visible)) {
+        throw Py::Exception();
+    }
+    // Accept the call for API compatibility
+    return Py::None();
+}
+
+Py::Object View3DOsgVersePy::setCornerCrossSize(const Py::Tuple& args)
+{
+    int size;
+    if (!PyArg_ParseTuple(args.ptr(), "i", &size)) {
+        throw Py::Exception();
+    }
+    // OsgVerse axis cross doesn't have a configurable size yet, accept silently
+    return Py::None();
+}
+
+Py::Object View3DOsgVersePy::getViewProvidersOfType(const Py::Tuple& args)
+{
+    char* name;
+    if (!PyArg_ParseTuple(args.ptr(), "s", &name)) {
+        throw Py::Exception();
+    }
+    auto* viewer = getView3DOsgVersePtr()->getViewerInterface();
+    if (!viewer) {
+        return Py::List();
+    }
+    Base::Type type = Base::Type::fromName(name);
+    std::vector<Gui::ViewProvider*> allVPs = viewer->getViewProviders();
+    Py::List list;
+    for (auto* vp : allVPs) {
+        if (vp && vp->isDerivedFrom(type)) {
+            list.append(Py::asObject(vp->getPyObject()));
+        }
+    }
+    return list;
+}
+
+Py::Object View3DOsgVersePy::boxZoom(const Py::Tuple& args, const Py::Dict& kwds)
+{
+    static const std::array<const char*, 5> kwds_box {"XMin", "YMin", "XMax", "YMax", nullptr};
+    short xmin, ymin, xmax, ymax;
+    if (!Base::Wrapped_ParseTupleAndKeywords(
+            args.ptr(), kwds.ptr(), "hhhh", kwds_box,
+            &xmin, &ymin, &xmax, &ymax)) {
+        throw Py::Exception();
+    }
+    auto* viewer = getView3DOsgVersePtr()->getViewerInterface();
+    if (viewer) {
+        viewer->boxZoom(xmin, ymin, xmax, ymax);
+    }
+    return Py::None();
+}
+
+// =========================================================================
+// Event Callback System
+// =========================================================================
+
+using EventType = View3D::IViewer3D::EventType;
+
+View3D::IViewer3D::EventType View3DOsgVersePy::mapEventType(const char* eventTypeStr)
+{
+    if (strcmp(eventTypeStr, "SoMouseButtonEvent") == 0) {
+        return EventType::MouseButtonPress;
+    }
+    else if (strcmp(eventTypeStr, "SoLocation2Event") == 0) {
+        return EventType::MouseMove;
+    }
+    else if (strcmp(eventTypeStr, "SoKeyboardEvent") == 0) {
+        return EventType::KeyPress;
+    }
+    else if (strcmp(eventTypeStr, "SoEvent") == 0) {
+        return EventType::Any;
+    }
+    else if (strcmp(eventTypeStr, "SoMouseWheelEvent") == 0) {
+        return EventType::Wheel;
+    }
+    return EventType::Any;
+}
+
+static const char* eventTypeToString(EventType type)
+{
+    switch (type) {
+        case EventType::MouseButtonPress:
+        case EventType::MouseButtonRelease:
+            return "SoMouseButtonEvent";
+        case EventType::MouseMove:
+            return "SoLocation2Event";
+        case EventType::KeyPress:
+        case EventType::KeyRelease:
+            return "SoKeyboardEvent";
+        case EventType::Wheel:
+            return "SoMouseWheelEvent";
+        case EventType::Any:
+        default:
+            return "SoEvent";
+    }
+}
+
+void View3DOsgVersePy::eventCallback(EventType type, void* event, void* userData)
+{
+    Base::PyGILStateLocker lock;
+    auto* pyCallable = static_cast<PyObject*>(userData);
+    if (!pyCallable) {
+        return;
+    }
+
+    try {
+        Py::Dict dict;
+        dict.setItem("Type", Py::String(eventTypeToString(type)));
+
+        // Extract event info from QEvent
+        auto* qevent = static_cast<QEvent*>(event);
+        if (qevent) {
+            bool shiftDown = false, ctrlDown = false, altDown = false;
+
+            if (auto* me = dynamic_cast<QMouseEvent*>(qevent)) {
+                Py::Tuple pos(2);
+                pos.setItem(0, Py::Long(static_cast<long>(me->pos().x())));
+                pos.setItem(1, Py::Long(static_cast<long>(me->pos().y())));
+                dict.setItem("Position", pos);
+
+                // Button
+                if (me->button() == Qt::LeftButton) {
+                    dict.setItem("Button", Py::String("BUTTON1"));
+                }
+                else if (me->button() == Qt::RightButton) {
+                    dict.setItem("Button", Py::String("BUTTON2"));
+                }
+                else if (me->button() == Qt::MiddleButton) {
+                    dict.setItem("Button", Py::String("BUTTON3"));
+                }
+
+                // State (press/release)
+                if (type == EventType::MouseButtonPress) {
+                    dict.setItem("State", Py::String("DOWN"));
+                }
+                else if (type == EventType::MouseButtonRelease) {
+                    dict.setItem("State", Py::String("UP"));
+                }
+
+                shiftDown = me->modifiers() & Qt::ShiftModifier;
+                ctrlDown = me->modifiers() & Qt::ControlModifier;
+                altDown = me->modifiers() & Qt::AltModifier;
+            }
+            else if (auto* ke = dynamic_cast<QKeyEvent*>(qevent)) {
+                // Key name
+                QString keyText = ke->text();
+                if (!keyText.isEmpty()) {
+                    dict.setItem("Key", Py::String(keyText.toStdString()));
+                }
+                else {
+                    dict.setItem("Key", Py::String(
+                        QKeySequence(ke->key()).toString().toStdString()));
+                }
+
+                if (type == EventType::KeyPress) {
+                    dict.setItem("State", Py::String("DOWN"));
+                }
+                else if (type == EventType::KeyRelease) {
+                    dict.setItem("State", Py::String("UP"));
+                }
+
+                shiftDown = ke->modifiers() & Qt::ShiftModifier;
+                ctrlDown = ke->modifiers() & Qt::ControlModifier;
+                altDown = ke->modifiers() & Qt::AltModifier;
+            }
+            else if (auto* we = dynamic_cast<QWheelEvent*>(qevent)) {
+                Py::Tuple pos(2);
+                pos.setItem(0, Py::Long(static_cast<long>(we->position().x())));
+                pos.setItem(1, Py::Long(static_cast<long>(we->position().y())));
+                dict.setItem("Position", pos);
+                dict.setItem("Delta", Py::Long(static_cast<long>(we->angleDelta().y())));
+
+                shiftDown = we->modifiers() & Qt::ShiftModifier;
+                ctrlDown = we->modifiers() & Qt::ControlModifier;
+                altDown = we->modifiers() & Qt::AltModifier;
+            }
+
+            dict.setItem("ShiftDown", Py::Boolean(shiftDown));
+            dict.setItem("CtrlDown", Py::Boolean(ctrlDown));
+            dict.setItem("AltDown", Py::Boolean(altDown));
+        }
+
+        Py::Callable method(pyCallable);
+        Py::Tuple args(1);
+        args.setItem(0, dict);
+        method.apply(args);
+    }
+    catch (const Py::Exception& e) {
+        Py::Object o = Py::type(e);
+        if (o.isString()) {
+            Py::String s(o);
+            Base::Console().Warning("%s\n", s.as_std_string("utf-8").c_str());
+        }
+        else {
+            Py::String s(o.repr());
+            Base::Console().Warning("%s\n", s.as_std_string("utf-8").c_str());
+        }
+        PyErr_Print();
+    }
+}
+
+Py::Object View3DOsgVersePy::addEventCallback(const Py::Tuple& args)
+{
+    char* eventtype;
+    PyObject* method;
+    if (!PyArg_ParseTuple(args.ptr(), "sO", &eventtype, &method)) {
+        throw Py::Exception();
+    }
+    if (PyCallable_Check(method) == 0) {
+        throw Py::TypeError("object is not callable");
+    }
+
+    EventType type = mapEventType(eventtype);
+
+    auto* viewer = getView3DOsgVersePtr()->getViewerInterface();
+    if (!viewer) {
+        throw Py::RuntimeError("No viewer available");
+    }
+
+    // Create wrapper that calls the static eventCallback with the PyObject as userData
+    View3D::IViewer3D::EventCallbackFunc wrapper =
+        [](EventType et, void* ev, void* ud) -> bool {
+            eventCallback(et, ev, ud);
+            return false;
+        };
+
+    viewer->addEventCallback(type, wrapper, static_cast<void*>(method));
+    _callbacks.push_back(method);
+    _callbackWrappers[method] = wrapper;
+    Py_INCREF(method);
+    return Py::Callable(method, false);
+}
+
+Py::Object View3DOsgVersePy::removeEventCallback(const Py::Tuple& args)
+{
+    char* eventtype;
+    PyObject* method;
+    if (!PyArg_ParseTuple(args.ptr(), "sO", &eventtype, &method)) {
+        throw Py::Exception();
+    }
+    if (PyCallable_Check(method) == 0) {
+        throw Py::RuntimeError("object is not callable");
+    }
+
+    EventType type = mapEventType(eventtype);
+
+    auto* viewer = getView3DOsgVersePtr()->getViewerInterface();
+    if (!viewer) {
+        throw Py::RuntimeError("No viewer available");
+    }
+
+    auto it = _callbackWrappers.find(method);
+    if (it != _callbackWrappers.end()) {
+        viewer->removeEventCallback(type, it->second, static_cast<void*>(method));
+        _callbackWrappers.erase(it);
+        _callbacks.remove(method);
+        Py_DECREF(method);
+    }
+    return Py::None();
+}
+
+Py::Object View3DOsgVersePy::addEventCallbackPivy(const Py::Tuple& args)
+{
+    PyObject* proxy;
+    PyObject* method;
+    if (!PyArg_ParseTuple(args.ptr(), "OO", &proxy, &method)) {
+        throw Py::Exception();
+    }
+    if (PyCallable_Check(method) == 0) {
+        throw Py::TypeError("object is not callable");
+    }
+
+    // Try to extract event type name from pivy SoType object
+    std::string eventTypeName = "SoEvent";
+    try {
+        Py::Object proxyObj(proxy);
+        if (proxyObj.hasAttr("getName")) {
+            Py::Callable getName(proxyObj.getAttr("getName"));
+            Py::Object nameObj = getName.apply(Py::Tuple());
+            Py::String nameStr(nameObj);
+            eventTypeName = nameStr.as_std_string("utf-8");
+        }
+    }
+    catch (...) {
+        if (PyUnicode_Check(proxy)) {
+            const char* str = PyUnicode_AsUTF8(proxy);
+            if (str) {
+                eventTypeName = str;
+            }
+        }
+        else {
+            Base::Console().Warning(
+                "OsgVerse: Could not extract event type from pivy object, using SoEvent\n");
+        }
+    }
+
+    EventType type = mapEventType(eventTypeName.c_str());
+
+    auto* viewer = getView3DOsgVersePtr()->getViewerInterface();
+    if (!viewer) {
+        throw Py::RuntimeError("No viewer available");
+    }
+
+    View3D::IViewer3D::EventCallbackFunc wrapper =
+        [](EventType et, void* ev, void* ud) -> bool {
+            eventCallback(et, ev, ud);
+            return false;
+        };
+
+    viewer->addEventCallback(type, wrapper, static_cast<void*>(method));
+    _callbacks.push_back(method);
+    _callbackWrappers[method] = wrapper;
+    Py_INCREF(method);
+    return Py::Callable(method, false);
+}
+
+Py::Object View3DOsgVersePy::removeEventCallbackPivy(const Py::Tuple& args)
+{
+    PyObject* proxy;
+    PyObject* method;
+    if (!PyArg_ParseTuple(args.ptr(), "OO", &proxy, &method)) {
+        throw Py::Exception();
+    }
+    if (PyCallable_Check(method) == 0) {
+        throw Py::RuntimeError("object is not callable");
+    }
+
+    // Extract event type (same logic as addEventCallbackPivy)
+    std::string eventTypeName = "SoEvent";
+    try {
+        Py::Object proxyObj(proxy);
+        if (proxyObj.hasAttr("getName")) {
+            Py::Callable getName(proxyObj.getAttr("getName"));
+            Py::Object nameObj = getName.apply(Py::Tuple());
+            Py::String nameStr(nameObj);
+            eventTypeName = nameStr.as_std_string("utf-8");
+        }
+    }
+    catch (...) {
+        if (PyUnicode_Check(proxy)) {
+            const char* str = PyUnicode_AsUTF8(proxy);
+            if (str) {
+                eventTypeName = str;
+            }
+        }
+    }
+
+    EventType type = mapEventType(eventTypeName.c_str());
+
+    auto* viewer = getView3DOsgVersePtr()->getViewerInterface();
+    if (!viewer) {
+        throw Py::RuntimeError("No viewer available");
+    }
+
+    auto it = _callbackWrappers.find(method);
+    if (it != _callbackWrappers.end()) {
+        viewer->removeEventCallback(type, it->second, static_cast<void*>(method));
+        _callbackWrappers.erase(it);
+        _callbacks.remove(method);
+        Py_DECREF(method);
+    }
+    return Py::None();
 }
 
 #endif // RENDER_HAS_OSGVERSE_BACKEND

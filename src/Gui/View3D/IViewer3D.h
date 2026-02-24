@@ -38,6 +38,7 @@
 #include <QWheelEvent>
 
 #include <FCGlobal.h>
+#include <Base/BoundBox.h>
 #include <Base/Placement.h>
 #include <Base/Vector2D.h>
 #include <Base/Vector3D.h>
@@ -675,6 +676,9 @@ public:
     /** Get max viewport dimension */
     virtual float getMaxDimension() const { return 0; }
 
+    /** Get scene bounding box (min and max corners) */
+    virtual void getBoundingBox(Base::Vector3d& min, Base::Vector3d& max) const { min = max = Base::Vector3d(); }
+
     //-----------------------------------------------------------------------
     // 事件回调系统 / Event Callback System
     //-----------------------------------------------------------------------
@@ -746,6 +750,66 @@ public:
 
     /** Perform box zoom */
     virtual void boxZoom(int x1, int y1, int x2, int y2) { (void)x1; (void)y1; (void)x2; (void)y2; }
+
+    /** Scale camera (zoom in/out by factor) */
+    virtual void scale(float factor) { (void)factor; }
+
+    /** Enable/disable camera animation */
+    virtual void setAnimationEnabled(bool enabled) { (void)enabled; }
+
+    /** Check if camera animation is enabled */
+    virtual bool isAnimationEnabled() const { return false; }
+
+    /** Save current camera as home position */
+    virtual void saveHomePosition() {}
+
+    /** Check if a home position has been saved */
+    virtual bool hasHomePosition() const { return false; }
+
+    /** Reset camera to saved home position */
+    virtual void resetToHomePosition() {}
+
+    //-----------------------------------------------------------------------
+    // 选择多边形 / Selection Polygon
+    //-----------------------------------------------------------------------
+
+    /** Get selection polygon vertices in screen coordinates (pixel coords) */
+    virtual std::vector<std::pair<int,int>> getSelectionPolygon(bool* isClosed = nullptr) const {
+        if (isClosed) *isClosed = false;
+        return {};
+    }
+
+    /** Get selection polygon vertices in normalized device coordinates [0..1] */
+    virtual std::vector<std::pair<float,float>> getSelectionPolygonNormalized(bool* isClosed = nullptr) const {
+        if (isClosed) *isClosed = false;
+        return {};
+    }
+
+    //-----------------------------------------------------------------------
+    // 射线拾取 / Ray Picking
+    //-----------------------------------------------------------------------
+
+    /** Get intersection point of screen ray with ViewProvider geometry */
+    virtual Base::Vector3d getPointOnRay(const QPoint& screenPos, const ViewProvider* vp) const {
+        (void)screenPos; (void)vp;
+        return Base::Vector3d();
+    }
+
+    /** Get intersection point of 3D ray with ViewProvider geometry */
+    virtual Base::Vector3d getPointOnRay(const Base::Vector3d& rayOrigin, const Base::Vector3d& rayDir, const ViewProvider* vp) const {
+        (void)rayOrigin; (void)rayDir; (void)vp;
+        return Base::Vector3d();
+    }
+
+    //-----------------------------------------------------------------------
+    // 视口投影到放置平面 / Viewport on Placement Plane
+    //-----------------------------------------------------------------------
+
+    /** Get viewport bounding box projected onto XY plane of a placement */
+    virtual Base::BoundBox2d getViewportOnXYPlaneOfPlacement(const Base::Placement& plc) const {
+        (void)plc;
+        return Base::BoundBox2d(0, 0, 0, 0);
+    }
 
     //-----------------------------------------------------------------------
     // 渲染扩展 / Rendering Extensions

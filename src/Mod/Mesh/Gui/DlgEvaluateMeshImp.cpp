@@ -36,6 +36,7 @@
 #include <Gui/WaitCursor.h>
 #include <Gui/View3DInventor.h>
 #include <Gui/View3DInventorViewer.h>
+#include <Gui/View3DBase.h>
 #include <Mod/Mesh/App/MeshFeature.h>
 #include <Mod/Mesh/App/Core/Evaluation.h>
 #include <Mod/Mesh/App/Core/Degeneration.h>
@@ -85,7 +86,7 @@ public:
     Ui_DlgEvaluateMesh ui {};
     std::map<std::string, ViewProviderMeshDefects*> vp;
     Mesh::Feature* meshFeature {nullptr};
-    QPointer<Gui::View3DInventor> view;
+    QPointer<Gui::View3DBase> view;
     std::vector<Mesh::FacetIndex> self_intersections;
     bool enableFoldsCheck {false};
     bool checkNonManfoldPoints {false};
@@ -153,7 +154,7 @@ DlgEvaluateMeshImp::~DlgEvaluateMeshImp()
     // no need to delete child widgets, Qt does it all for us
     for (const auto& it : d->vp) {
         if (d->view) {
-            d->view->getViewer()->removeViewProvider(it.second);
+            d->view->getViewerInterface()->removeViewProvider(it.second);
         }
         delete it.second;
     }
@@ -353,7 +354,7 @@ void DlgEvaluateMeshImp::addViewProvider(const char* name, const std::vector<Mes
         auto vp = static_cast<ViewProviderMeshDefects*>(Base::Type::createInstanceByName(name));
         assert(vp->isDerivedFrom<Gui::ViewProvider>());
         vp->attach(d->meshFeature);
-        d->view->getViewer()->addViewProvider(vp);
+        d->view->getViewerInterface()->addViewProvider(vp);
         vp->showDefects(indices);
         d->vp[name] = vp;
     }
@@ -364,7 +365,7 @@ void DlgEvaluateMeshImp::removeViewProvider(const char* name)
     auto it = d->vp.find(name);
     if (it != d->vp.end()) {
         if (d->view) {
-            d->view->getViewer()->removeViewProvider(it->second);
+            d->view->getViewerInterface()->removeViewProvider(it->second);
         }
         delete it->second;
         d->vp.erase(it);
@@ -375,7 +376,7 @@ void DlgEvaluateMeshImp::removeViewProviders()
 {
     for (const auto& it : d->vp) {
         if (d->view) {
-            d->view->getViewer()->removeViewProvider(it.second);
+            d->view->getViewerInterface()->removeViewProvider(it.second);
         }
         delete it.second;
     }
@@ -493,7 +494,7 @@ void DlgEvaluateMeshImp::onRefreshButtonClicked()
         if (doc && doc != this->getDocument()) {
             attachDocument(doc);
             removeViewProviders();
-            d->view = dynamic_cast<Gui::View3DInventor*>(gui->getActiveView());
+            d->view = dynamic_cast<Gui::View3DBase*>(gui->getActiveView());
         }
     }
 

@@ -115,6 +115,7 @@
 #include "ViewProviderExtern.h"
 
 #include "SpaceballEvent.h"
+#include "View3DBase.h"
 #include "View3DInventor.h"
 #include "View3DInventorViewer.h"
 #include "Dialogs/DlgObjectSelection.h"
@@ -1166,14 +1167,16 @@ bool MainWindow::event(QEvent* e)
         if (!doc) {
             return true;
         }
-        auto temp = dynamic_cast<View3DInventor*>(doc->getActiveView());
+        auto temp = dynamic_cast<View3DBase*>(doc->getActiveView());
         if (!temp) {
             return true;
         }
-        View3DInventorViewer* view = temp->getViewer();
-        if (view) {
-            Spaceball::MotionEvent anotherEvent(*motionEvent);
-            qApp->sendEvent(view, &anotherEvent);
+        // Send spaceball event to the viewer's widget
+        if (auto* viewerIface = temp->getViewerInterface()) {
+            if (auto* widget = viewerIface->getWidget()) {
+                Spaceball::MotionEvent anotherEvent(*motionEvent);
+                qApp->sendEvent(widget, &anotherEvent);
+            }
         }
         return true;
     }

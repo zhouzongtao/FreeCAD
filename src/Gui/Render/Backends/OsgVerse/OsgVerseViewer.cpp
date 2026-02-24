@@ -83,6 +83,10 @@
 #include <osg/ClipNode>
 #include <osg/Texture2D>
 #include <osg/FrameBufferObject>
+#include <osgUtil/IntersectionVisitor>
+#include <osgUtil/LineSegmentIntersector>
+#include <Base/ViewProj.h>
+#include <Base/BoundBox.h>
 
 using namespace Gui::Render;
 
@@ -3833,4 +3837,227 @@ void OsgVerseViewer::alignToSelection()
     } else {
         fitSelection();
     }
+}
+
+//===========================================================================
+// Selection Polygon / 选择多边形
+//===========================================================================
+
+std::vector<std::pair<int,int>> OsgVerseViewer::getSelectionPolygon(bool* isClosed) const
+{
+    if (isClosed) {
+        *isClosed = _selectionPolygonClosed;
+    }
+
+    // If we have a stored polygon from lasso selection, return it
+    if (!_selectionPolygon.empty()) {
+        return _selectionPolygon;
+    }
+
+    // Otherwise, build polygon from rubber band rectangle if active
+    if (_widget) {
+        // The rubber band defines a rectangle; return its 4 corners
+        // as a closed polygon in screen coordinates
+        QPoint start = _widget->property("rubberBandStart").toPoint();
+        QPoint end = _widget->property("rubberBandEnd").toPoint();
+        if (!start.isNull() && !end.isNull()) {
+            std::vector<std::pair<int,int>> poly;
+            poly.emplace_back(start.x(), start.y());
+            poly.emplace_back(end.x(), start.y());
+            poly.emplace_back(end.x(), end.y());
+            poly.emplace_back(start.x(), end.y());
+            if (isClosed) *isClosed = true;
+            return poly;
+        }
+    }
+
+    return {};
+}
+
+std::vector<std::pair<float,float>> OsgVerseViewer::getSelectionPolygonNormalized(bool* isClosed) const
+{
+    auto screenPoly = getSelectionPolygon(isClosed);
+    if (screenPoly.empty() || !_viewer) {
+        return {};
+    }
+
+    const_cast<OsgVerseViewer*>(this)->ensureInitialized();
+    osg::Camera* cam = _viewer->getCamera();
+    if (!cam || !cam->getViewport()) {
+        return {};
+    }
+
+    int vpWidth = static_cast<int>(cam->getViewport()->width());
+    int vpHeight = static_cast<int>(cam->getViewport()->height());
+    if (vpWidth <= 0 || vpHeight <= 0) {
+        return {};
+    }
+
+    std::vector<std::pair<float,float>> result;
+    result.reserve(screenPoly.size());
+    for (const auto& pt : screenPoly) {
+        float nx = static_cast<float>(pt.first) / vpWidth;
+        float ny = static_cast<float>(pt.second) / vpHeight;
+        result.emplace_back(nx, ny);
+    }
+    return result;
+}
+
+//===========================================================================
+// Ray Picking / 射线拾取
+//===========================================================================
+
+Base::Vector3d OsgVerseViewer::getPointOnRay(const QPoint& screenPos,
+                                              const Gui::ViewProvider* vp) const
+{
+    if (!_viewer || !vp) {
+        return Base::Vector3d();
+    }
+    const_cast<OsgVerseViewer*>(this)->ensureInitialized();
+
+    // Get the OSG node for this ViewProvider
+    osg::Node* vpNode = nullptr;
+    auto it = _vpToNodeMap.find(const_cast<Gui::ViewProvider*>(vp));
+    if (it != _vpToNodeMap.end()) {
+        vpNode = it->second.get();
+    }
+
+    // If editing VP, use editing root
+    if (vp == _editingVP && _editingRootNode.valid() && _editingRootNode->getNumChildren() > 0) {
+        vpNode = _editingRootNode.get();
+    }
+
+    if (!vpNode) {
+        return Base::Vector3d();
+    }
+
+    // Construct ray from screen position
+    osg::Vec3d rayOrigin, rayDir;
+    if (!screenToWorldRay(_viewer, screenPos.x(), screenPos.y(), rayOrigin, rayDir)) {
+        return Base::Vector3d();
+    }
+
+    // Create line segment for intersection
+    osg::Vec3d nearPt = rayOrigin;
+    osg::Vec3d farPt = rayOrigin + rayDir * 100000.0;
+
+    osg::ref_ptr<osgUtil::LineSegmentIntersector> intersector =
+        new osgUtil::LineSegmentIntersector(osgUtil::Intersector::MODEL, nearPt, farPt);
+
+    osgUtil::IntersectionVisitor iv(intersector.get());
+    vpNode->accept(iv);
+
+    if (intersector->containsIntersections()) {
+        auto& hit = intersector->getFirstIntersection();
+        osg::Vec3d worldPt = hit.getWorldIntersectPoint();
+        return Base::Vector3d(worldPt.x(), worldPt.y(), worldPt.z());
+    }
+
+    return Base::Vector3d();
+}
+
+Base::Vector3d OsgVerseViewer::getPointOnRay(const Base::Vector3d& rayOrigin,
+                                              const Base::Vector3d& rayDir,
+                                              const Gui::ViewProvider* vp) const
+{
+    if (!_viewer || !vp) {
+        return Base::Vector3d();
+    }
+    const_cast<OsgVerseViewer*>(this)->ensureInitialized();
+
+    // Get the OSG node for this ViewProvider
+    osg::Node* vpNode = nullptr;
+    auto it = _vpToNodeMap.find(const_cast<Gui::ViewProvider*>(vp));
+    if (it != _vpToNodeMap.end()) {
+        vpNode = it->second.get();
+    }
+
+    // If editing VP, use editing root
+    if (vp == _editingVP && _editingRootNode.valid() && _editingRootNode->getNumChildren() > 0) {
+        vpNode = _editingRootNode.get();
+    }
+
+    if (!vpNode) {
+        return Base::Vector3d();
+    }
+
+    // Create line segment from ray origin along ray direction
+    osg::Vec3d start(rayOrigin.x, rayOrigin.y, rayOrigin.z);
+    osg::Vec3d dir(rayDir.x, rayDir.y, rayDir.z);
+    dir.normalize();
+    osg::Vec3d end = start + dir * 100000.0;
+
+    osg::ref_ptr<osgUtil::LineSegmentIntersector> intersector =
+        new osgUtil::LineSegmentIntersector(osgUtil::Intersector::MODEL, start, end);
+
+    osgUtil::IntersectionVisitor iv(intersector.get());
+    vpNode->accept(iv);
+
+    if (intersector->containsIntersections()) {
+        auto& hit = intersector->getFirstIntersection();
+        osg::Vec3d worldPt = hit.getWorldIntersectPoint();
+        return Base::Vector3d(worldPt.x(), worldPt.y(), worldPt.z());
+    }
+
+    return Base::Vector3d();
+}
+
+//===========================================================================
+// Viewport on Placement Plane / 视口投影到放置平面
+//===========================================================================
+
+Base::BoundBox2d OsgVerseViewer::getViewportOnXYPlaneOfPlacement(const Base::Placement& plc) const
+{
+    if (!_viewer) {
+        return Base::BoundBox2d(0, 0, 0, 0);
+    }
+    const_cast<OsgVerseViewer*>(this)->ensureInitialized();
+
+    osg::Camera* cam = _viewer->getCamera();
+    if (!cam || !cam->getViewport()) {
+        return Base::BoundBox2d(0, 0, 0, 0);
+    }
+
+    // Get the placement's XY plane: normal is Z axis of placement
+    Base::Vector3d pos = plc.getPosition();
+    Base::Rotation rot = plc.getRotation();
+    Base::Vector3d zAxis;
+    rot.multVec(Base::Vector3d(0, 0, 1), zAxis);
+
+    osg::Vec3d planePoint(pos.x, pos.y, pos.z);
+    osg::Vec3d planeNormal(zAxis.x, zAxis.y, zAxis.z);
+
+    int vpWidth = static_cast<int>(cam->getViewport()->width());
+    int vpHeight = static_cast<int>(cam->getViewport()->height());
+
+    // Project the four corners of the viewport onto the placement's XY plane
+    auto projBBox = Base::BoundBox3d();
+    projBBox.SetVoid();
+
+    auto projectCorner = [&](int sx, int sy) {
+        osg::Vec3d rayOrigin, rayDir;
+        if (!screenToWorldRay(_viewer, sx, sy, rayOrigin, rayDir)) {
+            return;
+        }
+        osg::Vec3d hitPoint;
+        if (!rayPlaneIntersect(rayOrigin, rayDir, planePoint, planeNormal, hitPoint)) {
+            return;
+        }
+        projBBox.Add(Base::Vector3d(hitPoint.x(), hitPoint.y(), hitPoint.z()));
+    };
+
+    projectCorner(0, 0);
+    projectCorner(vpWidth, 0);
+    projectCorner(0, vpHeight);
+    projectCorner(vpWidth, vpHeight);
+
+    if (!projBBox.IsValid()) {
+        return Base::BoundBox2d(0, 0, 0, 0);
+    }
+
+    // Project the 3D bounding box onto the placement's local XY plane
+    Base::Placement invPlc = plc;
+    invPlc.invert();
+    Base::ViewOrthoProjMatrix proj(invPlc.toMatrix());
+    return projBBox.ProjectBox(&proj);
 }

@@ -43,6 +43,7 @@
 #include <Gui/Command.h>
 #include <Gui/Control.h>
 #include <Gui/MainWindow.h>
+#include <Gui/View3DBase.h>
 #include <Gui/View3DInventor.h>
 #include <Gui/View3DInventorViewer.h>
 #include <Gui/ViewProviderCoordinateSystem.h>
@@ -380,6 +381,21 @@ SbBox3f ViewProviderDatum::getRelevantBoundBox() const
         }
     }
 
+    // Try backend-agnostic path first via View3DBase
+    auto viewBase = dynamic_cast<Gui::View3DBase*>(this->getActiveView());
+    if (viewBase && viewBase->getBackendType() != Gui::View3DBase::BackendType::Coin3D) {
+        if (auto* viewer = viewBase->getViewerInterface()) {
+            Base::Vector3d bmin, bmax;
+            viewer->getBoundingBox(bmin, bmax);
+            SbBox3f bbox(SbVec3f(bmin.x, bmin.y, bmin.z), SbVec3f(bmax.x, bmax.y, bmax.z));
+            if (bbox.getVolume() < Precision::Confusion()) {
+                bbox.extendBy(defaultBoundBox());
+            }
+            return bbox;
+        }
+    }
+
+    // Coin3D path with SoGetBoundingBoxAction
     Gui::View3DInventor* view = dynamic_cast<Gui::View3DInventor*>(this->getActiveView());
     if (view) {
         Gui::View3DInventorViewer* viewer = view->getViewer();

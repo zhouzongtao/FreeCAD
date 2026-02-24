@@ -25,8 +25,12 @@
 
 #ifdef RENDER_HAS_OSGVERSE_BACKEND
 
+#include <list>
+#include <map>
+
 #include "MDIView.h"
 #include "MDIViewPy.h"
+#include "View3D/IViewer3D.h"
 
 namespace Gui
 {
@@ -69,6 +73,8 @@ public:
     Py::Object viewRight();
     Py::Object viewTop();
     Py::Object viewIsometric();
+    Py::Object viewDimetric();
+    Py::Object viewTrimetric();
     Py::Object zoomIn();
     Py::Object zoomOut();
 
@@ -77,13 +83,46 @@ public:
     Py::Object projectPointToLine(const Py::Tuple&);
     Py::Object getPointOnViewport(const Py::Tuple&);
     Py::Object getObjectInfo(const Py::Tuple&);
+    Py::Object getObjectsInfo(const Py::Tuple&);
     Py::Object getSize();
     Py::Object getCursorPos();
+    Py::Object boxZoom(const Py::Tuple& args, const Py::Dict&);
 
     // Navigation
     Py::Object listNavigationTypes();
     Py::Object getNavigationType();
     Py::Object setNavigationType(const Py::Tuple&);
+
+    // Animation
+    Py::Object startAnimating(const Py::Tuple&);
+    Py::Object stopAnimating();
+
+    // Annotation (stubs)
+    Py::Object setAnnotation(const Py::Tuple&);
+    Py::Object removeAnnotation(const Py::Tuple&);
+
+    // Stereo (stubs)
+    Py::Object setStereoType(const Py::Tuple&);
+    Py::Object getStereoType();
+
+    // Vector graphics (stub)
+    Py::Object saveVectorGraphic(const Py::Tuple&);
+
+    // Graphics view (stub)
+    Py::Object graphicsView();
+
+    // Corner cross
+    Py::Object setCornerCrossVisible(const Py::Tuple&);
+    Py::Object setCornerCrossSize(const Py::Tuple&);
+
+    // ViewProvider query
+    Py::Object getViewProvidersOfType(const Py::Tuple&);
+
+    // Event callbacks
+    Py::Object addEventCallback(const Py::Tuple&);
+    Py::Object removeEventCallback(const Py::Tuple&);
+    Py::Object addEventCallbackPivy(const Py::Tuple&);
+    Py::Object removeEventCallbackPivy(const Py::Tuple&);
 
     // Misc
     Py::Object toggleClippingPlane(const Py::Tuple& args, const Py::Dict&);
@@ -99,8 +138,13 @@ private:
     static PyObject* method_varargs_ext_handler(PyObject* _self, PyObject* _args);
     Py::Object getattribute(const char*);
 
+    static void eventCallback(View3D::IViewer3D::EventType type, void* event, void* userData);
+    static View3D::IViewer3D::EventType mapEventType(const char* eventTypeStr);
+
 private:
     Gui::MDIViewPy base;
+    std::list<PyObject*> _callbacks;
+    std::map<PyObject*, View3D::IViewer3D::EventCallbackFunc> _callbackWrappers;
 };
 
 }  // namespace Gui
