@@ -25,10 +25,13 @@
 
 #include <memory>
 #include <array>
+#include <functional>
+#include <list>
 #include <set>
 #include <map>
 #include <vector>
 #include <QOpenGLWidget>
+#include <QCursor>
 #include <osg/ref_ptr>
 #include <osg/Node>
 #include <osg/ClipPlane>
@@ -36,12 +39,16 @@
 
 #include <FCGlobal.h>
 #include <Base/Vector3D.h>
+#include <Base/Vector2D.h>
 #include <Base/Matrix.h>
+#include <Base/Placement.h>
 #include "../../Core/RenderViewer.h"
 #include "OsgVerseEngine.h"
 
 class QDragEnterEvent;
 class QDropEvent;
+class QColor;
+class QImage;
 
 // OsgVerse / OSG 前向声明 / Forward declarations
 namespace osgViewer {
@@ -424,8 +431,19 @@ public:
     bool isAxisCrossEnabled() const { return _axisCrossEnabled; }
 
     //-----------------------------------------------------------------------
-    // Navigation style / 导航风格
+    // Navigation Style System / 导航风格系统
     //-----------------------------------------------------------------------
+
+    /** Navigation action types */
+    enum class NavAction {
+        None,
+        Rotate,
+        Pan,
+        Zoom,
+        Seek,
+        BoxZoom,
+        BoxSelect
+    };
 
     /**
      * @brief Set navigation style
@@ -433,6 +451,18 @@ public:
      */
     void setNavigationStyle(const std::string& style);
     std::string getNavigationStyle() const { return _navigationStyle; }
+
+    /** Determine navigation action from mouse event */
+    NavAction getNavAction(QMouseEvent* event) const;
+
+    /** Scale camera (zoom in/out by factor) */
+    void scale(float factor);
+
+    /** Move camera to a world position (animated) */
+    void moveCameraTo(const Base::Vector3d& target);
+
+    /** Get list of supported navigation types */
+    static std::vector<std::string> listNavigationTypes();
 
     //-----------------------------------------------------------------------
     // Context menu / 右键菜单
@@ -457,6 +487,58 @@ public:
      * @return 焦平面上的 3D 世界坐标 / 3D world coordinate on focal plane
      */
     Base::Vector3d getPointOnFocalPlane(int x, int y) const;
+
+    //-----------------------------------------------------------------------
+    // Coordinate Projection System / 坐标投影系统
+    //-----------------------------------------------------------------------
+
+    /** Get view direction (normalized, from eye toward target) */
+    Base::Vector3d getViewDirection() const;
+
+    /** Get up direction */
+    Base::Vector3d getUpDirection() const;
+
+    /** Get camera orientation as quaternion (x, y, z, w) */
+    void getCameraOrientation(double& x, double& y, double& z, double& w) const;
+
+    /** Project 3D world point to 2D screen coordinates */
+    QPoint getPointOnViewport(const Base::Vector3d& pt) const;
+
+    /** Get 3D point on a line closest to the screen point */
+    Base::Vector3d getPointOnLine(const QPoint& screenPos, const Base::Vector3d& axisCenter, const Base::Vector3d& axis) const;
+
+    /** Get 3D point on the XY plane of a placement */
+    Base::Vector3d getPointOnXYPlaneOfPlacement(const QPoint& screenPos, const Base::Placement& plc) const;
+
+    /** Get normalized screen position [0..1] */
+    Base::Vector2d getNormalizedPosition(const QPoint& screenPos) const;
+
+    /** Project normalized 2D point onto near plane */
+    Base::Vector3d projectOnNearPlane(const Base::Vector2d& pt) const;
+
+    /** Project normalized 2D point onto far plane */
+    Base::Vector3d projectOnFarPlane(const Base::Vector2d& pt) const;
+
+    /** Project screen 2D point to a 3D ray (two points) */
+    void projectPointToLine(const QPoint& screenPos, Base::Vector3d& pt1, Base::Vector3d& pt2) const;
+
+    /** Get center point on focal plane */
+    Base::Vector3d getCenterPointOnFocalPlane() const;
+
+    /** Get near plane (point + normal) */
+    void getNearPlane(Base::Vector3d& pt, Base::Vector3d& normal) const;
+
+    /** Get far plane (point + normal) */
+    void getFarPlane(Base::Vector3d& pt, Base::Vector3d& normal) const;
+
+    /** Get viewport dimensions in world units at focal distance */
+    void getDimensions(float& height, float& width) const;
+
+    /** Get max viewport dimension */
+    float getMaxDimension() const;
+
+    /** Get scene bounding box */
+    void getBoundingBox(Base::Vector3d& min, Base::Vector3d& max) const;
 
     //-----------------------------------------------------------------------
     // Phase G: 编辑根节点 / Editing Root Node
@@ -520,6 +602,127 @@ public:
     void removeClipPlane(int index);
     bool isClipPlaneEnabled(int index) const;
     void toggleClipPlane(int index);
+
+    //-----------------------------------------------------------------------
+    // Event Callback System / 事件回调系统
+    //-----------------------------------------------------------------------
+
+    /** Event types for callback registration */
+    enum class EventType {
+        MouseButtonPress,
+        MouseButtonRelease,
+        MouseMove,
+        KeyPress,
+        KeyRelease,
+        Wheel,
+        Any
+    };
+
+    /** Callback function: (eventType, QEvent*, userData) -> handled */
+    using EventCallbackFunc = std::function<bool(EventType, void*, void*)>;
+
+    struct EventCallbackEntry {
+        EventType type;
+        EventCallbackFunc callback;
+        void* userData;
+    };
+
+    /** Register an event callback */
+    void addEventCallback(EventType type, EventCallbackFunc cb, void* userData = nullptr);
+
+    /** Unregister an event callback */
+    void removeEventCallback(EventType type, EventCallbackFunc cb, void* userData = nullptr);
+
+    /** Dispatch event to registered callbacks */
+    bool dispatchEventCallbacks(EventType type, void* event);
+
+    //-----------------------------------------------------------------------
+    // Editing Mode Extensions / 编辑模式扩展
+    //-----------------------------------------------------------------------
+
+    /** Set editing flag */
+    void setEditing(bool edit);
+
+    /** Set cursor for editing mode */
+    void setEditingCursor(const QCursor& cursor);
+
+    /** Set cursor for component selection */
+    void setComponentCursor(const QCursor& cursor);
+
+    /** Redirect events to scene graph */
+    void setRedirectToSceneGraph(bool redirect);
+    bool isRedirectedToSceneGraph() const { return _redirectToSceneGraph; }
+
+    /** Enable/disable selection */
+    void setSelectionEnabled(bool enable);
+    bool isSelectionEnabled() const { return _selectionEnabled; }
+
+    /** Enable/disable popup menu */
+    void setPopupMenuEnabled(bool on);
+    bool isPopupMenuEnabled() const { return _popupMenuEnabled; }
+
+    //-----------------------------------------------------------------------
+    // Graphics Overlay System / 图形覆盖层系统
+    //-----------------------------------------------------------------------
+
+    /** Opaque handle for graphics items */
+    using GraphicsItemHandle = void*;
+
+    /** Add a 2D graphics overlay item */
+    void addGraphicsItem(GraphicsItemHandle item);
+
+    /** Remove a 2D graphics overlay item */
+    void removeGraphicsItem(GraphicsItemHandle item);
+
+    /** Clear all graphics overlay items */
+    void clearGraphicsItems();
+
+    /** Get all graphics items */
+    const std::vector<GraphicsItemHandle>& getGraphicsItems() const { return _graphicsItems; }
+
+    //-----------------------------------------------------------------------
+    // Dimension Annotations / 尺寸标注
+    //-----------------------------------------------------------------------
+
+    /** Add a 3D dimension annotation */
+    void addDimension3d(const Base::Vector3d& p1, const Base::Vector3d& p2, const Base::Vector3d& textPos);
+
+    /** Add a delta dimension annotation */
+    void addDimensionDelta(const Base::Vector3d& p1, const Base::Vector3d& p2, const Base::Vector3d& textPos);
+
+    /** Turn all dimensions on */
+    void turnAllDimensionsOn();
+
+    /** Turn all dimensions off */
+    void turnAllDimensionsOff();
+
+    /** Erase all dimensions */
+    void eraseAllDimensions();
+
+    /** Set dimensions visibility */
+    void setDimensionsVisible(bool visible);
+    bool areDimensionsVisible() const { return _dimensionsVisible; }
+
+    //-----------------------------------------------------------------------
+    // Save Picture / 保存图片
+    //-----------------------------------------------------------------------
+
+    /** Save picture with multi-sampling support */
+    void savePicture(int width, int height, int samples, const QColor& bg, QImage& img) const;
+
+    //-----------------------------------------------------------------------
+    // Box Zoom / 框选缩放
+    //-----------------------------------------------------------------------
+
+    /** Zoom to fit a screen rectangle */
+    void boxZoom(int x1, int y1, int x2, int y2);
+
+    //-----------------------------------------------------------------------
+    // Align to Selection / 对齐到选择
+    //-----------------------------------------------------------------------
+
+    /** Align camera to selected face normal */
+    void alignToSelection();
 
 private:
     /**
@@ -706,6 +909,23 @@ private:
     osg::ref_ptr<osg::Camera> _axisCrossCamera;                        ///< Axis cross HUD camera
     osg::ref_ptr<osg::MatrixTransform> _axisCrossTransform;            ///< Rotation transform for axes
     bool _axisCrossEnabled{true};                                       ///< Whether axis cross is enabled
+
+    // Event callback system / 事件回调系统
+    std::list<EventCallbackEntry> _eventCallbacks;
+
+    // Editing extensions / 编辑模式扩展
+    bool _editingFlag{false};
+    QCursor _editingCursor;
+    QCursor _componentCursor;
+    bool _redirectToSceneGraph{false};
+    bool _selectionEnabled{true};
+    bool _popupMenuEnabled{true};
+
+    // Graphics overlay / 图形覆盖层
+    std::vector<GraphicsItemHandle> _graphicsItems;
+
+    // Dimensions / 尺寸标注
+    bool _dimensionsVisible{true};
 };
 
 /**

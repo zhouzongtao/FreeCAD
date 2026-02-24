@@ -27,12 +27,16 @@
 #ifdef RENDER_HAS_OSGVERSE_BACKEND
 
 #include <memory>
+#include <QImage>
 #include <QWidget>
 
 #include "View3DBase.h"
 #include "View3D/IViewer3D.h"
+#include <Base/Parameter.h>
 
 class QOpenGLWidget;
+class QPrinter;
+class QStackedWidget;
 
 namespace Gui
 {
@@ -46,7 +50,7 @@ class Document;
  * It provides similar functionality to View3DInventor but uses OpenSceneGraph
  * instead of Coin3D.
  */
-class GuiExport View3DOsgVerse : public View3DBase
+class GuiExport View3DOsgVerse : public View3DBase, public ParameterGrp::ObserverType
 {
     Q_OBJECT
     TYPESYSTEM_HEADER_WITH_OVERRIDE();
@@ -124,6 +128,16 @@ public:
      */
     void printPreview() override;
 
+    /**
+     * @brief Print to a specific printer
+     */
+    void print(QPrinter* printer) override;
+
+    /**
+     * @brief Set view mode (Child/TopLevel/FullScreen)
+     */
+    void setCurrentViewMode(ViewMode mode) override;
+
     //-----------------------------------------------------------------------
     // View operations
     //-----------------------------------------------------------------------
@@ -132,7 +146,20 @@ public:
      * @brief Fit all objects in view
      */
     void viewAll() override;
-    
+
+    void setOverlayWidget(QWidget*);
+    void removeOverlayWidget();
+
+    /**
+     * @brief Toggle clipping plane through the focal plane
+     */
+    void toggleClippingPlane();
+
+    /**
+     * @brief Check if clipping plane is active
+     */
+    bool hasClippingPlane() const;
+
     /**
      * @brief Dump view information
      */
@@ -144,14 +171,38 @@ public:
      */
     PyObject* getPyObject() override;
 
+    bool containsViewProvider(const ViewProvider*) const override;
+    void onRename(Gui::Document* pDoc) override;
+
+public Q_SLOTS:
+    void setOverrideCursor(const QCursor&) override;
+    void restoreOverrideCursor() override;
+
+protected Q_SLOTS:
+    void stopAnimating();
+
 protected:
-    /**
-     * @brief Handle resize events
-     */
     void resizeEvent(QResizeEvent* event) override;
+    void contextMenuEvent(QContextMenuEvent* e) override;
+    void keyPressEvent(QKeyEvent* e) override;
+    void keyReleaseEvent(QKeyEvent* e) override;
+    void focusInEvent(QFocusEvent* e) override;
+    void dropEvent(QDropEvent* e) override;
+    void dragEnterEvent(QDragEnterEvent* e) override;
+    void customEvent(QEvent* e) override;
+
+    /// ParameterGrp::ObserverType
+    void OnChange(ParameterGrp::SubjectType& rCaller, ParameterGrp::MessageType Reason) override;
 
 private:
+    void applySettings();
+
     std::unique_ptr<View3D::IViewer3D> _viewer;  ///< The OsgVerse viewer
+    bool _clippingPlaneActive{false};             ///< Whether clipping plane is active
+    ParameterGrp::handle _hViewGrp;               ///< View preferences group
+    ParameterGrp::handle _hNaviCubeGrp;           ///< NaviCube preferences group
+    QStackedWidget* _stack{nullptr};              ///< Stack for overlay widget support
+    PyObject* _viewerPy{nullptr};                 ///< Python binding object
 };
 
 } // namespace Gui

@@ -1148,6 +1148,12 @@ void OsgVerseViewer::ViewerWidget::resizeGL(int width, int height)
 
 void OsgVerseViewer::ViewerWidget::mousePressEvent(QMouseEvent* event)
 {
+    // Dispatch to registered event callbacks first
+    if (_osgVerseViewer->dispatchEventCallbacks(OsgVerseViewer::EventType::MouseButtonPress, event)) {
+        event->accept();
+        return;
+    }
+
     // Check NaviCube first - it has priority for mouse events
     if (_osgVerseViewer && _osgVerseViewer->_naviCube &&
         _osgVerseViewer->_naviCubeEnabled &&
@@ -1199,6 +1205,12 @@ void OsgVerseViewer::ViewerWidget::mousePressEvent(QMouseEvent* event)
 
 void OsgVerseViewer::ViewerWidget::mouseReleaseEvent(QMouseEvent* event)
 {
+    // Dispatch to registered event callbacks first
+    if (_osgVerseViewer->dispatchEventCallbacks(OsgVerseViewer::EventType::MouseButtonRelease, event)) {
+        event->accept();
+        return;
+    }
+
     // Check NaviCube first
     if (_osgVerseViewer && _osgVerseViewer->_naviCube &&
         _osgVerseViewer->_naviCubeEnabled &&
@@ -1269,6 +1281,12 @@ void OsgVerseViewer::ViewerWidget::mouseReleaseEvent(QMouseEvent* event)
 
 void OsgVerseViewer::ViewerWidget::mouseMoveEvent(QMouseEvent* event)
 {
+    // Dispatch to registered event callbacks first
+    if (_osgVerseViewer->dispatchEventCallbacks(OsgVerseViewer::EventType::MouseMove, event)) {
+        event->accept();
+        return;
+    }
+
     // Check NaviCube first
     if (_osgVerseViewer && _osgVerseViewer->_naviCube &&
         _osgVerseViewer->_naviCubeEnabled &&
@@ -1292,14 +1310,21 @@ void OsgVerseViewer::ViewerWidget::mouseMoveEvent(QMouseEvent* event)
         update();  // Trigger repaint for rubber band overlay
     }
 
-    // 正常处理场景鼠标移动
-    // Handle normal scene mouse movement
+    // Determine navigation action from current style
+    OsgVerseViewer::NavAction action = OsgVerseViewer::NavAction::None;
+    if (_osgVerseViewer) {
+        action = _osgVerseViewer->getNavAction(event);
+    }
+
+    // Forward to OSG — the TrackballManipulator handles the actual
+    // camera manipulation. For Inventor style, we remap buttons so
+    // that the manipulator receives the expected button codes:
+    //   OSG TrackballManipulator: left=rotate, middle=pan, right=zoom
     if (_graphicsWindow.valid()) {
         const float dpr = devicePixelRatio();
-        _graphicsWindow->getEventQueue()->mouseMotion(
-            static_cast<float>(event->position().x()) * dpr,
-            static_cast<float>(event->position().y()) * dpr
-        );
+        float osgX = static_cast<float>(event->position().x()) * dpr;
+        float osgY = static_cast<float>(event->position().y()) * dpr;
+        _graphicsWindow->getEventQueue()->mouseMotion(osgX, osgY);
         event->accept();
     }
 
@@ -1312,6 +1337,12 @@ void OsgVerseViewer::ViewerWidget::mouseMoveEvent(QMouseEvent* event)
 
 void OsgVerseViewer::ViewerWidget::wheelEvent(QWheelEvent* event)
 {
+    // Dispatch to registered event callbacks first
+    if (_osgVerseViewer->dispatchEventCallbacks(OsgVerseViewer::EventType::Wheel, event)) {
+        event->accept();
+        return;
+    }
+
     if (_graphicsWindow.valid()) {
         int delta = event->angleDelta().y();
 
@@ -1327,6 +1358,12 @@ void OsgVerseViewer::ViewerWidget::wheelEvent(QWheelEvent* event)
 
 void OsgVerseViewer::ViewerWidget::keyPressEvent(QKeyEvent* event)
 {
+    // Dispatch to registered event callbacks first
+    if (_osgVerseViewer->dispatchEventCallbacks(OsgVerseViewer::EventType::KeyPress, event)) {
+        event->accept();
+        return;
+    }
+
     if (_graphicsWindow.valid()) {
         _graphicsWindow->getEventQueue()->keyPress(event->key());
     }
@@ -1335,6 +1372,12 @@ void OsgVerseViewer::ViewerWidget::keyPressEvent(QKeyEvent* event)
 
 void OsgVerseViewer::ViewerWidget::keyReleaseEvent(QKeyEvent* event)
 {
+    // Dispatch to registered event callbacks first
+    if (_osgVerseViewer->dispatchEventCallbacks(OsgVerseViewer::EventType::KeyRelease, event)) {
+        event->accept();
+        return;
+    }
+
     if (_graphicsWindow.valid()) {
         _graphicsWindow->getEventQueue()->keyRelease(event->key());
     }
@@ -2585,6 +2628,92 @@ void OsgVerseViewer::setNavigationStyle(const std::string& style)
     Base::Console().log("OsgVerseViewer: Navigation style set to '%s'\n", style.c_str());
 }
 
+OsgVerseViewer::NavAction OsgVerseViewer::getNavAction(QMouseEvent* event) const
+{
+    Qt::MouseButtons buttons = event->buttons();
+    Qt::KeyboardModifiers mods = event->modifiers();
+
+    if (_navigationStyle == "CAD" || _navigationStyle.empty()) {
+        // CAD Navigation (FreeCAD default)
+        if (buttons & Qt::MiddleButton) {
+            if (mods & Qt::ShiftModifier) return NavAction::Pan;
+            if (mods & Qt::ControlModifier) return NavAction::Zoom;
+            return NavAction::Rotate;
+        }
+        if ((buttons & Qt::RightButton) && (mods & Qt::ShiftModifier)) {
+            return NavAction::Pan;
+        }
+    }
+    else if (_navigationStyle == "Blender") {
+        if (buttons & Qt::MiddleButton) {
+            if (mods & Qt::ShiftModifier) return NavAction::Pan;
+            if (mods & Qt::ControlModifier) return NavAction::Zoom;
+            return NavAction::Rotate;
+        }
+    }
+    else if (_navigationStyle == "Inventor") {
+        if ((buttons & Qt::LeftButton) && (buttons & Qt::MiddleButton)) {
+            return NavAction::Zoom;
+        }
+        if (buttons & Qt::MiddleButton) {
+            return NavAction::Pan;
+        }
+        if (buttons & Qt::LeftButton) {
+            return NavAction::Rotate;
+        }
+    }
+
+    return NavAction::None;
+}
+
+void OsgVerseViewer::scale(float factor)
+{
+    ensureInitialized();
+    if (!_viewer) return;
+
+    CameraParams cam = getCamera();
+    Base::Vector3d dir = cam.target - cam.position;
+    double dist = dir.Length();
+    dir.Normalize();
+
+    double newDist = dist / factor;
+    cam.position = cam.target - dir * newDist;
+
+    if (cam.orthographic) {
+        cam.height /= factor;
+    }
+
+    setCamera(cam);
+}
+
+void OsgVerseViewer::moveCameraTo(const Base::Vector3d& target)
+{
+    ensureInitialized();
+    if (!_viewer) return;
+
+    CameraParams cam = getCamera();
+    Base::Vector3d dir = cam.target - cam.position;
+    double dist = dir.Length();
+    dir.Normalize();
+
+    cam.target = target;
+    cam.position = target - dir * dist;
+
+    if (_animationEnabled) {
+        startCameraAnimation(
+            Vec3d(cam.position.x, cam.position.y, cam.position.z),
+            Vec3d(cam.target.x, cam.target.y, cam.target.z)
+        );
+    } else {
+        setCamera(cam);
+    }
+}
+
+std::vector<std::string> OsgVerseViewer::listNavigationTypes()
+{
+    return {"Gui::CADNavigationStyle", "Gui::BlenderNavigationStyle", "Gui::InventorNavigationStyle"};
+}
+
 //===========================================================================
 // Context menu
 //===========================================================================
@@ -2865,6 +2994,405 @@ Base::Vector3d OsgVerseViewer::getPointOnFocalPlane(int x, int y) const
 }
 
 //===========================================================================
+// Coordinate Projection System / 坐标投影系统
+//===========================================================================
+
+// Helper: screen coords (Qt convention, Y top-down) to world ray
+static bool screenToWorldRay(osgViewer::Viewer* viewer, int qtX, int qtY,
+                              osg::Vec3d& rayOrigin, osg::Vec3d& rayDir)
+{
+    osg::Camera* cam = viewer->getCamera();
+    if (!cam || !cam->getViewport()) {
+        return false;
+    }
+
+    int vpWidth = static_cast<int>(cam->getViewport()->width());
+    int vpHeight = static_cast<int>(cam->getViewport()->height());
+    if (vpWidth <= 0 || vpHeight <= 0) {
+        return false;
+    }
+
+    // Qt Y is top-down, NDC Y is bottom-up
+    double ndcX = (2.0 * qtX / vpWidth) - 1.0;
+    double ndcY = 1.0 - (2.0 * qtY / vpHeight);
+
+    osg::Matrixd viewMat = cam->getViewMatrix();
+    osg::Matrixd projMat = cam->getProjectionMatrix();
+    osg::Matrixd invVP = osg::Matrixd::inverse(viewMat * projMat);
+
+    osg::Vec3d nearPt = osg::Vec3d(ndcX, ndcY, -1.0) * invVP;
+    osg::Vec3d farPt = osg::Vec3d(ndcX, ndcY, 1.0) * invVP;
+
+    rayOrigin = nearPt;
+    rayDir = farPt - nearPt;
+    rayDir.normalize();
+    return true;
+}
+
+// Helper: world point to screen coords (Qt convention)
+static osg::Vec3d worldToScreenQt(osgViewer::Viewer* viewer, const osg::Vec3d& worldPt)
+{
+    osg::Camera* cam = viewer->getCamera();
+    if (!cam || !cam->getViewport()) {
+        return osg::Vec3d(0, 0, 0);
+    }
+
+    osg::Matrixd viewMat = cam->getViewMatrix();
+    osg::Matrixd projMat = cam->getProjectionMatrix();
+    osg::Matrixd vpMat = cam->getViewport()->computeWindowMatrix();
+
+    osg::Vec3d screenPt = worldPt * viewMat * projMat * vpMat;
+    // Flip Y from OSG (bottom-up) to Qt (top-down)
+    int vpHeight = static_cast<int>(cam->getViewport()->height());
+    screenPt.y() = vpHeight - screenPt.y();
+    return screenPt;
+}
+
+// Helper: intersect ray with plane, returns false if parallel
+static bool rayPlaneIntersect(const osg::Vec3d& rayOrigin, const osg::Vec3d& rayDir,
+                               const osg::Vec3d& planePoint, const osg::Vec3d& planeNormal,
+                               osg::Vec3d& hitPoint)
+{
+    double denom = rayDir * planeNormal;
+    if (std::abs(denom) < 1e-10) {
+        return false;
+    }
+    double t = ((planePoint - rayOrigin) * planeNormal) / denom;
+    hitPoint = rayOrigin + rayDir * t;
+    return true;
+}
+
+Base::Vector3d OsgVerseViewer::getViewDirection() const
+{
+    if (!_viewer) {
+        return Base::Vector3d(0, 0, -1);
+    }
+    const_cast<OsgVerseViewer*>(this)->ensureInitialized();
+
+    CameraParams cam = getCamera();
+    Base::Vector3d dir(cam.target.x - cam.position.x,
+                       cam.target.y - cam.position.y,
+                       cam.target.z - cam.position.z);
+    dir.Normalize();
+    return dir;
+}
+
+Base::Vector3d OsgVerseViewer::getUpDirection() const
+{
+    if (!_viewer) {
+        return Base::Vector3d(0, 1, 0);
+    }
+    const_cast<OsgVerseViewer*>(this)->ensureInitialized();
+
+    CameraParams cam = getCamera();
+    return Base::Vector3d(cam.upVector.x, cam.upVector.y, cam.upVector.z);
+}
+
+void OsgVerseViewer::getCameraOrientation(double& x, double& y, double& z, double& w) const
+{
+    if (!_viewer) {
+        x = y = z = 0.0;
+        w = 1.0;
+        return;
+    }
+    const_cast<OsgVerseViewer*>(this)->ensureInitialized();
+
+    osgGA::TrackballManipulator* manip =
+        dynamic_cast<osgGA::TrackballManipulator*>(_viewer->getCameraManipulator());
+    if (manip) {
+        osg::Quat q = manip->getRotation();
+        x = q.x();
+        y = q.y();
+        z = q.z();
+        w = q.w();
+    } else {
+        x = y = z = 0.0;
+        w = 1.0;
+    }
+}
+
+QPoint OsgVerseViewer::getPointOnViewport(const Base::Vector3d& pt) const
+{
+    if (!_viewer) {
+        return QPoint(0, 0);
+    }
+    const_cast<OsgVerseViewer*>(this)->ensureInitialized();
+
+    osg::Vec3d worldPt(pt.x, pt.y, pt.z);
+    osg::Vec3d screenPt = worldToScreenQt(_viewer, worldPt);
+    return QPoint(static_cast<int>(screenPt.x()), static_cast<int>(screenPt.y()));
+}
+
+Base::Vector3d OsgVerseViewer::getPointOnLine(const QPoint& screenPos,
+                                               const Base::Vector3d& axisCenter,
+                                               const Base::Vector3d& axis) const
+{
+    if (!_viewer) {
+        return Base::Vector3d(0, 0, 0);
+    }
+    const_cast<OsgVerseViewer*>(this)->ensureInitialized();
+
+    osg::Vec3d rayOrigin, rayDir;
+    if (!screenToWorldRay(_viewer, screenPos.x(), screenPos.y(), rayOrigin, rayDir)) {
+        return Base::Vector3d(0, 0, 0);
+    }
+
+    // Find closest point on the axis line to the ray
+    // Line1: P = rayOrigin + t * rayDir
+    // Line2: Q = axisCenter + s * axis
+    // Minimize |P - Q|^2
+    osg::Vec3d ac(axisCenter.x, axisCenter.y, axisCenter.z);
+    osg::Vec3d ax(axis.x, axis.y, axis.z);
+    ax.normalize();
+
+    osg::Vec3d w = ac - rayOrigin;
+    double a = rayDir * rayDir;
+    double b = rayDir * ax;
+    double c = ax * ax;
+    double d = rayDir * w;
+    double e = ax * w;
+    double denom = a * c - b * b;
+
+    double s;
+    if (std::abs(denom) < 1e-10) {
+        s = e / c;
+    } else {
+        s = (a * e - b * d) / denom;
+    }
+
+    osg::Vec3d closestOnAxis = ac + ax * s;
+    return Base::Vector3d(closestOnAxis.x(), closestOnAxis.y(), closestOnAxis.z());
+}
+
+Base::Vector3d OsgVerseViewer::getPointOnXYPlaneOfPlacement(const QPoint& screenPos,
+                                                             const Base::Placement& plc) const
+{
+    if (!_viewer) {
+        return Base::Vector3d(0, 0, 0);
+    }
+    const_cast<OsgVerseViewer*>(this)->ensureInitialized();
+
+    osg::Vec3d rayOrigin, rayDir;
+    if (!screenToWorldRay(_viewer, screenPos.x(), screenPos.y(), rayOrigin, rayDir)) {
+        return Base::Vector3d(0, 0, 0);
+    }
+
+    // The XY plane of the placement: normal is the Z axis of the placement
+    Base::Vector3d pos = plc.getPosition();
+    Base::Rotation rot = plc.getRotation();
+    Base::Vector3d zAxis;
+    rot.multVec(Base::Vector3d(0, 0, 1), zAxis);
+
+    osg::Vec3d planePoint(pos.x, pos.y, pos.z);
+    osg::Vec3d planeNormal(zAxis.x, zAxis.y, zAxis.z);
+
+    osg::Vec3d hitPoint;
+    if (!rayPlaneIntersect(rayOrigin, rayDir, planePoint, planeNormal, hitPoint)) {
+        return Base::Vector3d(0, 0, 0);
+    }
+
+    return Base::Vector3d(hitPoint.x(), hitPoint.y(), hitPoint.z());
+}
+
+Base::Vector2d OsgVerseViewer::getNormalizedPosition(const QPoint& screenPos) const
+{
+    if (!_viewer) {
+        return Base::Vector2d(0.5, 0.5);
+    }
+    const_cast<OsgVerseViewer*>(this)->ensureInitialized();
+
+    osg::Camera* cam = _viewer->getCamera();
+    if (!cam || !cam->getViewport()) {
+        return Base::Vector2d(0.5, 0.5);
+    }
+
+    double vpW = cam->getViewport()->width();
+    double vpH = cam->getViewport()->height();
+    if (vpW <= 0 || vpH <= 0) {
+        return Base::Vector2d(0.5, 0.5);
+    }
+
+    return Base::Vector2d(screenPos.x() / vpW, screenPos.y() / vpH);
+}
+
+Base::Vector3d OsgVerseViewer::projectOnNearPlane(const Base::Vector2d& pt) const
+{
+    if (!_viewer) {
+        return Base::Vector3d(0, 0, 0);
+    }
+    const_cast<OsgVerseViewer*>(this)->ensureInitialized();
+
+    osg::Camera* cam = _viewer->getCamera();
+    if (!cam) {
+        return Base::Vector3d(0, 0, 0);
+    }
+
+    // pt is normalized [0..1], convert to NDC [-1..1]
+    double ndcX = pt.x * 2.0 - 1.0;
+    double ndcY = 1.0 - pt.y * 2.0;  // Flip Y
+
+    osg::Matrixd invVP = osg::Matrixd::inverse(
+        cam->getViewMatrix() * cam->getProjectionMatrix());
+
+    osg::Vec3d nearPt = osg::Vec3d(ndcX, ndcY, -1.0) * invVP;
+    return Base::Vector3d(nearPt.x(), nearPt.y(), nearPt.z());
+}
+
+Base::Vector3d OsgVerseViewer::projectOnFarPlane(const Base::Vector2d& pt) const
+{
+    if (!_viewer) {
+        return Base::Vector3d(0, 0, 0);
+    }
+    const_cast<OsgVerseViewer*>(this)->ensureInitialized();
+
+    osg::Camera* cam = _viewer->getCamera();
+    if (!cam) {
+        return Base::Vector3d(0, 0, 0);
+    }
+
+    double ndcX = pt.x * 2.0 - 1.0;
+    double ndcY = 1.0 - pt.y * 2.0;
+
+    osg::Matrixd invVP = osg::Matrixd::inverse(
+        cam->getViewMatrix() * cam->getProjectionMatrix());
+
+    osg::Vec3d farPt = osg::Vec3d(ndcX, ndcY, 1.0) * invVP;
+    return Base::Vector3d(farPt.x(), farPt.y(), farPt.z());
+}
+
+void OsgVerseViewer::projectPointToLine(const QPoint& screenPos,
+                                         Base::Vector3d& pt1,
+                                         Base::Vector3d& pt2) const
+{
+    if (!_viewer) {
+        pt1 = pt2 = Base::Vector3d(0, 0, 0);
+        return;
+    }
+    const_cast<OsgVerseViewer*>(this)->ensureInitialized();
+
+    osg::Vec3d rayOrigin, rayDir;
+    if (!screenToWorldRay(_viewer, screenPos.x(), screenPos.y(), rayOrigin, rayDir)) {
+        pt1 = pt2 = Base::Vector3d(0, 0, 0);
+        return;
+    }
+
+    // pt1 = near point (ray origin), pt2 = far point
+    osg::Vec3d farPt = rayOrigin + rayDir * 10000.0;
+    pt1 = Base::Vector3d(rayOrigin.x(), rayOrigin.y(), rayOrigin.z());
+    pt2 = Base::Vector3d(farPt.x(), farPt.y(), farPt.z());
+}
+
+Base::Vector3d OsgVerseViewer::getCenterPointOnFocalPlane() const
+{
+    if (!_viewer) {
+        return Base::Vector3d(0, 0, 0);
+    }
+    const_cast<OsgVerseViewer*>(this)->ensureInitialized();
+
+    osg::Camera* cam = _viewer->getCamera();
+    if (!cam || !cam->getViewport()) {
+        return Base::Vector3d(0, 0, 0);
+    }
+
+    int cx = static_cast<int>(cam->getViewport()->width() / 2);
+    int cy = static_cast<int>(cam->getViewport()->height() / 2);
+    return getPointOnFocalPlane(cx, cy);
+}
+
+void OsgVerseViewer::getNearPlane(Base::Vector3d& pt, Base::Vector3d& normal) const
+{
+    if (!_viewer) {
+        pt = Base::Vector3d(0, 0, 0);
+        normal = Base::Vector3d(0, 0, 1);
+        return;
+    }
+    const_cast<OsgVerseViewer*>(this)->ensureInitialized();
+
+    // Near plane center = project screen center onto near plane
+    Base::Vector2d center(0.5, 0.5);
+    pt = projectOnNearPlane(center);
+
+    // Normal = negative view direction (pointing toward camera)
+    Base::Vector3d viewDir = getViewDirection();
+    normal = Base::Vector3d(-viewDir.x, -viewDir.y, -viewDir.z);
+}
+
+void OsgVerseViewer::getFarPlane(Base::Vector3d& pt, Base::Vector3d& normal) const
+{
+    if (!_viewer) {
+        pt = Base::Vector3d(0, 0, 0);
+        normal = Base::Vector3d(0, 0, -1);
+        return;
+    }
+    const_cast<OsgVerseViewer*>(this)->ensureInitialized();
+
+    Base::Vector2d center(0.5, 0.5);
+    pt = projectOnFarPlane(center);
+
+    // Normal = view direction (pointing away from camera)
+    normal = getViewDirection();
+}
+
+void OsgVerseViewer::getDimensions(float& height, float& width) const
+{
+    height = width = 1.0f;
+    if (!_viewer) {
+        return;
+    }
+    const_cast<OsgVerseViewer*>(this)->ensureInitialized();
+
+    osg::Camera* cam = _viewer->getCamera();
+    if (!cam || !cam->getViewport()) {
+        return;
+    }
+
+    double fovy, aspectRatio, zNear, zFar;
+    if (!cam->getProjectionMatrixAsPerspective(fovy, aspectRatio, zNear, zFar)) {
+        return;
+    }
+
+    CameraParams params = getCamera();
+    double dx = params.target.x - params.position.x;
+    double dy = params.target.y - params.position.y;
+    double dz = params.target.z - params.position.z;
+    double focalDist = std::sqrt(dx * dx + dy * dy + dz * dz);
+    if (focalDist < 1e-6) {
+        focalDist = 1.0;
+    }
+
+    double fovyRad = fovy * M_PI / 180.0;
+    height = static_cast<float>(2.0 * focalDist * std::tan(fovyRad / 2.0));
+    width = height * static_cast<float>(aspectRatio);
+}
+
+float OsgVerseViewer::getMaxDimension() const
+{
+    float h, w;
+    getDimensions(h, w);
+    return std::max(h, w);
+}
+
+void OsgVerseViewer::getBoundingBox(Base::Vector3d& min, Base::Vector3d& max) const
+{
+    min = Base::Vector3d(0, 0, 0);
+    max = Base::Vector3d(0, 0, 0);
+
+    if (!_viewer || !_viewer->getSceneData()) {
+        return;
+    }
+    const_cast<OsgVerseViewer*>(this)->ensureInitialized();
+
+    osg::ComputeBoundsVisitor cbv;
+    _viewer->getSceneData()->accept(cbv);
+    const osg::BoundingBox& bb = cbv.getBoundingBox();
+
+    if (bb.valid()) {
+        min = Base::Vector3d(bb.xMin(), bb.yMin(), bb.zMin());
+        max = Base::Vector3d(bb.xMax(), bb.yMax(), bb.zMax());
+    }
+}
+
+//===========================================================================
 // Phase G: Seek
 //===========================================================================
 
@@ -3047,5 +3575,262 @@ void OsgVerseViewer::toggleClipPlane(int index)
             _clipNode->addClipPlane(_clipPlanes[index].get());
             _clipPlaneEnabled[index] = true;
         }
+    }
+}
+
+//-----------------------------------------------------------------------
+// Event Callback System / 事件回调系统
+//-----------------------------------------------------------------------
+
+void OsgVerseViewer::addEventCallback(EventType type, EventCallbackFunc cb, void* userData)
+{
+    _eventCallbacks.push_back({type, cb, userData});
+}
+
+void OsgVerseViewer::removeEventCallback(EventType type, EventCallbackFunc cb, void* userData)
+{
+    _eventCallbacks.remove_if([&](const EventCallbackEntry& entry) {
+        return entry.type == type && entry.userData == userData;
+    });
+}
+
+bool OsgVerseViewer::dispatchEventCallbacks(EventType type, void* event)
+{
+    for (auto& entry : _eventCallbacks) {
+        if (entry.type == type || entry.type == EventType::Any) {
+            if (entry.callback(type, event, entry.userData)) {
+                return true;  // Event was handled
+            }
+        }
+    }
+    return false;
+}
+
+//-----------------------------------------------------------------------
+// Editing Mode Extensions / 编辑模式扩展
+//-----------------------------------------------------------------------
+
+void OsgVerseViewer::setEditing(bool edit)
+{
+    _editingFlag = edit;
+    if (_widget) {
+        if (edit && !_editingCursor.shape()) {
+            _widget->setCursor(Qt::CrossCursor);
+        }
+    }
+}
+
+void OsgVerseViewer::setEditingCursor(const QCursor& cursor)
+{
+    _editingCursor = cursor;
+    if (_widget && _editingFlag) {
+        _widget->setCursor(cursor);
+    }
+}
+
+void OsgVerseViewer::setComponentCursor(const QCursor& cursor)
+{
+    _componentCursor = cursor;
+}
+
+void OsgVerseViewer::setRedirectToSceneGraph(bool redirect)
+{
+    _redirectToSceneGraph = redirect;
+}
+
+void OsgVerseViewer::setSelectionEnabled(bool enable)
+{
+    _selectionEnabled = enable;
+}
+
+void OsgVerseViewer::setPopupMenuEnabled(bool on)
+{
+    _popupMenuEnabled = on;
+}
+
+//-----------------------------------------------------------------------
+// Graphics Overlay System
+//-----------------------------------------------------------------------
+
+void OsgVerseViewer::addGraphicsItem(GraphicsItemHandle item)
+{
+    if (item && std::find(_graphicsItems.begin(), _graphicsItems.end(), item) == _graphicsItems.end()) {
+        _graphicsItems.push_back(item);
+    }
+}
+
+void OsgVerseViewer::removeGraphicsItem(GraphicsItemHandle item)
+{
+    _graphicsItems.erase(std::remove(_graphicsItems.begin(), _graphicsItems.end(), item), _graphicsItems.end());
+}
+
+void OsgVerseViewer::clearGraphicsItems()
+{
+    _graphicsItems.clear();
+}
+
+//-----------------------------------------------------------------------
+// Dimension Annotations (stubs)
+//-----------------------------------------------------------------------
+
+void OsgVerseViewer::addDimension3d(const Base::Vector3d&, const Base::Vector3d&, const Base::Vector3d&)
+{
+    Base::Console().Log("OsgVerseViewer::addDimension3d: Not yet implemented\n");
+}
+
+void OsgVerseViewer::addDimensionDelta(const Base::Vector3d&, const Base::Vector3d&, const Base::Vector3d&)
+{
+    Base::Console().Log("OsgVerseViewer::addDimensionDelta: Not yet implemented\n");
+}
+
+void OsgVerseViewer::turnAllDimensionsOn()
+{
+    _dimensionsVisible = true;
+    Base::Console().Log("OsgVerseViewer::turnAllDimensionsOn: Not yet implemented\n");
+}
+
+void OsgVerseViewer::turnAllDimensionsOff()
+{
+    _dimensionsVisible = false;
+    Base::Console().Log("OsgVerseViewer::turnAllDimensionsOff: Not yet implemented\n");
+}
+
+void OsgVerseViewer::eraseAllDimensions()
+{
+    Base::Console().Log("OsgVerseViewer::eraseAllDimensions: Not yet implemented\n");
+}
+
+void OsgVerseViewer::setDimensionsVisible(bool visible)
+{
+    _dimensionsVisible = visible;
+    Base::Console().Log("OsgVerseViewer::setDimensionsVisible: Not yet implemented\n");
+}
+
+//-----------------------------------------------------------------------
+// Save Picture with Multi-sampling
+//-----------------------------------------------------------------------
+
+void OsgVerseViewer::savePicture(int width, int height, int samples, const QColor& bg, QImage& img) const
+{
+    (void)samples; // Multi-sampling not yet used; reserved for future FBO enhancement
+
+    if (width <= 0 || height <= 0) {
+        if (_widget) {
+            width = _widget->width();
+            height = _widget->height();
+        } else {
+            width = 800;
+            height = 600;
+        }
+    }
+
+    img = const_cast<OsgVerseViewer*>(this)->grabImage(width, height);
+
+    // Composite transparent pixels over the requested background color
+    if (bg.isValid() && bg.alpha() > 0) {
+        for (int y = 0; y < img.height(); ++y) {
+            for (int x = 0; x < img.width(); ++x) {
+                QColor pixel = img.pixelColor(x, y);
+                if (pixel.alpha() < 255) {
+                    float alpha = pixel.alphaF();
+                    int r = static_cast<int>(pixel.red() * alpha + bg.red() * (1.0f - alpha));
+                    int g = static_cast<int>(pixel.green() * alpha + bg.green() * (1.0f - alpha));
+                    int b = static_cast<int>(pixel.blue() * alpha + bg.blue() * (1.0f - alpha));
+                    img.setPixelColor(x, y, QColor(r, g, b, 255));
+                }
+            }
+        }
+    }
+}
+
+//-----------------------------------------------------------------------
+// Box Zoom
+//-----------------------------------------------------------------------
+
+void OsgVerseViewer::boxZoom(int x1, int y1, int x2, int y2)
+{
+    ensureInitialized();
+    if (!_viewer || !_widget) return;
+
+    int left   = std::min(x1, x2);
+    int right  = std::max(x1, x2);
+    int top    = std::min(y1, y2);
+    int bottom = std::max(y1, y2);
+
+    if (right - left < 2 || bottom - top < 2) return;
+
+    int cx = (left + right) / 2;
+    int cy = (top + bottom) / 2;
+
+    Base::Vector3d newTarget = getPointOnFocalPlane(cx, cy);
+
+    float boxW = static_cast<float>(right - left);
+    float boxH = static_cast<float>(bottom - top);
+    float vpW  = static_cast<float>(_widget->width());
+    float vpH  = static_cast<float>(_widget->height());
+
+    float zoomFactor = std::min(vpW / boxW, vpH / boxH);
+
+    CameraParams cam = getCamera();
+    Base::Vector3d dir = cam.target - cam.position;
+    double dist = dir.Length();
+    dir.Normalize();
+
+    double newDist = dist / zoomFactor;
+
+    cam.target   = newTarget;
+    cam.position = newTarget - dir * newDist;
+
+    if (cam.orthographic) {
+        cam.height /= zoomFactor;
+    }
+
+    setCamera(cam);
+}
+
+//-----------------------------------------------------------------------
+// Align to Selection
+//-----------------------------------------------------------------------
+
+void OsgVerseViewer::alignToSelection()
+{
+    auto sels = Gui::Selection().getSelectionEx();
+    if (sels.empty()) {
+        fitSelection();
+        return;
+    }
+
+    auto& sel = sels.front();
+    auto* obj = sel.getObject();
+    if (!obj) {
+        fitSelection();
+        return;
+    }
+
+    auto* geoFeature = dynamic_cast<App::GeoFeature*>(obj);
+    if (geoFeature) {
+        Base::Placement plc = geoFeature->Placement.getValue();
+        Base::Rotation rot = plc.getRotation();
+        Base::Vector3d zAxis(0, 0, 1);
+        rot.multVec(zAxis, zAxis);
+
+        CameraParams cam = getCamera();
+        Base::Vector3d center = plc.getPosition();
+        double dist = (cam.position - cam.target).Length();
+
+        cam.target   = center;
+        cam.position = center + zAxis * dist;
+        cam.upVector = Base::Vector3d(0, 0, 1);
+
+        // Adjust up vector if parallel to view direction
+        Base::Vector3d viewDir = cam.target - cam.position;
+        viewDir.Normalize();
+        if (std::abs(viewDir.Dot(cam.upVector)) > 0.99) {
+            cam.upVector = Base::Vector3d(0, 1, 0);
+        }
+
+        setCamera(cam);
+    } else {
+        fitSelection();
     }
 }

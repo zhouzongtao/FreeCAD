@@ -104,6 +104,9 @@
 #include "UiLoader.h"
 #include "View3DPy.h"
 #include "View3DViewerPy.h"
+#ifdef RENDER_HAS_OSGVERSE_BACKEND
+#include "View3DOsgVersePy.h"
+#endif
 #include "View3DBase.h"
 #include "View3DInventor.h"
 #ifdef RENDER_HAS_OSGVERSE_BACKEND
@@ -762,6 +765,9 @@ Application::Application(bool GUIenabled)
     MDIViewPy                   ::init_type();
     View3DInventorPy            ::init_type();
     View3DInventorViewerPy      ::init_type();
+#ifdef RENDER_HAS_OSGVERSE_BACKEND
+    View3DOsgVersePy            ::init_type();
+#endif
     AbstractSplitViewPy         ::init_type();
     // clang-format on
 

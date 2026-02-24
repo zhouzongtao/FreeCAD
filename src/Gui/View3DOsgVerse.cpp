@@ -28,20 +28,40 @@
 #ifndef _PreComp_
 # include <QVBoxLayout>
 # include <QOpenGLWidget>
+# include <QPrinter>
+# include <QPrintDialog>
+# include <QPrintPreviewDialog>
+# include <QPainter>
+# include <QMessageBox>
+# include <QStackedWidget>
+# include <QApplication>
+# include <QContextMenuEvent>
+# include <QMimeData>
+# include <QMdiSubWindow>
+# include <QWindow>
 #endif
 
 #include "View3DOsgVerse.h"
+#include "View3DOsgVersePy.h"
 #include "View3D/ViewerFactory.h"
 #include "Core/RenderManager.h"
 #include "Document.h"
 #include "Application.h"
 #include "MainWindow.h"
 #include "BitmapFactory.h"
+#include "FileDialog.h"
+#include "WaitCursor.h"
 #include <Base/Console.h>
 #include <Base/Interpreter.h>
 #include <App/Document.h>
+#include <App/Application.h>
+#include <App/GeoFeature.h>
 #include <osg/Quat>
 #include <osg/Matrix>
+#include "Render/Backends/OsgVerse/OsgVerseViewer.h"
+#include "Render/Core/RenderViewer.h"
+#include "Selection/Selection.h"
+#include "Navigation/NavigationStyle.h"
 #include <cmath>
 #include <sstream>
 
@@ -111,14 +131,28 @@ View3DOsgVerse::View3DOsgVerse(Gui::Document* pcDocument,
             throw std::runtime_error("Viewer did not provide a widget");
         }
         
-        // Set as central widget (like View3DInventor does)
-        setCentralWidget(viewerWidget);
+        // Wrap viewer widget in a stacked widget for overlay support
+        _stack = new QStackedWidget(this);
+        _stack->addWidget(viewerWidget);
+        setCentralWidget(_stack);
         
         // Set window properties
         setWindowIcon(Gui::BitmapFactory().pixmap("Document"));
         setFocusPolicy(Qt::StrongFocus);
         setMouseTracking(true);
         setAcceptDrops(true);
+
+        // Apply user preferences
+        applySettings();
+
+        // Attach to parameter groups for dynamic settings changes
+        _hViewGrp = App::GetApplication().GetParameterGroupByPath(
+            "User parameter:BaseApp/Preferences/View");
+        _hViewGrp->Attach(this);
+
+        _hNaviCubeGrp = App::GetApplication().GetParameterGroupByPath(
+            "User parameter:BaseApp/Preferences/NaviCube");
+        _hNaviCubeGrp->Attach(this);
     }
     catch (const std::exception& e) {
         Base::Console().error("View3DOsgVerse: Failed to create viewer: %s\n", e.what());
@@ -128,6 +162,12 @@ View3DOsgVerse::View3DOsgVerse(Gui::Document* pcDocument,
 
 View3DOsgVerse::~View3DOsgVerse()
 {
+    if (_hViewGrp) {
+        _hViewGrp->Detach(this);
+    }
+    if (_hNaviCubeGrp) {
+        _hNaviCubeGrp->Detach(this);
+    }
     _viewer.reset();
 }
 
@@ -471,6 +511,76 @@ bool View3DOsgVerse::onMsg(const char* pMsg, const char** ppReturn)
         getGuiDocument()->saveCopy();
         return true;
     }
+    else if (strcmp(pMsg, "Print") == 0) {
+        print();
+        return true;
+    }
+    else if (strcmp(pMsg, "PrintPreview") == 0) {
+        printPreview();
+        return true;
+    }
+    else if (strcmp(pMsg, "PrintPdf") == 0) {
+        printPdf();
+        return true;
+    }
+    else if (strcmp(pMsg, "AlignToSelection") == 0) {
+        // Align camera to look at the selected object's face normal
+        // Try to get selected object's placement and compute a view direction
+        if (auto* guiDoc = getGuiDocument()) {
+            auto sel = Gui::Selection().getSelection(guiDoc->getDocument()->getName());
+            if (!sel.empty()) {
+                auto* obj = sel.front().pObject;
+                if (obj) {
+                    auto* geoFeature = dynamic_cast<App::GeoFeature*>(obj);
+                    if (geoFeature) {
+                        Base::Placement plc = geoFeature->Placement.getValue();
+                        Base::Rotation rot = plc.getRotation();
+                        // Get the Z axis of the placement (face normal approximation)
+                        Base::Vector3d zAxis(0, 0, 1);
+                        rot.multVec(zAxis, zAxis);
+
+                        // Set camera to look along the negative Z axis of the placement
+                        auto cam = _viewer->getCamera();
+                        Base::Vector3d center(plc.getPosition().x,
+                                              plc.getPosition().y,
+                                              plc.getPosition().z);
+                        double dist = (Base::Vector3d(cam.position.x, cam.position.y, cam.position.z) -
+                                       Base::Vector3d(cam.target.x, cam.target.y, cam.target.z)).Length();
+                        if (dist < 0.1) dist = 10.0;
+
+                        Base::Vector3d eye = center + zAxis * dist;
+                        // Compute a reasonable up vector perpendicular to zAxis
+                        Base::Vector3d up(0, 0, 1);
+                        if (std::abs(zAxis.Dot(up)) > 0.9) {
+                            up = Base::Vector3d(0, 1, 0);
+                        }
+                        Base::Vector3d right = zAxis.Cross(up);
+                        right.Normalize();
+                        up = right.Cross(zAxis);
+                        up.Normalize();
+
+                        cam.position = eye;
+                        cam.target = center;
+                        cam.upVector = up;
+                        _viewer->setCamera(cam);
+                        _viewer->fitSelection();
+                        return true;
+                    }
+                }
+            }
+        }
+        // Fallback: just fit selection
+        _viewer->fitSelection();
+        return true;
+    }
+    else if (strcmp(pMsg, "SetStereoRedGreen") == 0 ||
+             strcmp(pMsg, "SetStereoQuadBuff") == 0 ||
+             strcmp(pMsg, "SetStereoInterleavedRows") == 0 ||
+             strcmp(pMsg, "SetStereoInterleavedColumns") == 0 ||
+             strcmp(pMsg, "SetStereoOff") == 0) {
+        Base::Console().log("View3DOsgVerse: Stereo mode '%s' not yet implemented\n", pMsg);
+        return true;
+    }
 
     return false;
 }
@@ -516,26 +626,93 @@ bool View3DOsgVerse::onHasMsg(const char* pMsg) const
         App::Document* doc = getAppDocument();
         return doc && doc->getAvailableRedos() > 0;
     }
-    
+    if (strcmp(pMsg, "Print") == 0 ||
+        strcmp(pMsg, "PrintPreview") == 0 ||
+        strcmp(pMsg, "PrintPdf") == 0) {
+        return true;
+    }
+    if (strcmp(pMsg, "CanPan") == 0) {
+        return true;
+    }
+    if (strcmp(pMsg, "AllowsOverlayOnHover") == 0) {
+        return true;
+    }
+    if (strcmp(pMsg, "AlignToSelection") == 0) {
+        return true;
+    }
+    if (strcmp(pMsg, "SetStereoRedGreen") == 0 ||
+        strcmp(pMsg, "SetStereoQuadBuff") == 0 ||
+        strcmp(pMsg, "SetStereoInterleavedRows") == 0 ||
+        strcmp(pMsg, "SetStereoInterleavedColumns") == 0 ||
+        strcmp(pMsg, "SetStereoOff") == 0) {
+        return true;
+    }
+
     return false;
 }
 
 void View3DOsgVerse::print()
 {
-    // TODO: Implement printing
-    Base::Console().warning("View3DOsgVerse::print() not yet implemented\n");
+    QPrinter printer(QPrinter::ScreenResolution);
+    printer.setFullPage(true);
+    restorePrinterSettings(&printer);
+
+    QPrintDialog dlg(&printer, this);
+    if (dlg.exec() == QDialog::Accepted) {
+        Gui::WaitCursor wc;
+        print(&printer);
+        savePrinterSettings(&printer);
+    }
 }
 
 void View3DOsgVerse::printPdf()
 {
-    // TODO: Implement PDF printing
-    Base::Console().warning("View3DOsgVerse::printPdf() not yet implemented\n");
+    QString filename = FileDialog::getSaveFileName(
+        this,
+        tr("Export PDF"),
+        QString(),
+        QStringLiteral("%1 (*.pdf)").arg(tr("PDF file"))
+    );
+    if (!filename.isEmpty()) {
+        Gui::WaitCursor wc;
+        QPrinter printer(QPrinter::ScreenResolution);
+        printer.setOutputFormat(QPrinter::PdfFormat);
+        printer.setPageOrientation(QPageLayout::Landscape);
+        printer.setOutputFileName(filename);
+        printer.setCreator(QString::fromStdString(App::Application::getNameWithVersion()));
+        print(&printer);
+    }
 }
 
 void View3DOsgVerse::printPreview()
 {
-    // TODO: Implement print preview
-    Base::Console().warning("View3DOsgVerse::printPreview() not yet implemented\n");
+    QPrinter printer(QPrinter::ScreenResolution);
+    printer.setFullPage(true);
+    restorePrinterSettings(&printer);
+
+    QPrintPreviewDialog dlg(&printer, this);
+    connect(&dlg, &QPrintPreviewDialog::paintRequested,
+            this, qOverload<QPrinter*>(&View3DOsgVerse::print));
+    dlg.exec();
+    savePrinterSettings(&printer);
+}
+
+void View3DOsgVerse::print(QPrinter* printer)
+{
+    QPainter p(printer);
+    p.setRenderHints(QPainter::Antialiasing);
+    if (!p.isActive() && !printer->outputFileName().isEmpty()) {
+        qApp->setOverrideCursor(Qt::ArrowCursor);
+        QMessageBox::critical(this, tr("Opening file failed"),
+            tr("Can't open file '%1' for writing.").arg(printer->outputFileName()));
+        qApp->restoreOverrideCursor();
+        return;
+    }
+
+    QRect rect = printer->pageLayout().paintRectPixels(printer->resolution());
+    QImage img = _viewer->grabImage(rect.width(), rect.height());
+    p.drawImage(0, 0, img);
+    p.end();
 }
 
 //===========================================================================
@@ -588,9 +765,79 @@ void View3DOsgVerse::dump()
 void View3DOsgVerse::resizeEvent(QResizeEvent* event)
 {
     View3DBase::resizeEvent(event);
-    
+
     if (_viewer) {
         _viewer->resize(event->size().width(), event->size().height());
+    }
+}
+
+bool View3DOsgVerse::containsViewProvider(const ViewProvider* vp) const
+{
+    if (!_viewer) return false;
+    auto* osgViewer = dynamic_cast<Gui::Render::OsgVerseViewer*>(
+        static_cast<Gui::Render::RenderViewer*>(_viewer.get()));
+    if (!osgViewer) return false;
+    return osgViewer->hasViewProvider(const_cast<ViewProvider*>(vp));
+}
+
+void View3DOsgVerse::onRename(Gui::Document* pDoc)
+{
+    if (pDoc && pDoc->getDocument()) {
+        setWindowTitle(QString::fromUtf8(pDoc->getDocument()->Label.getValue()));
+    }
+}
+
+void View3DOsgVerse::stopAnimating()
+{
+    if (!_viewer) return;
+    auto* osgViewer = dynamic_cast<Gui::Render::OsgVerseViewer*>(
+        static_cast<Gui::Render::RenderViewer*>(_viewer.get()));
+    if (osgViewer) {
+        osgViewer->stopAnimation();
+    }
+}
+
+void View3DOsgVerse::contextMenuEvent(QContextMenuEvent* e)
+{
+    MDIView::contextMenuEvent(e);
+}
+
+void View3DOsgVerse::keyPressEvent(QKeyEvent* e)
+{
+    QMainWindow::keyPressEvent(e);
+}
+
+void View3DOsgVerse::keyReleaseEvent(QKeyEvent* e)
+{
+    QMainWindow::keyReleaseEvent(e);
+}
+
+void View3DOsgVerse::focusInEvent(QFocusEvent*)
+{
+    if (_viewer && _viewer->getWidget()) {
+        _viewer->getWidget()->setFocus();
+    }
+}
+
+void View3DOsgVerse::dropEvent(QDropEvent* e)
+{
+    const QMimeData* data = e->mimeData();
+    if (data->hasUrls()) {
+        getMainWindow()->loadUrls(getAppDocument(), data->urls());
+    }
+    else {
+        MDIView::dropEvent(e);
+    }
+}
+
+void View3DOsgVerse::dragEnterEvent(QDragEnterEvent* e)
+{
+    const QMimeData* data = e->mimeData();
+    if (data->hasUrls()) {
+        e->accept();
+    }
+    else {
+        e->ignore();
     }
 }
 
@@ -601,10 +848,307 @@ void View3DOsgVerse::resizeEvent(QResizeEvent* event)
 
 PyObject* View3DOsgVerse::getPyObject()
 {
-    // Use base class implementation which creates MDIViewPy
-    // This provides basic view functionality through Python
-    // TODO: Create View3DOsgVersePy for full API support
-    return View3DBase::getPyObject();
+    if (!_viewerPy) {
+        _viewerPy = new View3DOsgVersePy(this);
+    }
+
+    Py_INCREF(_viewerPy);
+    return _viewerPy;
+}
+
+void View3DOsgVerse::toggleClippingPlane()
+{
+    if (!_viewer) return;
+
+    auto* osgViewer = dynamic_cast<Gui::Render::OsgVerseViewer*>(
+        static_cast<Gui::Render::RenderViewer*>(_viewer.get()));
+    if (!osgViewer) return;
+
+    if (_clippingPlaneActive) {
+        osgViewer->removeClipPlane(0);
+        _clippingPlaneActive = false;
+    } else {
+        auto cam = _viewer->getCamera();
+        Base::Vector3d dir = cam.target - cam.position;
+        dir.Normalize();
+        double d = -(dir.x * cam.target.x + dir.y * cam.target.y + dir.z * cam.target.z);
+        osgViewer->setClipPlane(0, dir.x, dir.y, dir.z, d);
+        _clippingPlaneActive = true;
+    }
+}
+
+bool View3DOsgVerse::hasClippingPlane() const
+{
+    return _clippingPlaneActive;
+}
+
+void View3DOsgVerse::applySettings()
+{
+    if (!_viewer) return;
+
+    auto hGrp = App::GetApplication().GetParameterGroupByPath(
+        "User parameter:BaseApp/Preferences/View");
+
+    auto* osgViewer = dynamic_cast<Gui::Render::OsgVerseViewer*>(
+        static_cast<Gui::Render::RenderViewer*>(_viewer.get()));
+
+    // Background color
+    bool useGradient = hGrp->GetBool("Gradient", true);
+    if (useGradient) {
+        unsigned long col1 = hGrp->GetUnsigned("BackgroundColor", 0x1a1a2cff);
+        unsigned long col2 = hGrp->GetUnsigned("BackgroundColor2", 0x46465aff);
+
+        float r1 = ((col1 >> 24) & 0xff) / 255.0f;
+        float g1 = ((col1 >> 16) & 0xff) / 255.0f;
+        float b1 = ((col1 >> 8) & 0xff) / 255.0f;
+        float r2 = ((col2 >> 24) & 0xff) / 255.0f;
+        float g2 = ((col2 >> 16) & 0xff) / 255.0f;
+        float b2 = ((col2 >> 8) & 0xff) / 255.0f;
+
+        if (osgViewer) {
+            osgViewer->setGradientBackground(r2, g2, b2, r1, g1, b1);
+        }
+    } else {
+        unsigned long col = hGrp->GetUnsigned("BackgroundColor", 0x1a1a2cff);
+        float r = ((col >> 24) & 0xff) / 255.0f;
+        float g = ((col >> 16) & 0xff) / 255.0f;
+        float b = ((col >> 8) & 0xff) / 255.0f;
+        _viewer->setBackgroundColor(Base::Color(r, g, b));
+    }
+
+    // Camera type (orthographic/perspective)
+    bool ortho = hGrp->GetBool("Orthographic", false);
+    _viewer->setCameraType(ortho);
+
+    // Navigation style
+    std::string navStyle = hGrp->GetASCII("NavigationStyle", "Gui::CADNavigationStyle");
+
+    if (osgViewer) {
+        if (navStyle.find("CAD") != std::string::npos) {
+            osgViewer->setNavigationStyle("CAD");
+        } else if (navStyle.find("Blender") != std::string::npos) {
+            osgViewer->setNavigationStyle("Blender");
+        } else if (navStyle.find("Inventor") != std::string::npos) {
+            osgViewer->setNavigationStyle("Inventor");
+        } else {
+            osgViewer->setNavigationStyle("CAD");
+        }
+
+        // Axis cross
+        bool showAxisCross = hGrp->GetBool("ShowAxisCross", true);
+        osgViewer->setAxisCrossEnabled(showAxisCross);
+
+        // Animation settings
+        bool useNavAnim = hGrp->GetBool("UseNavigationAnimations", true);
+        osgViewer->setAnimationEnabled(useNavAnim);
+
+        bool useSpinAnim = hGrp->GetBool("UseSpinningAnimations", true);
+        osgViewer->setSpinAnimationEnabled(useSpinAnim);
+
+        // Headlight settings
+        // (OsgVerse uses its own lighting; store values for future use)
+        // hGrp->GetUnsigned("HeadlightColor", 0xFFFFFFFF);
+        // hGrp->GetASCII("HeadlightDirection", "(0.6841049,-0.12062616,-0.7193398)");
+        // hGrp->GetInt("HeadlightIntensity", 90);
+
+        // Selection/preselection
+        osgViewer->setSelectionEnabled(hGrp->GetBool("EnableSelection", true));
+
+        // Zoom settings (stored for navigation style use)
+        bool invertZoom = hGrp->GetBool("InvertZoom", false);
+        (void)invertZoom; // TODO: pass to navigation style when available
+
+        // Show FPS
+        osgViewer->setStatsEnabled(hGrp->GetBool("ShowFPS", false));
+
+        // Pick radius
+        osgViewer->setPickRadius(static_cast<float>(hGrp->GetInt("PickRadius", 5)));
+    }
+
+    // NaviCube settings
+    auto hNaviCube = App::GetApplication().GetParameterGroupByPath(
+        "User parameter:BaseApp/Preferences/NaviCube");
+    // CornerNaviCube, CubeSize, FontString — stored for NaviCube use
+    // These are read by OsgVerseNaviCube directly when needed
+}
+
+void View3DOsgVerse::OnChange(ParameterGrp::SubjectType& rCaller, ParameterGrp::MessageType Reason)
+{
+    if (!_viewer) return;
+
+    auto* osgViewer = dynamic_cast<Gui::Render::OsgVerseViewer*>(
+        static_cast<Gui::Render::RenderViewer*>(_viewer.get()));
+
+    if (strcmp(Reason, "Gradient") == 0 ||
+        strcmp(Reason, "BackgroundColor") == 0 ||
+        strcmp(Reason, "BackgroundColor2") == 0) {
+        // Re-apply background settings
+        auto hGrp = App::GetApplication().GetParameterGroupByPath(
+            "User parameter:BaseApp/Preferences/View");
+        bool useGradient = hGrp->GetBool("Gradient", true);
+        if (useGradient) {
+            unsigned long col1 = hGrp->GetUnsigned("BackgroundColor", 0x1a1a2cff);
+            unsigned long col2 = hGrp->GetUnsigned("BackgroundColor2", 0x46465aff);
+            float r1 = ((col1 >> 24) & 0xff) / 255.0f;
+            float g1 = ((col1 >> 16) & 0xff) / 255.0f;
+            float b1 = ((col1 >> 8) & 0xff) / 255.0f;
+            float r2 = ((col2 >> 24) & 0xff) / 255.0f;
+            float g2 = ((col2 >> 16) & 0xff) / 255.0f;
+            float b2 = ((col2 >> 8) & 0xff) / 255.0f;
+            if (osgViewer) {
+                osgViewer->setGradientBackground(r2, g2, b2, r1, g1, b1);
+            }
+        } else {
+            unsigned long col = static_cast<ParameterGrp&>(rCaller).GetUnsigned("BackgroundColor", 0x1a1a2cff);
+            float r = ((col >> 24) & 0xff) / 255.0f;
+            float g = ((col >> 16) & 0xff) / 255.0f;
+            float b = ((col >> 8) & 0xff) / 255.0f;
+            _viewer->setBackgroundColor(Base::Color(r, g, b));
+        }
+    }
+    else if (strcmp(Reason, "Orthographic") == 0) {
+        bool ortho = static_cast<ParameterGrp&>(rCaller).GetBool("Orthographic", false);
+        _viewer->setCameraType(ortho);
+    }
+    else if (strcmp(Reason, "NavigationStyle") == 0) {
+        std::string navStyle = static_cast<ParameterGrp&>(rCaller).GetASCII("NavigationStyle", "Gui::CADNavigationStyle");
+        if (osgViewer) {
+            if (navStyle.find("CAD") != std::string::npos) {
+                osgViewer->setNavigationStyle("CAD");
+            } else if (navStyle.find("Blender") != std::string::npos) {
+                osgViewer->setNavigationStyle("Blender");
+            } else if (navStyle.find("Inventor") != std::string::npos) {
+                osgViewer->setNavigationStyle("Inventor");
+            } else {
+                osgViewer->setNavigationStyle("CAD");
+            }
+        }
+    }
+    else if (strcmp(Reason, "ShowAxisCross") == 0) {
+        if (osgViewer) {
+            osgViewer->setAxisCrossEnabled(static_cast<ParameterGrp&>(rCaller).GetBool("ShowAxisCross", true));
+        }
+    }
+    else if (strcmp(Reason, "UseNavigationAnimations") == 0) {
+        if (osgViewer) {
+            osgViewer->setAnimationEnabled(static_cast<ParameterGrp&>(rCaller).GetBool("UseNavigationAnimations", true));
+        }
+    }
+    else if (strcmp(Reason, "UseSpinningAnimations") == 0) {
+        if (osgViewer) {
+            osgViewer->setSpinAnimationEnabled(static_cast<ParameterGrp&>(rCaller).GetBool("UseSpinningAnimations", true));
+        }
+    }
+    else if (strcmp(Reason, "ShowFPS") == 0) {
+        if (osgViewer) {
+            osgViewer->setStatsEnabled(static_cast<ParameterGrp&>(rCaller).GetBool("ShowFPS", false));
+        }
+    }
+    else if (strcmp(Reason, "EnableSelection") == 0) {
+        if (osgViewer) {
+            osgViewer->setSelectionEnabled(static_cast<ParameterGrp&>(rCaller).GetBool("EnableSelection", true));
+        }
+    }
+    else if (strcmp(Reason, "PickRadius") == 0) {
+        if (osgViewer) {
+            osgViewer->setPickRadius(static_cast<float>(static_cast<ParameterGrp&>(rCaller).GetInt("PickRadius", 5)));
+        }
+    }
+}
+
+void View3DOsgVerse::setCurrentViewMode(ViewMode mode)
+{
+    ViewMode oldmode = currentViewMode();
+    if (mode == oldmode) {
+        return;
+    }
+
+    if (mode == Child) {
+        // When resetting to child widget, destroy the QWindow to avoid layout issues
+        QWindow* winHandle = this->windowHandle();
+        if (winHandle) {
+            winHandle->destroy();
+        }
+    }
+
+    MDIView::setCurrentViewMode(mode);
+
+    // Set focus proxy when leaving/entering Child mode
+    if (_viewer && _viewer->getWidget()) {
+        if (oldmode == Child) {
+            _viewer->getWidget()->setFocusProxy(this);
+        }
+        else if (mode == Child) {
+            _viewer->getWidget()->setFocusProxy(nullptr);
+
+            auto mdi = qobject_cast<QMdiSubWindow*>(parentWidget());
+            if (mdi && mdi->layout()) {
+                mdi->layout()->invalidate();
+            }
+        }
+    }
+}
+
+void View3DOsgVerse::customEvent(QEvent* e)
+{
+    if (e->type() == QEvent::User) {
+        auto se = static_cast<NavigationStyleEvent*>(e);
+        ParameterGrp::handle hGrp = App::GetApplication().GetParameterGroupByPath(
+            "User parameter:BaseApp/Preferences/View"
+        );
+        if (hGrp->GetBool("SameStyleForAllViews", true)) {
+            hGrp->SetASCII("NavigationStyle", se->style().getName());
+        }
+        else {
+            // Apply navigation style change to this view only
+            auto* osgViewer = dynamic_cast<Gui::Render::OsgVerseViewer*>(
+                static_cast<Gui::Render::RenderViewer*>(_viewer.get()));
+            if (osgViewer) {
+                std::string styleName = se->style().getName();
+                if (styleName.find("CAD") != std::string::npos) {
+                    osgViewer->setNavigationStyle("CAD");
+                } else if (styleName.find("Blender") != std::string::npos) {
+                    osgViewer->setNavigationStyle("Blender");
+                } else if (styleName.find("Inventor") != std::string::npos) {
+                    osgViewer->setNavigationStyle("Inventor");
+                }
+            }
+        }
+    }
+}
+
+//===========================================================================
+// Overlay widget and cursor management
+//===========================================================================
+
+void View3DOsgVerse::setOverlayWidget(QWidget* widget)
+{
+    removeOverlayWidget();
+    _stack->addWidget(widget);
+    _stack->setCurrentIndex(1);
+}
+
+void View3DOsgVerse::removeOverlayWidget()
+{
+    _stack->setCurrentIndex(0);
+    QWidget* overlay = _stack->widget(1);
+    if (overlay) {
+        _stack->removeWidget(overlay);
+    }
+}
+
+void View3DOsgVerse::setOverrideCursor(const QCursor& aCursor)
+{
+    if (_viewer) {
+        _viewer->getWidget()->setCursor(aCursor);
+    }
+}
+
+void View3DOsgVerse::restoreOverrideCursor()
+{
+    if (_viewer) {
+        _viewer->getWidget()->setCursor(QCursor(Qt::ArrowCursor));
+    }
 }
 
 #endif // RENDER_HAS_OSGVERSE_BACKEND

@@ -23,16 +23,23 @@
 #ifndef GUI_VIEW3D_IVIEWER3D_H
 #define GUI_VIEW3D_IVIEWER3D_H
 
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
 
+#include <QColor>
+#include <QCursor>
+#include <QImage>
+#include <QPoint>
 #include <QWidget>
 #include <QMouseEvent>
 #include <QKeyEvent>
 #include <QWheelEvent>
 
 #include <FCGlobal.h>
+#include <Base/Placement.h>
+#include <Base/Vector2D.h>
 #include <Base/Vector3D.h>
 #include <Base/Matrix.h>
 #include <Gui/Render/Core/RenderTypes.h>
@@ -621,6 +628,147 @@ public:
      * @brief 获取当前渲染模式覆盖
      */
     virtual std::string getOverrideMode() const = 0;
+
+    //-----------------------------------------------------------------------
+    // 坐标投影系统 / Coordinate Projection
+    //-----------------------------------------------------------------------
+
+    /** Get view direction (normalized) */
+    virtual Base::Vector3d getViewDirection() const { return Base::Vector3d(0, 0, -1); }
+
+    /** Get up direction */
+    virtual Base::Vector3d getUpDirection() const { return Base::Vector3d(0, 1, 0); }
+
+    /** Project 3D world point to 2D screen coordinates */
+    virtual QPoint getPointOnViewport(const Base::Vector3d& pt) const { return QPoint(0, 0); }
+
+    /** Get 3D point on a line closest to the screen point */
+    virtual Base::Vector3d getPointOnLine(const QPoint& screenPos, const Base::Vector3d& axisCenter, const Base::Vector3d& axis) const { return Base::Vector3d(); }
+
+    /** Get 3D point on the XY plane of a placement */
+    virtual Base::Vector3d getPointOnXYPlaneOfPlacement(const QPoint& screenPos, const Base::Placement& plc) const { return Base::Vector3d(); }
+
+    /** Project screen 2D point to a 3D ray (two points on near/far planes) */
+    virtual void projectPointToLine(const QPoint& screenPos, Base::Vector3d& pt1, Base::Vector3d& pt2) const { pt1 = pt2 = Base::Vector3d(); }
+
+    /** Get normalized screen position [0..1] */
+    virtual Base::Vector2d getNormalizedPosition(const QPoint& screenPos) const { return Base::Vector2d(0.5, 0.5); }
+
+    /** Project normalized 2D point onto near plane */
+    virtual Base::Vector3d projectOnNearPlane(const Base::Vector2d& pt) const { return Base::Vector3d(); }
+
+    /** Project normalized 2D point onto far plane */
+    virtual Base::Vector3d projectOnFarPlane(const Base::Vector2d& pt) const { return Base::Vector3d(); }
+
+    /** Get center point on focal plane */
+    virtual Base::Vector3d getCenterPointOnFocalPlane() const { return Base::Vector3d(); }
+
+    /** Get near plane (point + normal) */
+    virtual void getNearPlane(Base::Vector3d& pt, Base::Vector3d& normal) const { pt = normal = Base::Vector3d(); }
+
+    /** Get far plane (point + normal) */
+    virtual void getFarPlane(Base::Vector3d& pt, Base::Vector3d& normal) const { pt = normal = Base::Vector3d(); }
+
+    /** Get viewport dimensions in world units */
+    virtual void getDimensions(float& height, float& width) const { height = width = 0; }
+
+    /** Get max viewport dimension */
+    virtual float getMaxDimension() const { return 0; }
+
+    //-----------------------------------------------------------------------
+    // 事件回调系统 / Event Callback System
+    //-----------------------------------------------------------------------
+
+    /** Event types for callback registration */
+    enum class EventType {
+        MouseButtonPress,
+        MouseButtonRelease,
+        MouseMove,
+        KeyPress,
+        KeyRelease,
+        Wheel,
+        Any
+    };
+
+    /** Event callback function signature: (eventType, event, userData) -> handled */
+    using EventCallbackFunc = std::function<bool(EventType, void*, void*)>;
+
+    /** Add an event callback */
+    virtual void addEventCallback(EventType type, EventCallbackFunc cb, void* userData = nullptr) { (void)type; (void)cb; (void)userData; }
+
+    /** Remove an event callback */
+    virtual void removeEventCallback(EventType type, EventCallbackFunc cb, void* userData = nullptr) { (void)type; (void)cb; (void)userData; }
+
+    //-----------------------------------------------------------------------
+    // 图形覆盖层 / Graphics Overlay
+    //-----------------------------------------------------------------------
+
+    /** Add a 2D graphics overlay item (backend-specific) */
+    virtual void addGraphicsItem(void* item) { (void)item; }
+
+    /** Remove a 2D graphics overlay item */
+    virtual void removeGraphicsItem(void* item) { (void)item; }
+
+    /** Clear all graphics overlay items */
+    virtual void clearGraphicsItems() {}
+
+    //-----------------------------------------------------------------------
+    // 编辑模式扩展 / Editing Mode Extensions
+    //-----------------------------------------------------------------------
+
+    /** Set editing flag */
+    virtual void setEditing(bool edit) { (void)edit; }
+
+    /** Check if in editing mode */
+    virtual bool isEditing() const { return isEditingViewProvider(); }
+
+    /** Set cursor for editing mode */
+    virtual void setEditingCursor(const QCursor& cursor) { (void)cursor; }
+
+    /** Set cursor for component selection */
+    virtual void setComponentCursor(const QCursor& cursor) { (void)cursor; }
+
+    /** Redirect events to scene graph (for editing mode) */
+    virtual void setRedirectToSceneGraph(bool redirect) { (void)redirect; }
+
+    /** Check if events are redirected to scene graph */
+    virtual bool isRedirectedToSceneGraph() const { return false; }
+
+    //-----------------------------------------------------------------------
+    // 选择扩展 / Selection Extensions
+    //-----------------------------------------------------------------------
+
+    /** Enable/disable selection */
+    virtual void setSelectionEnabled(bool enable) { (void)enable; }
+
+    /** Check if selection is enabled */
+    virtual bool isSelectionEnabled() const { return true; }
+
+    /** Perform box zoom */
+    virtual void boxZoom(int x1, int y1, int x2, int y2) { (void)x1; (void)y1; (void)x2; (void)y2; }
+
+    //-----------------------------------------------------------------------
+    // 渲染扩展 / Rendering Extensions
+    //-----------------------------------------------------------------------
+
+    /** Save picture with multi-sampling */
+    virtual void savePicture(int width, int height, int samples, const QColor& bg, QImage& img) const {
+        (void)samples; (void)bg;
+        img = const_cast<IViewer3D*>(this)->grabImage(width, height);
+    }
+
+    /** Align camera to selected face normal */
+    virtual void alignToSelection() { fitSelection(); }
+
+    //-----------------------------------------------------------------------
+    // UI 控制 / UI Control
+    //-----------------------------------------------------------------------
+
+    /** Enable/disable popup menu */
+    virtual void setPopupMenuEnabled(bool on) { (void)on; }
+
+    /** Check if popup menu is enabled */
+    virtual bool isPopupMenuEnabled() const { return true; }
 };
 
 } // namespace View3D
