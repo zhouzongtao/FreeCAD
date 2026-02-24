@@ -124,6 +124,11 @@ View3DOsgVerse::View3DOsgVerse(Gui::Document* pcDocument,
         if (!_viewer) {
             throw std::runtime_error("ViewerFactory returned null viewer");
         }
+
+        // ViewerFactory creates OsgVerseViewer (a RenderViewer subclass) stored as IViewer3D.
+        // Keep a typed pointer for backend-specific operations not in IViewer3D.
+        _osgViewer = static_cast<Gui::Render::OsgVerseViewer*>(
+            static_cast<void*>(_viewer.get()));
         
         // Get the widget from viewer
         QWidget* viewerWidget = _viewer->getWidget();
@@ -774,8 +779,7 @@ void View3DOsgVerse::resizeEvent(QResizeEvent* event)
 bool View3DOsgVerse::containsViewProvider(const ViewProvider* vp) const
 {
     if (!_viewer) return false;
-    auto* osgViewer = dynamic_cast<Gui::Render::OsgVerseViewer*>(
-        static_cast<Gui::Render::RenderViewer*>(_viewer.get()));
+    auto* osgViewer = _osgViewer;
     if (!osgViewer) return false;
     return osgViewer->hasViewProvider(const_cast<ViewProvider*>(vp));
 }
@@ -790,8 +794,7 @@ void View3DOsgVerse::onRename(Gui::Document* pDoc)
 void View3DOsgVerse::stopAnimating()
 {
     if (!_viewer) return;
-    auto* osgViewer = dynamic_cast<Gui::Render::OsgVerseViewer*>(
-        static_cast<Gui::Render::RenderViewer*>(_viewer.get()));
+    auto* osgViewer = _osgViewer;
     if (osgViewer) {
         osgViewer->stopAnimation();
     }
@@ -860,8 +863,7 @@ void View3DOsgVerse::toggleClippingPlane()
 {
     if (!_viewer) return;
 
-    auto* osgViewer = dynamic_cast<Gui::Render::OsgVerseViewer*>(
-        static_cast<Gui::Render::RenderViewer*>(_viewer.get()));
+    auto* osgViewer = _osgViewer;
     if (!osgViewer) return;
 
     if (_clippingPlaneActive) {
@@ -889,8 +891,7 @@ void View3DOsgVerse::applySettings()
     auto hGrp = App::GetApplication().GetParameterGroupByPath(
         "User parameter:BaseApp/Preferences/View");
 
-    auto* osgViewer = dynamic_cast<Gui::Render::OsgVerseViewer*>(
-        static_cast<Gui::Render::RenderViewer*>(_viewer.get()));
+    auto* osgViewer = _osgViewer;
 
     // Background color
     bool useGradient = hGrp->GetBool("Gradient", true);
@@ -976,8 +977,7 @@ void View3DOsgVerse::OnChange(ParameterGrp::SubjectType& rCaller, ParameterGrp::
 {
     if (!_viewer) return;
 
-    auto* osgViewer = dynamic_cast<Gui::Render::OsgVerseViewer*>(
-        static_cast<Gui::Render::RenderViewer*>(_viewer.get()));
+    auto* osgViewer = _osgViewer;
 
     if (strcmp(Reason, "Gradient") == 0 ||
         strcmp(Reason, "BackgroundColor") == 0 ||
@@ -1101,8 +1101,7 @@ void View3DOsgVerse::customEvent(QEvent* e)
         }
         else {
             // Apply navigation style change to this view only
-            auto* osgViewer = dynamic_cast<Gui::Render::OsgVerseViewer*>(
-                static_cast<Gui::Render::RenderViewer*>(_viewer.get()));
+            auto* osgViewer = _osgViewer;
             if (osgViewer) {
                 std::string styleName = se->style().getName();
                 if (styleName.find("CAD") != std::string::npos) {

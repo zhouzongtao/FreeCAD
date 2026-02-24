@@ -39,7 +39,7 @@
 
 #include <FCGlobal.h>
 #include <Base/Vector3D.h>
-#include <Base/Vector2D.h>
+#include <Base/Tools2D.h>
 #include <Base/BoundBox.h>
 #include <Base/Matrix.h>
 #include <Base/Placement.h>
@@ -818,6 +818,7 @@ private:
     bool _initialized{false};                   ///< 是否已初始化 / Whether initialized
     bool _initializationFailed{false};          ///< 初始化是否失败 / Whether initialization failed
     bool _firstFrame{true};                     ///< 是否是第一帧 / Whether first frame
+    bool _pendingFitAll{true};                  ///< 延迟fitAll / Deferred fitAll on first geometry
 
     //-----------------------------------------------------------------------
     // 相机动画内部方法 / Camera Animation Internal Methods

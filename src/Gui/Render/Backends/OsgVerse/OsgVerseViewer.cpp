@@ -2676,12 +2676,15 @@ void OsgVerseViewer::scale(float factor)
     if (!_viewer) return;
 
     CameraParams cam = getCamera();
-    Base::Vector3d dir = cam.target - cam.position;
+    Base::Vector3d dir(cam.target.x - cam.position.x,
+                       cam.target.y - cam.position.y,
+                       cam.target.z - cam.position.z);
     double dist = dir.Length();
     dir.Normalize();
 
     double newDist = dist / factor;
-    cam.position = cam.target - dir * newDist;
+    Base::Vector3d newPos = Base::Vector3d(cam.target.x, cam.target.y, cam.target.z) - dir * newDist;
+    cam.position = Vec3f(static_cast<float>(newPos.x), static_cast<float>(newPos.y), static_cast<float>(newPos.z));
 
     if (cam.orthographic) {
         cam.height /= factor;
@@ -2696,12 +2699,16 @@ void OsgVerseViewer::moveCameraTo(const Base::Vector3d& target)
     if (!_viewer) return;
 
     CameraParams cam = getCamera();
-    Base::Vector3d dir = cam.target - cam.position;
+    Base::Vector3d dir(cam.target.x - cam.position.x,
+                       cam.target.y - cam.position.y,
+                       cam.target.z - cam.position.z);
     double dist = dir.Length();
     dir.Normalize();
 
-    cam.target = target;
-    cam.position = target - dir * dist;
+    Base::Vector3d newTarget = target;
+    Base::Vector3d newPos = target - dir * dist;
+    cam.target = Vec3f(static_cast<float>(newTarget.x), static_cast<float>(newTarget.y), static_cast<float>(newTarget.z));
+    cam.position = Vec3f(static_cast<float>(newPos.x), static_cast<float>(newPos.y), static_cast<float>(newPos.z));
 
     if (_animationEnabled) {
         startCameraAnimation(
@@ -3679,35 +3686,35 @@ void OsgVerseViewer::clearGraphicsItems()
 
 void OsgVerseViewer::addDimension3d(const Base::Vector3d&, const Base::Vector3d&, const Base::Vector3d&)
 {
-    Base::Console().Log("OsgVerseViewer::addDimension3d: Not yet implemented\n");
+    Base::Console().log("OsgVerseViewer::addDimension3d: Not yet implemented\n");
 }
 
 void OsgVerseViewer::addDimensionDelta(const Base::Vector3d&, const Base::Vector3d&, const Base::Vector3d&)
 {
-    Base::Console().Log("OsgVerseViewer::addDimensionDelta: Not yet implemented\n");
+    Base::Console().log("OsgVerseViewer::addDimensionDelta: Not yet implemented\n");
 }
 
 void OsgVerseViewer::turnAllDimensionsOn()
 {
     _dimensionsVisible = true;
-    Base::Console().Log("OsgVerseViewer::turnAllDimensionsOn: Not yet implemented\n");
+    Base::Console().log("OsgVerseViewer::turnAllDimensionsOn: Not yet implemented\n");
 }
 
 void OsgVerseViewer::turnAllDimensionsOff()
 {
     _dimensionsVisible = false;
-    Base::Console().Log("OsgVerseViewer::turnAllDimensionsOff: Not yet implemented\n");
+    Base::Console().log("OsgVerseViewer::turnAllDimensionsOff: Not yet implemented\n");
 }
 
 void OsgVerseViewer::eraseAllDimensions()
 {
-    Base::Console().Log("OsgVerseViewer::eraseAllDimensions: Not yet implemented\n");
+    Base::Console().log("OsgVerseViewer::eraseAllDimensions: Not yet implemented\n");
 }
 
 void OsgVerseViewer::setDimensionsVisible(bool visible)
 {
     _dimensionsVisible = visible;
-    Base::Console().Log("OsgVerseViewer::setDimensionsVisible: Not yet implemented\n");
+    Base::Console().log("OsgVerseViewer::setDimensionsVisible: Not yet implemented\n");
 }
 
 //-----------------------------------------------------------------------
@@ -3776,14 +3783,17 @@ void OsgVerseViewer::boxZoom(int x1, int y1, int x2, int y2)
     float zoomFactor = std::min(vpW / boxW, vpH / boxH);
 
     CameraParams cam = getCamera();
-    Base::Vector3d dir = cam.target - cam.position;
+    Base::Vector3d dir(cam.target.x - cam.position.x,
+                       cam.target.y - cam.position.y,
+                       cam.target.z - cam.position.z);
     double dist = dir.Length();
     dir.Normalize();
 
     double newDist = dist / zoomFactor;
 
-    cam.target   = newTarget;
-    cam.position = newTarget - dir * newDist;
+    Base::Vector3d newPos = newTarget - dir * newDist;
+    cam.target   = Vec3f(static_cast<float>(newTarget.x), static_cast<float>(newTarget.y), static_cast<float>(newTarget.z));
+    cam.position = Vec3f(static_cast<float>(newPos.x), static_cast<float>(newPos.y), static_cast<float>(newPos.z));
 
     if (cam.orthographic) {
         cam.height /= zoomFactor;
@@ -3820,17 +3830,21 @@ void OsgVerseViewer::alignToSelection()
 
         CameraParams cam = getCamera();
         Base::Vector3d center = plc.getPosition();
-        double dist = (cam.position - cam.target).Length();
+        Base::Vector3d camPos(cam.position.x, cam.position.y, cam.position.z);
+        Base::Vector3d camTgt(cam.target.x, cam.target.y, cam.target.z);
+        double dist = (camPos - camTgt).Length();
 
-        cam.target   = center;
-        cam.position = center + zAxis * dist;
-        cam.upVector = Base::Vector3d(0, 0, 1);
+        Base::Vector3d newPos = center + zAxis * dist;
+        cam.target   = Vec3f(static_cast<float>(center.x), static_cast<float>(center.y), static_cast<float>(center.z));
+        cam.position = Vec3f(static_cast<float>(newPos.x), static_cast<float>(newPos.y), static_cast<float>(newPos.z));
+        cam.upVector = Vec3f(0.0f, 0.0f, 1.0f);
 
         // Adjust up vector if parallel to view direction
-        Base::Vector3d viewDir = cam.target - cam.position;
+        Base::Vector3d viewDir = center - newPos;
         viewDir.Normalize();
-        if (std::abs(viewDir.Dot(cam.upVector)) > 0.99) {
-            cam.upVector = Base::Vector3d(0, 1, 0);
+        Base::Vector3d upDir(cam.upVector.x, cam.upVector.y, cam.upVector.z);
+        if (std::abs(viewDir.Dot(upDir)) > 0.99) {
+            cam.upVector = Vec3f(0.0f, 1.0f, 0.0f);
         }
 
         setCamera(cam);
@@ -3948,7 +3962,7 @@ Base::Vector3d OsgVerseViewer::getPointOnRay(const QPoint& screenPos,
     vpNode->accept(iv);
 
     if (intersector->containsIntersections()) {
-        auto& hit = intersector->getFirstIntersection();
+        auto hit = intersector->getFirstIntersection();
         osg::Vec3d worldPt = hit.getWorldIntersectPoint();
         return Base::Vector3d(worldPt.x(), worldPt.y(), worldPt.z());
     }
@@ -3994,7 +4008,7 @@ Base::Vector3d OsgVerseViewer::getPointOnRay(const Base::Vector3d& rayOrigin,
     vpNode->accept(iv);
 
     if (intersector->containsIntersections()) {
-        auto& hit = intersector->getFirstIntersection();
+        auto hit = intersector->getFirstIntersection();
         osg::Vec3d worldPt = hit.getWorldIntersectPoint();
         return Base::Vector3d(worldPt.x(), worldPt.y(), worldPt.z());
     }

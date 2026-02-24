@@ -43,6 +43,8 @@ namespace Gui
 
 class Document;
 
+namespace Render { class OsgVerseViewer; }
+
 /**
  * @brief 3D view using OsgVerse rendering backend
  * 
@@ -200,6 +202,7 @@ private:
     void applySettings();
 
     std::unique_ptr<View3D::IViewer3D> _viewer;  ///< The OsgVerse viewer
+    Render::OsgVerseViewer* _osgViewer{nullptr};  ///< Raw pointer to concrete viewer
     bool _clippingPlaneActive{false};             ///< Whether clipping plane is active
     ParameterGrp::handle _hViewGrp;               ///< View preferences group
     ParameterGrp::handle _hNaviCubeGrp;           ///< NaviCube preferences group

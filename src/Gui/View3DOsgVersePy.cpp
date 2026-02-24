@@ -1331,11 +1331,11 @@ void View3DOsgVersePy::eventCallback(EventType type, void* event, void* userData
         Py::Object o = Py::type(e);
         if (o.isString()) {
             Py::String s(o);
-            Base::Console().Warning("%s\n", s.as_std_string("utf-8").c_str());
+            Base::Console().warning("%s\n", s.as_std_string("utf-8").c_str());
         }
         else {
             Py::String s(o.repr());
-            Base::Console().Warning("%s\n", s.as_std_string("utf-8").c_str());
+            Base::Console().warning("%s\n", s.as_std_string("utf-8").c_str());
         }
         PyErr_Print();
     }
@@ -1431,7 +1431,7 @@ Py::Object View3DOsgVersePy::addEventCallbackPivy(const Py::Tuple& args)
             }
         }
         else {
-            Base::Console().Warning(
+            Base::Console().warning(
                 "OsgVerse: Could not extract event type from pivy object, using SoEvent\n");
         }
     }
