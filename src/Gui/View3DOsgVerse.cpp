@@ -888,6 +888,10 @@ void View3DOsgVerse::applySettings()
 {
     if (!_viewer) return;
 
+    // Don't trigger OsgVerse initialization during construction.
+    // Settings will be applied on first paint/resize when the viewer is ready.
+    if (_osgViewer && !_osgViewer->isInitialized()) return;
+
     auto hGrp = App::GetApplication().GetParameterGroupByPath(
         "User parameter:BaseApp/Preferences/View");
 

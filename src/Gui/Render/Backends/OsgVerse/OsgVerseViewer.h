@@ -101,6 +101,8 @@ public:
      */
     OsgVerseViewer();
 
+    bool isInitialized() const { return _initialized; }
+
     /**
      * @brief 析构函数 / Destructor
      */
