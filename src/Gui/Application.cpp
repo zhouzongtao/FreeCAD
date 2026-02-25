@@ -71,6 +71,7 @@
 #include "CommandActionPy.h"
 #include "CommandPy.h"
 #include "Control.h"
+#include "Core/RenderManager.h"
 #include "PreferencePages/DlgSettingsCacheDirectory.h"
 #include "DocumentPy.h"
 #include "DocumentRecovery.h"
@@ -97,12 +98,22 @@
 #include "StartupProcess.h"
 #include "TaskView/TaskView.h"
 #include "TaskView/TaskDialogPython.h"
+#include "View3D/Interfaces/BackendRegistry.h"
 #include "TransactionObject.h"
 #include "TextDocumentEditorView.h"
 #include "UiLoader.h"
 #include "View3DPy.h"
 #include "View3DViewerPy.h"
+#include "View3DBase.h"
 #include "View3DInventor.h"
+#ifdef RENDER_HAS_OSGVERSE_BACKEND
+#include "View3DOsgVerse.h"
+#endif
+#include "View3D/ViewerFactory.h"
+#include "View3D/Backends/Coin/CoinViewer.h"
+#ifdef RENDER_HAS_OSGVERSE_BACKEND
+#include "View3D/Backends/OsgVerse/OsgVerseViewerAdapter.h"
+#endif
 #include "ViewProviderAnnotation.h"
 #include "ViewProviderDocumentObject.h"
 #include "ViewProviderDocumentObjectGroup.h"
@@ -159,6 +170,18 @@ namespace sp = std::placeholders;
 FC_LOG_LEVEL_INIT("Gui")
 
 Application* Application::Instance = nullptr;
+
+// Forward declaration for RenderManager Python bindings
+namespace Gui {
+namespace Core {
+    extern void initRenderManagerPy();
+    class RenderManager;  // Forward declaration
+}
+}
+
+// Forward declaration of the exported RenderManager methods array
+// Defined in RenderManagerPy.cpp with extern "C" linkage
+extern "C" PyMethodDef* Gui_Core_RenderManager_methods();
 
 namespace Gui
 {
@@ -521,6 +544,63 @@ Application::Application(bool GUIenabled)
             "The FreeCADGui module also provides a set of functions to work with so called\n"
             "workbenches.");
 
+        // Render abstraction layer initialization
+        // Re-enabled after fixing backend registration crashes
+#if 1
+        // Initialize RenderManager before creating/accessing FreeCADGui module
+        // This ensures OsgVerse engine is registered and available
+        Base::Console().log("Application: Initializing RenderManager...\n");
+        try {
+            Core::RenderManager::instance().initialize();
+            Base::Console().log("Application: RenderManager initialized successfully\n");
+        }
+        catch (const std::exception& e) {
+            Base::Console().error("Application: Failed to initialize RenderManager: %s\n", e.what());
+        }
+        catch (...) {
+            Base::Console().error("Application: Failed to initialize RenderManager: unknown exception\n");
+        }
+
+        // Register viewer backends with ViewerFactory
+        // This must be done after RenderManager initialization
+        Base::Console().log("Application: Registering viewer backends...\n");
+        try {
+            // Register Coin3D viewer
+            View3D::ViewerFactory::registerCreator(
+                Render::BackendType::Coin3D,
+                [](QWidget* parent, const QOpenGLWidget* shareWidget) -> std::unique_ptr<View3D::IViewer3D> {
+                    return std::make_unique<View3D::Coin::CoinViewer>(parent, shareWidget);
+                }
+            );
+            Base::Console().log("Application: Coin3D viewer registered\n");
+
+#ifdef RENDER_HAS_OSGVERSE_BACKEND
+            // Register OsgVerse viewer directly
+            Base::Console().log("Application: Registering OsgVerse viewer...\n");
+            try {
+                View3D::ViewerFactory::registerCreator(
+                    Render::BackendType::OsgVerse,
+                    [](QWidget* parent, const QOpenGLWidget* shareWidget) -> std::unique_ptr<View3D::IViewer3D> {
+                        return std::make_unique<View3D::OsgVerse::OsgVerseViewerAdapter>(parent, shareWidget);
+                    }
+                );
+                Base::Console().log("Application: OsgVerse viewer registered successfully\n");
+            }
+            catch (const std::exception& e) {
+                Base::Console().error("Application: Failed to register OsgVerse viewer: %s\n", e.what());
+            }
+#endif
+        }
+        catch (const std::exception& e) {
+            Base::Console().error("Application: Failed to register viewer backends: %s\n", e.what());
+        }
+        catch (...) {
+            Base::Console().error("Application: Failed to register viewer backends: unknown exception\n");
+        }
+#endif
+
+// OsgVerse viewer registration moved to initialization block above (line ~571)
+
         // if this returns a valid pointer then the 'FreeCADGui' Python module was loaded,
         // otherwise the executable was launched
         PyObject* modules = PyImport_GetModuleDict();
@@ -543,6 +623,27 @@ Application::Application(bool GUIenabled)
             // extend the method list
             PyModule_AddFunctions(module, ApplicationPy::Methods);
         }
+        
+        // Add RenderManager methods to FreeCADGui module
+        Base::Console().log("Application: Adding RenderManager methods to FreeCADGui module...\n");
+        PyObject* dict = PyModule_GetDict(module);
+        if (dict) {
+            // Get RenderManager methods (extern "C" exported symbol)
+            PyMethodDef* methods = Gui_Core_RenderManager_methods();
+            for (PyMethodDef* method = methods; method->ml_name != nullptr; ++method) {
+                PyObject* func = PyCFunction_New(method, nullptr);
+                if (func) {
+                    PyDict_SetItemString(dict, method->ml_name, func);
+                    Py_DECREF(func);
+                    Base::Console().log("Application: Added RenderManager method '%s'\n", method->ml_name);
+                }
+            }
+            Base::Console().log("Application: RenderManager methods added successfully\n");
+        }
+        else {
+            Base::Console().error("Application: Failed to get FreeCADGui module dictionary\n");
+        }
+        
         Py::Module(module).setAttr(std::string("ActiveDocument"), Py::None());
         Py::Module(module).setAttr(std::string("HasQtBug_129596"),
 #ifdef HAS_QTBUG_129596
@@ -616,6 +717,9 @@ Application::Application(bool GUIenabled)
         Base::Interpreter().addType(&LinkViewPy::Type, module, "LinkView");
         Base::Interpreter().addType(&AxisOriginPy::Type, module, "AxisOrigin");
         Base::Interpreter().addType(&CommandPy::Type, module, "Command");
+        
+        // Initialize BackendRegistry Python bindings (Phase 1 - Backend Modularization)
+        initBackendRegistryPython();
         Base::Interpreter().addType(&DocumentPy::Type, module, "Document");
         Base::Interpreter().addType(&ViewProviderPy::Type, module, "ViewProvider");
         Base::Interpreter().addType(&ViewProviderDocumentObjectPy::Type,
@@ -689,6 +793,22 @@ Application::Application(bool GUIenabled)
 #endif
 
     if (GUIenabled) {
+        // RenderManager initialization - Re-enabled after fixing crashes
+#if 1
+        // Initialize RenderManager
+        Base::Console().log("Application: Initializing RenderManager...\n");
+        try {
+            Core::RenderManager::instance().initialize();
+            Base::Console().log("Application: RenderManager initialized successfully\n");
+        }
+        catch (const std::exception& e) {
+            Base::Console().error("Application: Failed to initialize RenderManager: %s\n", e.what());
+        }
+        catch (...) {
+            Base::Console().error("Application: Failed to initialize RenderManager: unknown exception\n");
+        }
+#endif
+
         createStandardOperations();
         MacroCommand::load();
     }
@@ -2288,6 +2408,24 @@ void Application::initApplication()
         init_resources();
         setCategoryFilterRules();
         old_qtmsg_handler = qInstallMessageHandler(messageHandler);
+
+        // RenderManager initialization - Re-enabled after fixing crashes
+#if 1
+        // Initialize RenderManager BEFORE setting init = true
+        // This ensures it runs on first call to initApplication()
+        Base::Console().log("Application::initApplication: Initializing RenderManager...\n");
+        try {
+            Core::RenderManager::instance().initialize();
+            Base::Console().log("Application::initApplication: RenderManager initialized successfully\n");
+        }
+        catch (const std::exception& e) {
+            Base::Console().error("Application::initApplication: Failed to initialize RenderManager: %s\n", e.what());
+        }
+        catch (...) {
+            Base::Console().error("Application::initApplication: Failed to initialize RenderManager: unknown exception\n");
+        }
+#endif
+
         init = true;
     }
     catch (...) {
@@ -2303,7 +2441,11 @@ void Application::initTypes()
     // views
     Gui::BaseView                               ::init();
     Gui::MDIView                                ::init();
+    Gui::View3DBase                             ::init();
     Gui::View3DInventor                         ::init();
+#ifdef RENDER_HAS_OSGVERSE_BACKEND
+    Gui::View3DOsgVerse                         ::init();
+#endif
     Gui::AbstractSplitView                      ::init();
     Gui::SplitView3DInventor                    ::init();
     Gui::TextDocumentEditorView                 ::init();

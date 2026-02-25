@@ -1,0 +1,154 @@
+适用于 .NET Framework MSBuild 版本 17.14.23+b0019275e
+
+  Copying E:/Repository/FreeCAD/FreeCAD/src/Gui/PreferencePacks/FreeCAD Classic to E:/Repository/FreeCAD/FreeCAD/build/data/Gui/PreferencePacks/FreeCAD Classic
+  Copying E:/Repository/FreeCAD/FreeCAD/src/Gui/PreferencePacks/Dark behave to E:/Repository/FreeCAD/FreeCAD/build/data/Gui/PreferencePacks/Dark behave
+  Copying E:/Repository/FreeCAD/FreeCAD/src/Gui/PreferencePacks/FreeCAD Light to E:/Repository/FreeCAD/FreeCAD/build/data/Gui/PreferencePacks/FreeCAD Light
+  Copying E:/Repository/FreeCAD/FreeCAD/src/Gui/PreferencePacks/FreeCAD Dark to E:/Repository/FreeCAD/FreeCAD/build/data/Gui/PreferencePacks/FreeCAD Dark
+C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Microsoft\VC\v170\Microsoft.CppCommon.targets(254,5): warning MSB8064: Custom build for item "E:\Repository\FreeCAD\FreeCAD\src\Gui\PreferencePacks\FreeCAD Classic" succeeded, but specified dependency "e:\repository\freecad\freecad\src\gui\preferencepacks\freecad classic" does not exist. This may cause incremental build to work incorrectly. [E:\Repository\FreeCAD\FreeCAD\build\src\Gui\PreferencePacks\PreferencePacks_data.vcxproj]
+C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Microsoft\VC\v170\Microsoft.CppCommon.targets(254,5): warning MSB8065: Custom build for item "E:\Repository\FreeCAD\FreeCAD\src\Gui\PreferencePacks\FreeCAD Classic" succeeded, but specified output "e:\repository\freecad\freecad\build\data\gui\preferencepacks\freecad classic" has not been created. This may cause incremental build to work incorrectly. [E:\Repository\FreeCAD\FreeCAD\build\src\Gui\PreferencePacks\PreferencePacks_data.vcxproj]
+C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Microsoft\VC\v170\Microsoft.CppCommon.targets(254,5): warning MSB8064: Custom build for item "E:\Repository\FreeCAD\FreeCAD\src\Gui\PreferencePacks\Dark behave" succeeded, but specified dependency "e:\repository\freecad\freecad\src\gui\preferencepacks\dark behave" does not exist. This may cause incremental build to work incorrectly. [E:\Repository\FreeCAD\FreeCAD\build\src\Gui\PreferencePacks\PreferencePacks_data.vcxproj]
+C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Microsoft\VC\v170\Microsoft.CppCommon.targets(254,5): warning MSB8065: Custom build for item "E:\Repository\FreeCAD\FreeCAD\src\Gui\PreferencePacks\Dark behave" succeeded, but specified output "e:\repository\freecad\freecad\build\data\gui\preferencepacks\dark behave" has not been created. This may cause incremental build to work incorrectly. [E:\Repository\FreeCAD\FreeCAD\build\src\Gui\PreferencePacks\PreferencePacks_data.vcxproj]
+C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Microsoft\VC\v170\Microsoft.CppCommon.targets(254,5): warning MSB8064: Custom build for item "E:\Repository\FreeCAD\FreeCAD\src\Gui\PreferencePacks\FreeCAD Light" succeeded, but specified dependency "e:\repository\freecad\freecad\src\gui\preferencepacks\freecad light" does not exist. This may cause incremental build to work incorrectly. [E:\Repository\FreeCAD\FreeCAD\build\src\Gui\PreferencePacks\PreferencePacks_data.vcxproj]
+C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Microsoft\VC\v170\Microsoft.CppCommon.targets(254,5): warning MSB8065: Custom build for item "E:\Repository\FreeCAD\FreeCAD\src\Gui\PreferencePacks\FreeCAD Light" succeeded, but specified output "e:\repository\freecad\freecad\build\data\gui\preferencepacks\freecad light" has not been created. This may cause incremental build to work incorrectly. [E:\Repository\FreeCAD\FreeCAD\build\src\Gui\PreferencePacks\PreferencePacks_data.vcxproj]
+C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Microsoft\VC\v170\Microsoft.CppCommon.targets(254,5): warning MSB8064: Custom build for item "E:\Repository\FreeCAD\FreeCAD\src\Gui\PreferencePacks\FreeCAD Dark" succeeded, but specified dependency "e:\repository\freecad\freecad\src\gui\preferencepacks\freecad dark" does not exist. This may cause incremental build to work incorrectly. [E:\Repository\FreeCAD\FreeCAD\build\src\Gui\PreferencePacks\PreferencePacks_data.vcxproj]
+C:\Program Files\Microsoft Visual Studio\2022\Enterprise\MSBuild\Microsoft\VC\v170\Microsoft.CppCommon.targets(254,5): warning MSB8065: Custom build for item "E:\Repository\FreeCAD\FreeCAD\src\Gui\PreferencePacks\FreeCAD Dark" succeeded, but specified output "e:\repository\freecad\freecad\build\data\gui\preferencepacks\freecad dark" has not been created. This may cause incremental build to work incorrectly. [E:\Repository\FreeCAD\FreeCAD\build\src\Gui\PreferencePacks\PreferencePacks_data.vcxproj]
+  Generating version_file
+  git
+  E:/Repository/FreeCAD/FreeCAD/build/src/Build/Version.h.out written
+  Automatic MOC and UIC for target libfastsignals
+  libfastsignals.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\src\3rdParty\FastSignals\libfastsignals\Release\libfastsignals.lib
+  Automatic MOC and UIC for target FreeCADBase
+  FreeCADBase.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\bin\FreeCADBase.dll
+  Automatic MOC and UIC for target FreeCADApp
+  FreeCADApp.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\bin\FreeCADApp.dll
+  Automatic MOC and UIC for target gmock_main
+  gmock_main.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\lib\Release\gmock_main.lib
+  Automatic MOC and UIC for target gtest
+  gtest.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\lib\Release\gtest.lib
+  Automatic MOC and UIC for target gtest_main
+  gtest_main.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\lib\Release\gtest_main.lib
+  Automatic MOC and UIC for target App_tests_run
+  App_tests_run.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\tests\src\App\Release\App_tests_run.exe
+  Automatic MOC and UIC for target Materials
+  Materials.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\Mod\Material\Materials.pyd
+  Automatic MOC and UIC for target OndselSolver
+  OndselSolver.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\src\3rdParty\OndselSolver\OndselSolver\Release\OndselSolver.lib
+  Automatic MOC and UIC for target Part
+  Part.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\Mod\Part\Part.pyd
+  Automatic MOC and UIC for target PartDesign
+  PartDesign.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\Mod\PartDesign\_PartDesign.pyd
+  Automatic MOC and UIC for target Spreadsheet
+  Spreadsheet.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\Mod\Spreadsheet\Spreadsheet.pyd
+  Automatic MOC and UIC for target Assembly
+  Assembly.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\Mod\Assembly\AssemblyApp.pyd
+  Automatic MOC and UIC for target FreeCADGui
+  Coin3DNode.cpp
+E:\Repository\FreeCAD\FreeCAD\src\Gui\Render\Backends\Coin3D\Coin3DNode.cpp(460,22): error C2509: 'getNumChildren': member function not declared in 'Gui::Render::Coin3DSwitch' [E:\Repository\FreeCAD\FreeCAD\build\src\Gui\FreeCADGui.vcxproj]
+  (compiling source file '../../../src/Gui/Render/Backends/Coin3D/Coin3DNode.cpp')
+      E:\Repository\FreeCAD\FreeCAD\src\Gui\Render\Backends\Coin3D\Coin3DNode.h(357,17):
+      see declaration of 'Gui::Render::Coin3DSwitch'
+  
+E:\Repository\FreeCAD\FreeCAD\src\Gui\Render\Backends\Coin3D\Coin3DNode.cpp(465,27): error C2509: 'getChild': member function not declared in 'Gui::Render::Coin3DSwitch' [E:\Repository\FreeCAD\FreeCAD\build\src\Gui\FreeCADGui.vcxproj]
+  (compiling source file '../../../src/Gui/Render/Backends/Coin3D/Coin3DNode.cpp')
+      E:\Repository\FreeCAD\FreeCAD\src\Gui\Render\Backends\Coin3D\Coin3DNode.h(357,17):
+      see declaration of 'Gui::Render::Coin3DSwitch'
+  
+  Automatic MOC and UIC for target Assembly_tests_run
+  Assembly_tests_run.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\tests\src\Mod\Assembly\App\Release\Assembly_tests_run.exe
+  Automatic MOC and UIC for target Base_tests_run
+  Base_tests_run.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\tests\src\Base\Release\Base_tests_run.exe
+  Automatic MOC and UIC for target Import
+  Import.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\Mod\Import\Import.pyd
+  Automatic MOC and UIC for target Mesh
+  Mesh.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\Mod\Mesh\Mesh.pyd
+  Automatic MOC and UIC for target area-native
+  Auto build dll exports
+  area-native.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\Mod\CAM\area-native.dll
+  Automatic MOC and UIC for target Path
+  Path.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\Mod\CAM\PathApp.pyd
+  Automatic MOC and UIC for target DraftUtils
+  DraftUtils.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\Mod\Draft\DraftUtils.pyd
+  Automatic MOC and UIC for target Drawing
+  Drawing.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\Mod\Drawing\Drawing.pyd
+  Automatic UIC for target Driver
+  Driver.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\bin\Driver.dll
+  Automatic UIC for target SMDS
+  SMDS.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\bin\SMDS.dll
+  Automatic UIC for target DriverDAT
+  DriverDAT.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\bin\DriverDAT.dll
+  Automatic UIC for target DriverSTL
+  DriverSTL.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\bin\DriverSTL.dll
+  Automatic UIC for target SMESHDS
+  SMESHDS.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\bin\SMESHDS.dll
+  Automatic UIC for target DriverUNV
+  DriverUNV.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\bin\DriverUNV.dll
+  Automatic UIC for target MEFISTO2
+  MEFISTO2.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\bin\MEFISTO2.dll
+  Automatic UIC for target SMESH
+  SMESH.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\bin\SMESH.dll
+  Automatic UIC for target StdMeshers
+  StdMeshers.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\bin\StdMeshers.dll
+  Automatic UIC for target NETGENPlugin
+  NETGENPlugin.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\bin\NETGENPlugin.dll
+  Automatic MOC and UIC for target Fem
+  Fem.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\Mod\Fem\Fem.pyd
+  Automatic MOC and UIC for target FreeCADMainCmd
+  FreeCADMainCmd.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\bin\FreeCADCmd.exe
+  Automatic MOC and UIC for target FreeCADMainPy
+  FreeCADMainPy.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\bin\FreeCAD.pyd
+  Automatic MOC and UIC for target Points
+  Points.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\Mod\Points\Points.pyd
+  Automatic MOC and UIC for target Inspection
+  Inspection.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\Mod\Inspection\Inspection.pyd
+  Automatic MOC and UIC for target Material_tests_run
+  Material_tests_run.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\tests\src\Mod\Material\App\Release\Material_tests_run.exe
+  Automatic MOC and UIC for target Measure
+  Measure.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\Mod\Measure\Measure.pyd
+  Automatic MOC and UIC for target Measure_tests_run
+  Measure_tests_run.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\tests\src\Mod\Measure\App\Release\Measure_tests_run.exe
+  Automatic MOC and UIC for target MeshPart
+  MeshPart.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\Mod\MeshPart\MeshPart.pyd
+  Automatic MOC and UIC for target MeshPart_tests_run
+  MeshPart_tests_run.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\tests\src\Mod\MeshPart\App\Release\MeshPart_tests_run.exe
+  Automatic MOC and UIC for target Mesh_tests_run
+  Mesh_tests_run.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\tests\src\Mod\Mesh\App\Release\Mesh_tests_run.exe
+  Automatic MOC and UIC for target Misc_tests_run
+  Misc_tests_run.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\tests\src\Misc\Release\Misc_tests_run.exe
+  Automatic MOC and UIC for target Sketcher
+  Sketcher.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\Mod\Sketcher\Sketcher.pyd
+  Automatic MOC and UIC for target PartDesign_tests_run
+  PartDesign_tests_run.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\tests\src\Mod\PartDesign\App\Release\PartDesign_tests_run.exe
+  Automatic MOC and UIC for target Part_tests_run
+  Part_tests_run.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\tests\src\Mod\Part\App\Release\Part_tests_run.exe
+  Automatic MOC and UIC for target PathSimulator
+  PathSimulator.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\Mod\CAM\PathSimulator.pyd
+  Automatic MOC and UIC for target Points_tests_run
+  Points_tests_run.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\tests\src\Mod\Points\App\Release\Points_tests_run.exe
+  Automatic MOC and UIC for target ReverseEngineering
+  ReverseEngineering.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\Mod\ReverseEngineering\ReverseEngineering.pyd
+  Automatic MOC and UIC for target Robot
+  Robot.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\Mod\Robot\Robot.pyd
+  Automatic MOC and UIC for target Sketcher_tests_run
+  Sketcher_tests_run.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\tests\src\Mod\Sketcher\App\Release\Sketcher_tests_run.exe
+  Automatic MOC and UIC for target Spreadsheet_tests_run
+  Spreadsheet_tests_run.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\tests\src\Mod\Spreadsheet\App\Release\Spreadsheet_tests_run.exe
+  Automatic MOC and UIC for target Start
+  Start.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\Mod\Start\Start.pyd
+  Automatic MOC and UIC for target Start_tests_run
+  Start_tests_run.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\tests\src\Mod\Start\App\Release\Start_tests_run.exe
+  Automatic MOC and UIC for target Surface
+  Surface.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\Mod\Surface\Surface.pyd
+  Automatic MOC and UIC for target TechDraw
+  TechDraw.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\Mod\TechDraw\TechDraw.pyd
+  Automatic MOC and UIC for target Web
+  Web.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\Mod\Web\Web.pyd
+  Automatic MOC and UIC for target Zipios_tests_run
+  Zipios_tests_run.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\tests\src\zipios++\Release\Zipios_tests_run.exe
+  Automatic MOC and UIC for target area
+  area.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\Mod\CAM\area.pyd
+  Automatic MOC and UIC for target flatmesh
+  flatmesh.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\Mod\MeshPart\flatmesh.pyd
+  Automatic MOC and UIC for target gmock
+  gmock.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\lib\Release\gmock.lib
+  Automatic MOC and UIC for target tsp_solver
+  tsp_solver.vcxproj -> E:\Repository\FreeCAD\FreeCAD\build\Mod\CAM\tsp_solver.pyd

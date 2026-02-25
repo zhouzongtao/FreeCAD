@@ -57,6 +57,7 @@
 #include "Document.h"
 #include "DocumentPy.h"
 #include "Application.h"
+#include "Core/RenderManager.h"
 #include "Command.h"
 #include "Control.h"
 #include "FileDialog.h"
@@ -66,11 +67,18 @@
 #include "Selection.h"
 #include "Thumbnail.h"
 #include "Tree.h"
+#include "View3DBase.h"
 #include "View3DInventor.h"
+#ifdef RENDER_HAS_OSGVERSE_BACKEND
+#include "View3DOsgVerse.h"
+#endif
 #include "View3DInventorViewer.h"
+#include "View3D/ViewerFactory.h"
 #include "ViewProviderDocumentObject.h"
 #include "ViewProviderDocumentObjectGroup.h"
 #include "WaitCursor.h"
+#include "Render/Core/RenderNode.h"
+#include "Render/Core/SceneGraphBridge.h"
 
 
 FC_LOG_LEVEL_INIT("Gui", true, true)
@@ -114,6 +122,7 @@ struct DocumentP
     std::list<Gui::BaseView*> passiveViews;
     std::map<const App::DocumentObject*, ViewProviderDocumentObject*> _ViewProviderMap;
     std::map<SoSeparator*, ViewProviderDocumentObject*> _CoinMap;
+    std::map<Render::RenderNode*, ViewProviderDocumentObject*> _RenderNodeMap;
     std::map<std::string, ViewProvider*> _ViewProviderMapAnnotation;
     std::list<ViewProviderDocumentObject*> _redoViewProviders;
 
@@ -1002,6 +1011,13 @@ void Document::slotNewObject(const App::DocumentObject& Obj)
         setModified(true);
         d->_ViewProviderMap[&Obj] = pcProvider;
         d->_CoinMap[pcProvider->getRoot()] = pcProvider;
+        // TEMPORARILY DISABLED: Track RenderNode for render abstraction layer
+        // This was causing crashes when loading documents
+#if 0
+        if (auto* renderRoot = pcProvider->getRenderRoot()) {
+            d->_RenderNodeMap[renderRoot] = pcProvider;
+        }
+#endif
         pcProvider->setStatus(Gui::ViewStatus::TouchDocument, d->_changeViewTouchDocument);
 
         try {
@@ -1036,10 +1052,23 @@ void Document::slotNewObject(const App::DocumentObject& Obj)
         std::list<Gui::BaseView*>::iterator vIt;
         // cycling to all views of the document
         for (vIt = d->baseViews.begin(); vIt != d->baseViews.end(); ++vIt) {
+            // Handle View3DInventor (Coin3D backend)
             auto activeView = dynamic_cast<View3DInventor*>(*vIt);
             if (activeView) {
                 activeView->getViewer()->addViewProvider(pcProvider);
+                continue;
             }
+
+#ifdef RENDER_HAS_OSGVERSE_BACKEND
+            // Handle View3DOsgVerse (OsgVerse backend)
+            auto osgVerseView = dynamic_cast<View3DOsgVerse*>(*vIt);
+            if (osgVerseView) {
+                auto* viewer = osgVerseView->getViewerInterface();
+                if (viewer) {
+                    viewer->addViewProvider(pcProvider);
+                }
+            }
+#endif
         }
 
         // adding to the tree
@@ -1081,10 +1110,23 @@ void Document::slotDeletedObject(const App::DocumentObject& Obj)
     if (viewProvider && viewProvider->isDerivedFrom(ViewProviderDocumentObject::getClassTypeId())) {
         // go through the views
         for (vIt = d->baseViews.begin(); vIt != d->baseViews.end(); ++vIt) {
+            // Handle View3DInventor (Coin3D backend)
             auto activeView = dynamic_cast<View3DInventor*>(*vIt);
             if (activeView) {
                 activeView->getViewer()->removeViewProvider(viewProvider);
+                continue;
             }
+
+#ifdef RENDER_HAS_OSGVERSE_BACKEND
+            // Handle View3DOsgVerse (OsgVerse backend)
+            auto osgVerseView = dynamic_cast<View3DOsgVerse*>(*vIt);
+            if (osgVerseView) {
+                auto* viewer = osgVerseView->getViewerInterface();
+                if (viewer) {
+                    viewer->removeViewProvider(viewProvider);
+                }
+            }
+#endif
         }
 
         // removing from tree
@@ -1128,6 +1170,30 @@ void Document::slotChangedObject(const App::DocumentObject& Obj, const App::Prop
                     d->_editingTransform = mat;
                     d->_editingViewer->setEditingTransform(d->_editingTransform);
                 }
+            }
+
+            // Update OsgVerse views when shape or appearance properties change
+            const char* propName = Prop.getName();
+            bool isShapeChange = propName && (strcmp(propName, "Shape") == 0 ||
+                                              strstr(propName, "Length") ||
+                                              strstr(propName, "Width") ||
+                                              strstr(propName, "Height") ||
+                                              strstr(propName, "Radius"));
+            bool isAppearanceChange = propName && (strcmp(propName, "ShapeAppearance") == 0 ||
+                                                   strcmp(propName, "ShapeColor") == 0 ||
+                                                   strcmp(propName, "Transparency") == 0);
+            if (isShapeChange || isAppearanceChange) {
+#ifdef RENDER_HAS_OSGVERSE_BACKEND
+                for (auto* view : d->baseViews) {
+                    auto* osgVerseView = dynamic_cast<View3DOsgVerse*>(view);
+                    if (osgVerseView) {
+                        auto* viewer = osgVerseView->getViewerInterface();
+                        if (viewer) {
+                            viewer->updateViewProvider(viewProvider);
+                        }
+                    }
+                }
+#endif
             }
         }
         catch (const Base::MemoryException& e) {
@@ -1186,6 +1252,16 @@ void Document::slotTransactionRemove(const App::DocumentObject& obj, App::Transa
         if (itC != d->_CoinMap.end()) {
             d->_CoinMap.erase(itC);
         }
+
+        // TEMPORARILY DISABLED: Remove from RenderNode map (render abstraction layer)
+#if 0
+        if (auto* renderRoot = viewProvider->getRenderRoot()) {
+            auto itR = d->_RenderNodeMap.find(renderRoot);
+            if (itR != d->_RenderNodeMap.end()) {
+                d->_RenderNodeMap.erase(itR);
+            }
+        }
+#endif
 
         d->_ViewProviderMap.erase(&obj);
         // transaction being a nullptr indicates that undo/redo is off and the object
@@ -1310,6 +1386,12 @@ void Document::addViewProvider(Gui::ViewProviderDocumentObject* vp)
     vp->setStatus(Detach, false);
     d->_ViewProviderMap[vp->getObject()] = vp;
     d->_CoinMap[vp->getRoot()] = vp;
+    // TEMPORARILY DISABLED: Track RenderNode for render abstraction layer
+#if 0
+    if (auto* renderRoot = vp->getRenderRoot()) {
+        d->_RenderNodeMap[renderRoot] = vp;
+    }
+#endif
 }
 
 void Document::setModified(bool b)
@@ -1373,6 +1455,18 @@ ViewProviderDocumentObject* Document::getViewProvider(SoNode* node) const
     }
     auto it = d->_CoinMap.find(static_cast<SoSeparator*>(node));
     if (it != d->_CoinMap.end()) {
+        return it->second;
+    }
+    return nullptr;
+}
+
+ViewProviderDocumentObject* Document::getViewProvider(Render::RenderNode* node) const
+{
+    if (!node) {
+        return nullptr;
+    }
+    auto it = d->_RenderNodeMap.find(node);
+    if (it != d->_RenderNodeMap.end()) {
         return it->second;
     }
     return nullptr;
@@ -2204,12 +2298,130 @@ void Document::addRootObjectsToGroup(
 
 MDIView* Document::createView(const Base::Type& typeId, CreateViewMode mode)
 {
+    Base::Console().log("Document::createView called with typeId: %s\n", 
+                       typeId.getName());
+    
     if (!typeId.isDerivedFrom(MDIView::getClassTypeId())) {
+        Base::Console().warning("Document::createView: typeId is not derived from MDIView\n");
         return nullptr;
     }
 
     std::list<MDIView*> theViews = this->getMDIViewsOfType(typeId);
+    
+    // Check if requesting View3DInventor - select implementation based on backend
+    // Note: This auto-switching only applies in Normal mode, not when forcing Coin3D
+    if (typeId == View3DInventor::getClassTypeId() && mode != CreateViewMode::ForceCoin3D) {
+        Base::Console().log("Document::createView: View3DInventor requested\n");
+
+        // Get current render backend from RenderManager
+        auto& renderMgr = Gui::Core::RenderManager::instance();
+        auto backend = renderMgr.getCurrentBackend();
+
+        Base::Console().log("Document::createView: Current backend: %d\n",
+                           static_cast<int>(backend));
+
+#ifdef RENDER_HAS_OSGVERSE_BACKEND
+        // If OsgVerse backend is active, create View3DOsgVerse instead
+        // But first check if OsgVerse viewer backend is registered
+        if (backend == Gui::Render::BackendType::OsgVerse) {
+            if (View3D::ViewerFactory::isRegistered(Gui::Render::BackendType::OsgVerse)) {
+                Base::Console().log("Document::createView: Creating View3DOsgVerse for OsgVerse backend\n");
+                return createView(View3DOsgVerse::getClassTypeId(), mode);
+            } else {
+                Base::Console().warning("Document::createView: OsgVerse backend is active but viewer not registered, falling back to Coin3D\n");
+            }
+        }
+        // If no backend is selected, default to Coin3D (the stable, established backend)
+        else if (backend == Gui::Render::BackendType::None) {
+            Base::Console().log("Document::createView: No backend selected, using Coin3D as default\n");
+        }
+#endif
+
+        // Fall back to Coin3D (View3DInventor)
+        Base::Console().log("Document::createView: Creating View3DInventor for Coin3D backend\n");
+    }
+    else if (typeId == View3DInventor::getClassTypeId() && mode == CreateViewMode::ForceCoin3D) {
+        Base::Console().log("Document::createView: Forcing Coin3D view creation (bypassing auto-switch)\n");
+    }
+
+#ifdef RENDER_HAS_OSGVERSE_BACKEND
+    // Handle View3DOsgVerse creation
+    if (typeId == View3DOsgVerse::getClassTypeId()) {
+        Base::Console().log("Document::createView: Creating View3DOsgVerse\n");
+
+        // Check if OsgVerse viewer backend is registered
+        if (!View3D::ViewerFactory::isRegistered(Gui::Render::BackendType::OsgVerse)) {
+            Base::Console().error("Document::createView: OsgVerse viewer backend not registered, cannot create View3DOsgVerse\n");
+            throw std::runtime_error("OsgVerse viewer backend not registered");
+        }
+
+        QOpenGLWidget* shareWidget = nullptr;
+        // Get existing OsgVerse views for sharing
+        std::list<MDIView*> osgVerseViews = this->getMDIViewsOfType(View3DOsgVerse::getClassTypeId());
+        if (!osgVerseViews.empty()) {
+            auto firstView = static_cast<View3DOsgVerse*>(osgVerseViews.front());
+            auto* viewer = firstView->getViewerInterface();
+            if (viewer) {
+                shareWidget = viewer->getGLWidget();
+            }
+        }
+
+        auto view3D = new View3DOsgVerse(this, getMainWindow(), shareWidget);
+
+        // Attach view providers
+        std::map<const App::DocumentObject*, ViewProviderDocumentObject*>::const_iterator It1;
+        std::vector<App::DocumentObject*> child_vps;
+
+        auto* viewer = view3D->getViewerInterface();
+        if (viewer) {
+            for (It1 = d->_ViewProviderMap.begin(); It1 != d->_ViewProviderMap.end(); ++It1) {
+                viewer->addViewProvider(It1->second);
+                std::vector<App::DocumentObject*> children = It1->second->claimChildren3D();
+                child_vps.insert(child_vps.end(), children.begin(), children.end());
+            }
+
+            std::map<std::string, ViewProvider*>::const_iterator It2;
+            for (It2 = d->_ViewProviderMapAnnotation.begin();
+                 It2 != d->_ViewProviderMapAnnotation.end(); ++It2) {
+                viewer->addViewProvider(It2->second);
+                std::vector<App::DocumentObject*> children = It2->second->claimChildren3D();
+                child_vps.insert(child_vps.end(), children.begin(), children.end());
+            }
+
+            for (App::DocumentObject* obj : child_vps) {
+                viewer->removeViewProvider(getViewProvider(obj));
+            }
+
+            // Fit camera to scene after all VPs are added
+            Base::Console().log("Document::createView: Calling viewAll() after adding VPs to OsgVerse view\n");
+            viewer->viewAll();
+        }
+
+        // Set window title
+        if (mode != CreateViewMode::Clone) {
+            const char* name = getDocument()->Label.getValue();
+            QString title = QStringLiteral("%1 : %2[*]")
+                .arg(QString::fromUtf8(name))
+                .arg(d->_iWinCount++);
+            view3D->setWindowTitle(title);
+        }
+
+        view3D->setWindowModified(this->isModified());
+        view3D->resize(400, 300);
+
+        // Add to main window
+        if (mode != CreateViewMode::Clone) {
+            getMainWindow()->addWindow(view3D);
+        }
+
+        Base::Console().log("Document::createView: View3DOsgVerse created successfully, returning %p\n",
+                           static_cast<void*>(view3D));
+        return view3D;
+    }
+#endif
+
     if (typeId == View3DInventor::getClassTypeId()) {
+        Base::Console().log("Document::createView: Creating View3DInventor\n");
 
         QOpenGLWidget* shareWidget = nullptr;
         // VBO rendering doesn't work correctly when we don't share the OpenGL widgets
@@ -2277,8 +2489,14 @@ MDIView* Document::createView(const Base::Type& typeId, CreateViewMode mode)
         }
 
         view3D->getViewer()->redraw();
+        
+        Base::Console().log("Document::createView: View3DInventor created successfully, returning %p\n", 
+                           static_cast<void*>(view3D));
         return view3D;
     }
+    
+    Base::Console().warning("Document::createView: No matching view type found for %s, returning nullptr\n",
+                           typeId.getName());
     return nullptr;
 }
 
@@ -2598,7 +2816,7 @@ MDIView* Document::getActiveView() const
         // hidden page has view but not in the list. By right, the view will
         // self delete, but not the case for TechDraw, especially during
         // document restore.
-        if (windows.contains(*rit) || (*rit)->isDerivedFrom<View3DInventor>()) {
+        if (windows.contains(*rit) || (*rit)->isDerivedFrom<View3DBase>()) {
             return *rit;
         }
     }

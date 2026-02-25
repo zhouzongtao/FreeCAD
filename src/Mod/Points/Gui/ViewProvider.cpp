@@ -45,6 +45,8 @@
 #include <Mod/Points/App/PointsFeature.h>
 #include <Mod/Points/App/Properties.h>
 
+#include <Gui/Render/Core/RenderNodeFactory.h>
+
 #include "ViewProvider.h"
 
 
@@ -100,6 +102,7 @@ void ViewProviderPoints::onChanged(const App::Property* prop)
 {
     if (prop == &PointSize) {
         pcPointStyle->pointSize = PointSize.getValue();
+        syncDrawStyleToRenderNode();
     }
     else if (prop == &SelectionStyle) {
         pcHighlight->style = SelectionStyle.getValue() ? Gui::SoFCSelection::BOX
@@ -366,6 +369,95 @@ void ViewProviderPoints::clipPointsCallback(void*, SoEventCallback* n)
     view->redraw();
 }
 
+//===========================================================================
+// Render Abstraction Layer Implementation
+//===========================================================================
+
+void ViewProviderPoints::initRenderNodes()
+{
+    // Idempotent check - only initialize once
+    if (m_renderGeometryData) {
+        return;
+    }
+
+    // Call base class implementation
+    ViewProviderGeometryObject::initRenderNodes();
+
+    // Get the factory
+    auto factory = Gui::Render::RenderNodeFactoryRegistry::instance().getDefaultFactory();
+    if (!factory) {
+        return;
+    }
+
+    // Create geometry data cache
+    m_renderGeometryData = std::make_shared<Gui::Render::GeometryData>();
+
+    // Create point set node
+    m_renderPointSet = factory->createPointSet();
+
+    // Create point style node
+    m_renderPointStyle = factory->createDrawStyle();
+
+    // Sync initial values
+    syncDrawStyleToRenderNode();
+}
+
+void ViewProviderPoints::syncGeometryToRenderNodes()
+{
+    if (!m_renderGeometryData) {
+        return;
+    }
+
+    // Clear previous data
+    m_renderGeometryData->clear();
+
+    // Get the point cloud data
+    try {
+        auto* feature = dynamic_cast<Points::Feature*>(getObject());
+        if (!feature) {
+            return;
+        }
+
+        const Points::PointKernel& points = feature->Points.getValue();
+        if (points.size() == 0) {
+            return;
+        }
+
+        // Reserve memory
+        size_t pointCount = points.size();
+        m_renderGeometryData->vertices.reserve(pointCount * 3);
+        m_renderGeometryData->pointIndices.reserve(pointCount);
+
+        // Add points
+        int32_t index = 0;
+        for (const auto& pt : points) {
+            m_renderGeometryData->addVertex(
+                static_cast<float>(pt.x),
+                static_cast<float>(pt.y),
+                static_cast<float>(pt.z));
+            m_renderGeometryData->pointIndices.push_back(index++);
+        }
+
+        // Compute bounding box
+        m_renderGeometryData->computeBoundingBox();
+
+        // TODO: Update render node with geometry data
+    }
+    catch (...) {
+        // Handle any exceptions
+    }
+}
+
+void ViewProviderPoints::syncDrawStyleToRenderNode()
+{
+    if (!m_renderPointStyle) {
+        return;
+    }
+
+    // TODO: Sync point size to render node
+    // The actual implementation depends on the RenderDrawStyle interface
+}
+
 // -------------------------------------------------
 
 PROPERTY_SOURCE(PointsGui::ViewProviderScattered, PointsGui::ViewProviderPoints)
@@ -385,6 +477,9 @@ void ViewProviderScattered::attach(App::DocumentObject* pcObj)
 {
     // call parent's attach to define display modes
     ViewProviderGeometryObject::attach(pcObj);
+
+    // Initialize render abstraction layer nodes
+    initRenderNodes();
 
     pcHighlight->objectName = pcObj->getNameInDocument();
     pcHighlight->documentName = pcObj->getDocument()->getName();
@@ -556,6 +651,9 @@ void ViewProviderStructured::attach(App::DocumentObject* pcObj)
 {
     // call parent's attach to define display modes
     ViewProviderGeometryObject::attach(pcObj);
+
+    // Initialize render abstraction layer nodes
+    initRenderNodes();
 
     pcHighlight->objectName = pcObj->getNameInDocument();
     pcHighlight->documentName = pcObj->getDocument()->getName();

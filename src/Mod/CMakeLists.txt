@@ -14,6 +14,18 @@ if(BUILD_ASSEMBLY)
   add_subdirectory(Assembly)
 endif(BUILD_ASSEMBLY)
 
+# CoinGui - Coin3D Rendering Backend (Phase 2 - Backend Modularization)
+if(BUILD_GUI)
+    add_subdirectory(CoinGui)
+endif(BUILD_GUI)
+
+# OsgVerseGui - OsgVerse Rendering Backend (Phase 3 - Backend Modularization)
+# NOTE: OsgVerseGui module is currently disabled due to compilation errors
+# The OsgVerse backend in FreeCADGui is still enabled and functional
+if(BUILD_GUI AND BUILD_WITH_OSGVERSE AND BUILD_OSGVERSE_GUI_MODULE)
+    add_subdirectory(OsgVerseGui)
+endif(BUILD_GUI AND BUILD_WITH_OSGVERSE AND BUILD_OSGVERSE_GUI_MODULE)
+
 if(BUILD_CLOUD)
     add_subdirectory(Cloud)
 endif(BUILD_CLOUD)

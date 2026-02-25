@@ -89,6 +89,12 @@ class BoundBox2d;
 
 namespace Gui
 {
+// Forward declarations for render abstraction layer
+namespace Render {
+class RenderNode;
+class SceneGraphBridge;
+}
+
 class NavigationAnimation;
 class ViewProvider;
 class SoFCBackgroundGradient;
@@ -238,6 +244,8 @@ public:
     /// get view provider by path
     ViewProvider* getViewProviderByPath(SoPath*) const;
     ViewProvider* getViewProviderByPathFromTail(SoPath*) const;
+    /// get view provider by RenderNode (render abstraction layer)
+    ViewProvider* getViewProviderByRenderNode(Render::RenderNode*) const;
     /// get all view providers of given type
     std::vector<ViewProvider*> getViewProvidersOfType(const Base::Type& typeId) const;
     /// set the ViewProvider in special edit mode
@@ -558,6 +566,7 @@ private:
     NaviCube* naviCube;
     std::set<ViewProvider*> _ViewProviderSet;
     std::map<SoSeparator*, ViewProvider*> _ViewProviderMap;
+    std::map<Render::RenderNode*, ViewProvider*> _RenderNodeMap;
     std::list<GLGraphicsItem*> graphicsItems;
     ViewProvider* editViewProvider;
     SoFCBackgroundGradient* pcBackGround;

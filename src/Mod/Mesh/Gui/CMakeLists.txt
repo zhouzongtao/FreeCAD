@@ -130,6 +130,8 @@ SET(MeshGui_SRCS
     PreCompiled.h
     MeshEditor.cpp
     MeshEditor.h
+    MeshGeometryConverter.cpp
+    MeshGeometryConverter.h
     MeshSelection.cpp
     MeshSelection.h
     PropertyEditorMesh.cpp

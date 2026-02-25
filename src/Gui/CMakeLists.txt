@@ -14,6 +14,8 @@ endif()
 add_subdirectory(Stylesheets)
 add_subdirectory(PreferencePacks)
 add_subdirectory(PreferencePackTemplates)
+add_subdirectory(Render)
+add_subdirectory(View3D)
 
 if(BUILD_WITH_CONDA)
     add_definitions(-DFC_CONDA)
@@ -960,7 +962,9 @@ SET(View3D_CPP_SRCS
     MouseSelection.cpp
     SplitView3DInventor.cpp
     View.cpp
+    View3DBase.cpp
     View3DInventor.cpp
+    View3DOsgVerse.cpp
     View3DInventorSelection.cpp
     View3DInventorViewer.cpp
     View3DInventorRiftViewer.cpp
@@ -980,7 +984,9 @@ SET(View3D_SRCS
     MouseSelection.h
     SplitView3DInventor.h
     View.h
+    View3DBase.h
     View3DInventor.h
+    View3DOsgVerse.h
     View3DInventorSelection.h
     View3DInventorViewer.h
     View3DPy.h
@@ -1089,6 +1095,7 @@ SET(Viewprovider_CPP_SRCS
     ViewProviderVarSet.cpp
     AxisOriginPyImp.cpp
     AxisOrigin.cpp
+    ViewProviderRenderProxy.cpp
 )
 SET(Viewprovider_SRCS
     ${Viewprovider_CPP_SRCS}
@@ -1124,6 +1131,7 @@ SET(Viewprovider_SRCS
     ViewProviderLink.h
     ViewProviderVarSet.h
     AxisOrigin.h
+    ViewProviderRenderProxy.h
 )
 SOURCE_GROUP("View3D\\Viewprovider" FILES ${Viewprovider_SRCS})
 
@@ -1404,6 +1412,8 @@ SET(FreeCADGui_CPP_SRCS
     ToolHandler.cpp
     StyleParameters/Parser.cpp
     StyleParameters/ParameterManager.cpp
+    Core/RenderManager.cpp
+    Core/RenderManagerPy.cpp
 )
 SET(FreeCADGui_SRCS
     Application.h
@@ -1449,6 +1459,7 @@ SET(FreeCADGui_SRCS
     ToolHandler.h
     StyleParameters/Parser.h
     StyleParameters/ParameterManager.h
+    Core/RenderManager.h
 )
 
 SET(FreeCADGui_SRCS

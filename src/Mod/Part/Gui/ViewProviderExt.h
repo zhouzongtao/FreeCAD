@@ -28,10 +28,13 @@
 
 
 #include <map>
+#include <memory>
 
 #include <App/PropertyUnits.h>
 #include <Gui/ViewProviderGeometryObject.h>
 #include <Gui/ViewProviderTextureExtension.h>
+#include <Gui/Render/Core/RenderNode.h>
+#include <Gui/Render/Core/GeometryData.h>
 
 #include <Mod/Part/App/PartFeature.h>
 #include <Mod/Part/PartGlobal.h>
@@ -208,6 +211,41 @@ protected:
     void unsetEdit(int ModNum) override;
     //@}
 
+    //=========================================================================
+    // 渲染抽象层方法 / Render Abstraction Layer Methods
+    //=========================================================================
+
+    /**
+     * @brief 初始化渲染节点 / Initialize render nodes
+     *
+     * 创建抽象层的几何和材质节点。
+     * Creates geometry and material nodes for the abstraction layer.
+     */
+    void initRenderNodes() override;
+
+    /**
+     * @brief 同步几何数据到渲染节点 / Sync geometry data to render nodes
+     *
+     * 将当前形状的几何数据转换并同步到抽象层节点。
+     * Converts current shape geometry data and syncs to abstraction layer nodes.
+     */
+    void syncGeometryToRenderNodes();
+
+    /**
+     * @brief 同步线材质到渲染节点 / Sync line material to render nodes
+     */
+    void syncLineMaterialToRenderNode();
+
+    /**
+     * @brief 同步点材质到渲染节点 / Sync point material to render nodes
+     */
+    void syncPointMaterialToRenderNode();
+
+    /**
+     * @brief 同步绘制样式到渲染节点 / Sync draw style to render nodes
+     */
+    void syncDrawStyleToRenderNode();
+
 protected:
     /// get called by the container whenever a property has been changed
     void onChanged(const App::Property* prop) override;
@@ -239,6 +277,40 @@ protected:
     bool VisualTouched;
     bool NormalsFromUV;
     bool faceHighlightActive = false;
+
+    //=========================================================================
+    // 渲染抽象层成员 / Render Abstraction Layer Members
+    //=========================================================================
+
+    /// 几何数据缓存 / Geometry data cache
+    std::shared_ptr<Gui::Render::GeometryData> m_renderGeometryData;
+
+    /// 抽象层坐标节点 / Abstraction layer coordinate node
+    std::shared_ptr<Gui::Render::RenderNode> m_renderCoords;
+
+    /// 抽象层法线节点 / Abstraction layer normal node
+    std::shared_ptr<Gui::Render::RenderNode> m_renderNormals;
+
+    /// 抽象层面集节点 / Abstraction layer face set node
+    std::shared_ptr<Gui::Render::RenderNode> m_renderFaceSet;
+
+    /// 抽象层线集节点 / Abstraction layer line set node
+    std::shared_ptr<Gui::Render::RenderNode> m_renderLineSet;
+
+    /// 抽象层点集节点 / Abstraction layer point set node
+    std::shared_ptr<Gui::Render::RenderNode> m_renderPointSet;
+
+    /// 抽象层线材质 / Abstraction layer line material
+    std::shared_ptr<Gui::Render::RenderNode> m_renderLineMaterial;
+
+    /// 抽象层点材质 / Abstraction layer point material
+    std::shared_ptr<Gui::Render::RenderNode> m_renderPointMaterial;
+
+    /// 抽象层线样式 / Abstraction layer line style
+    std::shared_ptr<Gui::Render::RenderNode> m_renderLineStyle;
+
+    /// 抽象层点样式 / Abstraction layer point style
+    std::shared_ptr<Gui::Render::RenderNode> m_renderPointStyle;
 
 private:
     Gui::ViewProviderFaceTexture texture;

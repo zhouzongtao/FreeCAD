@@ -80,6 +80,9 @@
 #include "Utilities.h"
 #include "View3DInventor.h"
 #include "View3DInventorViewer.h"
+#ifdef RENDER_HAS_OSGVERSE_BACKEND
+#include "View3DOsgVerse.h"
+#endif
 #include "ViewParams.h"
 #include "ViewProviderGeometryObject.h"
 #include "WaitCursor.h"
@@ -2284,6 +2287,74 @@ bool StdCmdViewCreate::isActive()
 }
 
 //===========================================================================
+// Std_ViewCreateOsgVerse
+//===========================================================================
+DEF_STD_CMD_A(StdCmdViewCreateOsgVerse)
+
+StdCmdViewCreateOsgVerse::StdCmdViewCreateOsgVerse()
+    : Command("Std_ViewCreateOsgVerse")
+{
+    sGroup = "Standard-View";
+    sMenuText = QT_TR_NOOP("New OsgVerse 3D View");
+    sToolTipText = QT_TR_NOOP("Opens a new OsgVerse 3D view window for the active document");
+    sWhatsThis = "Std_ViewCreateOsgVerse";
+    sStatusTip = sToolTipText;
+    sPixmap = "window-new";
+    eType = Alter3DView;
+}
+
+void StdCmdViewCreateOsgVerse::activated(int iMsg)
+{
+#ifdef RENDER_HAS_OSGVERSE_BACKEND
+    Q_UNUSED(iMsg);
+    getActiveGuiDocument()->createView(View3DOsgVerse::getClassTypeId());
+    getActiveGuiDocument()->getActiveView()->viewAll();
+#endif
+}
+
+bool StdCmdViewCreateOsgVerse::isActive()
+{
+#ifdef RENDER_HAS_OSGVERSE_BACKEND
+    return (getActiveGuiDocument() != nullptr);
+#else
+    return false;
+#endif
+}
+
+//===========================================================================
+// Std_ViewCreateCoin3D
+//===========================================================================
+DEF_STD_CMD_A(StdCmdViewCreateCoin3D)
+
+StdCmdViewCreateCoin3D::StdCmdViewCreateCoin3D()
+    : Command("Std_ViewCreateCoin3D")
+{
+    sGroup = "Standard-View";
+    sMenuText = QT_TR_NOOP("New Coin3D 3D View");
+    sToolTipText = QT_TR_NOOP("Opens a new Coin3D 3D view window for the active document");
+    sWhatsThis = "Std_ViewCreateCoin3D";
+    sStatusTip = sToolTipText;
+    sPixmap = "window-new";
+    eType = Alter3DView;
+}
+
+void StdCmdViewCreateCoin3D::activated(int iMsg)
+{
+    Q_UNUSED(iMsg);
+    // 强制创建 Coin3D 视图（View3DInventor），绕过自动切换逻辑
+    MDIView* newView = getActiveGuiDocument()->createView(View3DInventor::getClassTypeId(),
+                                                           Gui::CreateViewMode::ForceCoin3D);
+    if (newView && newView->isDerivedFrom<View3DInventor>()) {
+        static_cast<View3DInventor*>(newView)->viewAll();
+    }
+}
+
+bool StdCmdViewCreateCoin3D::isActive()
+{
+    return (getActiveGuiDocument() != nullptr);
+}
+
+//===========================================================================
 // Std_ToggleNavigation
 //===========================================================================
 DEF_STD_CMD_A(StdCmdToggleNavigation)
@@ -4419,6 +4490,8 @@ void CreateViewStdCommands()
     rcCmdMgr.addCommand(new StdCmdViewIvIssueCamPos());
 
     rcCmdMgr.addCommand(new StdCmdViewCreate());
+    rcCmdMgr.addCommand(new StdCmdViewCreateOsgVerse());
+    rcCmdMgr.addCommand(new StdCmdViewCreateCoin3D());
     rcCmdMgr.addCommand(new StdViewScreenShot());
     rcCmdMgr.addCommand(new StdViewLoadImage());
     rcCmdMgr.addCommand(new StdMainFullscreen());

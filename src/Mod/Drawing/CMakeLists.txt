@@ -6,9 +6,28 @@ if(BUILD_GUI)
     add_subdirectory(Gui)
 endif(BUILD_GUI)
 
-# Install Python files
-INSTALL(FILES
-    InitGui.py
+set(Drawing_Scripts
     Init.py
-    DESTINATION ${CMAKE_INSTALL_DATADIR}/Mod/Drawing
+    DrawingCommands.py
+)
+
+if(BUILD_GUI)
+    list(APPEND Drawing_Scripts InitGui.py)
+endif(BUILD_GUI)
+
+add_custom_target(DrawingScripts ALL
+    SOURCES ${Drawing_Scripts}
+)
+
+fc_target_copy_resource_flat(DrawingScripts
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_BINARY_DIR}/Mod/Drawing
+    ${Drawing_Scripts}
+)
+
+INSTALL(
+    FILES
+        ${Drawing_Scripts}
+    DESTINATION
+        Mod/Drawing
 )

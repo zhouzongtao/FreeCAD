@@ -28,9 +28,14 @@
 
 #include <Base/Parameter.h>
 
-#include "MDIView.h"
+#include "View3DBase.h"
 
 #include "Base/Vector3D.h"
+
+// View3D Factory and Interfaces
+#include <Gui/View3D/ViewerFactory.h>
+#include <Gui/View3D/IViewer3D.h>
+#include <Gui/View3D/Backends/Coin/CoinViewer.h>
 
 class QPrinter;
 class QOpenGLWidget;
@@ -74,11 +79,11 @@ protected:
     QImage image;
 };
 
-/** The 3D view window
- *  It consists out of the 3D view
+/** The 3D view window (Coin3D backend)
+ *  It consists out of the 3D view using Coin3D/Open Inventor rendering
  *  \author Juergen Riegel
  */
-class GuiExport View3DInventor: public MDIView
+class GuiExport View3DInventor: public View3DBase
 {
     Q_OBJECT
 
@@ -133,6 +138,13 @@ public:
         return _viewer;
     }
     bool containsViewProvider(const ViewProvider*) const override;
+
+    // View3DBase abstract interface implementation
+    View3D::IViewer3D* getViewerInterface() override;
+    View3DBase::BackendType getBackendType() const override
+    {
+        return View3DBase::BackendType::Coin3D;
+    }
 
 public Q_SLOTS:
     /// override the cursor in this view

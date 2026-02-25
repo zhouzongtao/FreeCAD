@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FreeCAD 系统架构图</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', 'Microsoft YaHei', sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+            min-height: 100vh;
+            padding: 40px 20px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        h1 {
+            text-align: center;
+            color: #fff;
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        
+        .subtitle {
+            text-align: center;
+            color: #94a3b8;
+            margin-bottom: 40px;
+            font-size: 1.1em;
+        }
+        
+        .architecture {
+            display: flex;
+            flex-direction: column;
+            gap: 20px;
+        }
+        
+        .layer {
+            background: rgba(255,255,255,0.05);
+            border-radius: 16px;
+            padding: 20px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        
+        .layer-title {
+            color: #fff;
+            font-size: 1.2em;
+            margin-bottom: 15px;
+            padding-left: 10px;
+            border-left: 4px solid;
+        }
+        
+        .layer-ui .layer-title { border-color: #f472b6; }
+        .layer-gui .layer-title { border-color: #60a5fa; }
+        .layer-app .layer-title { border-color: #34d399; }
+        .layer-base .layer-title { border-color: #fbbf24; }
+        .layer-mod .layer-title { border-color: #a78bfa; }
+        .layer-3rd .layer-title { border-color: #f87171; }
+        
+        .modules {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            justify-content: center;
+        }
+        
+        .module {
+            background: linear-gradient(145deg, rgba(255,255,255,0.1), rgba(255,255,255,0.05));
+            border-radius: 12px;
+            padding: 15px 20px;
+            min-width: 140px;
+            text-align: center;
+            border: 1px solid rgba(255,255,255,0.15);
+            transition: all 0.3s ease;
+            cursor: pointer;
+        }
+        
+        .module:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            border-color: rgba(255,255,255,0.3);
+        }
+        
+        .module-icon {
+            font-size: 2em;
+            margin-bottom: 8px;
+        }
+        
+        .module-name {
+            color: #fff;
+            font-weight: 600;
+            font-size: 0.95em;
+        }
+        
+        .module-desc {
+            color: #94a3b8;
+            font-size: 0.75em;
+            margin-top: 5px;
+        }
+        
+        /* Module category colors */
+        .mod-cad { background: linear-gradient(145deg, rgba(96,165,250,0.2), rgba(96,165,250,0.1)); }
+        .mod-fem { background: linear-gradient(145deg, rgba(244,114,182,0.2), rgba(244,114,182,0.1)); }
+        .mod-mesh { background: linear-gradient(145deg, rgba(52,211,153,0.2), rgba(52,211,153,0.1)); }
+        .mod-draw { background: linear-gradient(145deg, rgba(251,191,36,0.2), rgba(251,191,36,0.1)); }
+        .mod-util { background: linear-gradient(145deg, rgba(167,139,250,0.2), rgba(167,139,250,0.1)); }
+        
+        .arrow-container {
+            display: flex;
+            justify-content: center;
+            padding: 5px 0;
+        }
+        
+        .arrow {
+            width: 40px;
+            height: 30px;
+            position: relative;
+        }
+        
+        .arrow::before {
+            content: '';
+            position: absolute;
+            left: 50%;
+            top: 0;
+            transform: translateX(-50%);
+            width: 2px;
+            height: 20px;
+            background: linear-gradient(to bottom, rgba(255,255,255,0.3), rgba(255,255,255,0.1));
+        }
+        
+        .arrow::after {
+            content: '';
+            position: absolute;
+            left: 50%;
+            bottom: 5px;
+            transform: translateX(-50%);
+            border-left: 6px solid transparent;
+            border-right: 6px solid transparent;
+            border-top: 8px solid rgba(255,255,255,0.3);
+        }
+        
+        .core-section {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        
+        @media (max-width: 900px) {
+            .core-section {
+                grid-template-columns: 1fr;
+            }
+        }
+        
+        .legend {
+            margin-top: 30px;
+            padding: 20px;
+            background: rgba(255,255,255,0.05);
+            border-radius: 12px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            justify-content: center;
+        }
+        
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: #94a3b8;
+            font-size: 0.85em;
+        }
+        
+        .legend-color {
+            width: 16px;
+            height: 16px;
+            border-radius: 4px;
+        }
+        
+        .tech-stack {
+            margin-top: 30px;
+            text-align: center;
+            color: #64748b;
+            font-size: 0.9em;
+        }
+        
+        .tech-stack span {
+            background: rgba(255,255,255,0.1);
+            padding: 4px 12px;
+            border-radius: 20px;
+            margin: 0 5px;
+            display: inline-block;
+            margin-bottom: 8px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔧 FreeCAD 系统架构</h1>
+        <p class="subtitle">开源参数化 3D CAD 建模软件 | Open Source Parametric 3D CAD Modeler</p>
+        
+        <div class="architecture">
+            <!-- User Interface Layer -->
+            <div class="layer layer-ui">
+                <div class="layer-title">👤 用户界面层 (User Interface)</div>
+                <div class="modules">
+                    <div class="module">
+                        <div class="module-icon">🖥️</div>
+                        <div class="module-name">Main Window</div>
+                        <div class="module-desc">主窗口框架</div>
+                    </div>
+                    <div class="module">
+                        <div class="module-icon">📋</div>
+                        <div class="module-name">Menu & Toolbar</div>
+                        <div class="module-desc">菜单与工具栏</div>
+                    </div>
+                    <div class="module">
+                        <div class="module-icon">🌳</div>
+                        <div class="module-name">Tree View</div>
+                        <div class="module-desc">模型树视图</div>
+                    </div>
+                    <div class="module">
+                        <div class="module-icon">⚙️</div>
+                        <div class="module-name">Property Panel</div>
+                        <div class="module-desc">属性面板</div>
+                    </div>
+                    <div class="module">
+                        <div class="module-icon">🐍</div>
+                        <div class="module-name">Python Console</div>
+                        <div class="module-desc">Python 控制台</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="arrow-container"><div class="arrow"></div></div>
+            
+            <!-- GUI Framework Layer -->
+            <div class="layer layer-gui">
+                <div class="layer-title">🎨 GUI 框架层 (src/Gui)</div>
+                <div class="modules">
+                    <div class="module">
+                        <div class="module-icon">🎬</div>
+                        <div class="module-name">View3D</div>
+                        <div class="module-desc">3D 视图渲染</div>
+                    </div>
+                    <div class="module">
+                        <div class="module-icon">📄</div>
+                        <div class="module-name">Document</div>
+                        <div class="module-desc">文档管理</div>
+                    </div>
+                    <div class="module">
+                        <div class="module-icon">🎯</div>
+                        <div class="module-name">Selection</div>
+                        <div class="module-desc">选择管理器</div>
+                    </div>
+                    <div class="module">
+                        <div class="module-icon">⌨️</div>
+                        <div class="module-name">Command</div>
+                        <div class="module-desc">命令系统</div>
+                    </div>
+                    <div class="module">
+                        <div class="module-icon">🔌</div>
+                        <div class="module-name">Workbench</div>
+                        <div class="module-desc">工作台管理</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="arrow-container"><div class="arrow"></div></div>
+            
+            <!-- Core Section: App + Base -->
+            <div class="core-section">
+                <div class="layer layer-app">
+                    <div class="layer-title">📦 应用层 (src/App)</div>
+                    <div class="modules">
+                        <div class="module">
+                            <div class="module-icon">📁</div>
+                            <div class="module-name">Document</div>
+                            <div class="module-desc">文档对象模型</div>
+                        </div>
+                        <div class="module">
+                            <div class="module-icon">🧊</div>
+                            <div class="module-name">DocumentObject</div>
+                            <div class="module-desc">文档对象基类</div>
+                        </div>
+                        <div class="module">
+                            <div class="module-icon">🔗</div>
+                            <div class="module-name">Property</div>
+                            <div class="module-desc">属性系统</div>
+                        </div>
+                        <div class="module">
+                            <div class="module-icon">📐</div>
+                            <div class="module-name">GeoFeature</div>
+                            <div class="module-desc">几何特征</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="layer layer-base">
+                    <div class="layer-title">🏗️ 基础层 (src/Base)</div>
+                    <div class="modules">
+                        <div class="module">
+                            <div class="module-icon">🔢</div>
+                            <div class="module-name">Vector/Matrix</div>
+                            <div class="module-desc">数学库</div>
+                        </div>
+                        <div class="module">
+                            <div class="module-icon">📝</div>
+                            <div class="module-name">Console</div>
+                            <div class="module-desc">日志系统</div>
+                        </div>
+                        <div class="module">
+                            <div class="module-icon">⚠️</div>
+                            <div class="module-name">Exception</div>
+                            <div class="module-desc">异常处理</div>
+                        </div>
+                        <div class="module">
+                            <div class="module-icon">💾</div>
+                            <div class="module-name">Persistence</div>
+                            <div class="module-desc">序列化</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="arrow-container"><div class="arrow"></div></div>
+            
+            <!-- Modules Layer -->
+            <div class="layer layer-mod">
+                <div class="layer-title">🧩 功能模块层 (src/Mod)</div>
+                <div class="modules">
+                    <div class="module mod-cad">
+                        <div class="module-icon">🔷</div>
+                        <div class="module-name">Part</div>
+                        <div class="module-desc">实体建模</div>
+                    </div>
+                    <div class="module mod-cad">
+                        <div class="module-icon">⚙️</div>
+                        <div class="module-name">PartDesign</div>
+                        <div class="module-desc">参数化设计</div>
+                    </div>
+                    <div class="module mod-cad">
+                        <div class="module-icon">✏️</div>
+                        <div class="module-name">Sketcher</div>
+                        <div class="module-desc">2D 草图</div>
+                    </div>
+                    <div class="module mod-cad">
+                        <div class="module-icon">📝</div>
+                        <div class="module-name">Draft</div>
+                        <div class="module-desc">2D 绘图</div>
+                    </div>
+                    <div class="module mod-draw">
+                        <div class="module-icon">🎨</div>
+                        <div class="module-name">Drawing</div>
+                        <div class="module-desc">Skia 绘图</div>
+                    </div>
+                    <div class="module mod-draw">
+                        <div class="module-icon">📐</div>
+                        <div class="module-name">TechDraw</div>
+                        <div class="module-desc">工程制图</div>
+                    </div>
+                    <div class="module mod-mesh">
+                        <div class="module-icon">🔺</div>
+                        <div class="module-name">Mesh</div>
+                        <div class="module-desc">网格处理</div>
+                    </div>
+                    <div class="module mod-fem">
+                        <div class="module-icon">📊</div>
+                        <div class="module-name">FEM</div>
+                        <div class="module-desc">有限元分析</div>
+                    </div>
+                    <div class="module mod-cad">
+                        <div class="module-icon">🔩</div>
+                        <div class="module-name">Assembly</div>
+                        <div class="module-desc">装配</div>
+                    </div>
+                    <div class="module mod-util">
+                        <div class="module-icon">🏠</div>
+                        <div class="module-name">BIM</div>
+                        <div class="module-desc">建筑信息</div>
+                    </div>
+                    <div class="module mod-util">
+                        <div class="module-icon">🤖</div>
+                        <div class="module-name">Robot</div>
+                        <div class="module-desc">机器人仿真</div>
+                    </div>
+                    <div class="module mod-util">
+                        <div class="module-icon">🔄</div>
+                        <div class="module-name">CAM</div>
+                        <div class="module-desc">数控加工</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="arrow-container"><div class="arrow"></div></div>
+            
+            <!-- 3rd Party Layer -->
+            <div class="layer layer-3rd">
+                <div class="layer-title">📚 第三方库 (3rd Party Libraries)</div>
+                <div class="modules">
+                    <div class="module">
+                        <div class="module-icon">🔶</div>
+                        <div class="module-name">OpenCASCADE</div>
+                        <div class="module-desc">几何内核</div>
+                    </div>
+                    <div class="module">
+                        <div class="module-icon">🎭</div>
+                        <div class="module-name">Coin3D</div>
+                        <div class="module-desc">3D 渲染</div>
+                    </div>
+                    <div class="module">
+                        <div class="module-icon">🖼️</div>
+                        <div class="module-name">Qt</div>
+                        <div class="module-desc">GUI 框架</div>
+                    </div>
+                    <div class="module">
+                        <div class="module-icon">🐍</div>
+                        <div class="module-name">Python</div>
+                        <div class="module-desc">脚本引擎</div>
+                    </div>
+                    <div class="module">
+                        <div class="module-icon">🎨</div>
+                        <div class="module-name">Skia</div>
+                        <div class="module-desc">2D 图形</div>
+                    </div>
+                    <div class="module">
+                        <div class="module-icon">📐</div>
+                        <div class="module-name">Eigen</div>
+                        <div class="module-desc">线性代数</div>
+                    </div>
+                    <div class="module">
+                        <div class="module-icon">🔺</div>
+                        <div class="module-name">VTK</div>
+                        <div class="module-desc">可视化</div>
+                    </div>
+                    <div class="module">
+                        <div class="module-icon">⚡</div>
+                        <div class="module-name">Boost</div>
+                        <div class="module-desc">C++ 扩展</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Legend -->
+        <div class="legend">
+            <div class="legend-item">
+                <div class="legend-color" style="background: rgba(96,165,250,0.5);"></div>
+                <span>CAD 建模</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: rgba(244,114,182,0.5);"></div>
+                <span>分析仿真</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: rgba(52,211,153,0.5);"></div>
+                <span>网格处理</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: rgba(251,191,36,0.5);"></div>
+                <span>绘图输出</span>
+            </div>
+            <div class="legend-item">
+                <div class="legend-color" style="background: rgba(167,139,250,0.5);"></div>
+                <span>专业应用</span>
+            </div>
+        </div>
+        
+        <!-- Tech Stack -->
+        <div class="tech-stack">
+            <p style="margin-bottom: 10px; color: #94a3b8;">技术栈 Tech Stack</p>
+            <span>C++ 17</span>
+            <span>Python 3.x</span>
+            <span>Qt 6</span>
+            <span>OpenGL</span>
+            <span>CMake</span>
+            <span>LGPL License</span>
+        </div>
+    </div>
+</body>
+</html>

@@ -46,6 +46,9 @@
 #include "View3DInventorViewer.h"
 #include "ViewProviderGeometryObject.h"
 #include "ViewProviderGeometryObjectPy.h"
+#include "Render/Core/RenderNode.h"
+#include "Render/Core/RenderNodeFactory.h"
+#include "Render/Backends/Coin3D/Coin3DMaterial.h"
 
 #include <Base/Tools.h>
 
@@ -265,6 +268,7 @@ unsigned long ViewProviderGeometryObject::getBoundColor() const
 
 void ViewProviderGeometryObject::setCoinAppearance(const App::Material& source)
 {
+    // Coin3D backend
     pcShapeMaterial->ambientColor
         .setValue(source.ambientColor.r, source.ambientColor.g, source.ambientColor.b);
     pcShapeMaterial->diffuseColor
@@ -275,6 +279,9 @@ void ViewProviderGeometryObject::setCoinAppearance(const App::Material& source)
         .setValue(source.emissiveColor.r, source.emissiveColor.g, source.emissiveColor.b);
     pcShapeMaterial->shininess.setValue(source.shininess);
     pcShapeMaterial->transparency.setValue(source.transparency);
+
+    // 同步到抽象层节点 / Sync to abstraction layer node
+    syncMaterialToRenderNode(source);
 }
 
 namespace
@@ -329,6 +336,7 @@ void ViewProviderGeometryObject::showBoundingBox(bool show)
 
 void ViewProviderGeometryObject::setSelectable(bool selectable)
 {
+    // Coin3D backend: search and update SoFCSelection nodes
     SoSearchAction sa;
     sa.setInterest(SoSearchAction::ALL);
     sa.setSearchingAll(true);
@@ -355,6 +363,9 @@ void ViewProviderGeometryObject::setSelectable(bool selectable)
     }
 
     pickStyle->style.setValue(selectable ? SoPickStyle::SHAPE : SoPickStyle::UNPICKABLE);
+
+    // 同步到抽象层节点 / Sync to abstraction layer node
+    syncPickStyleToRenderNode(selectable);
 }
 
 PyObject* ViewProviderGeometryObject::getPyObject()
@@ -387,4 +398,97 @@ void ViewProviderGeometryObject::handleChangedPropertyName(
     else {
         ViewProviderDragger::handleChangedPropertyName(reader, TypeName, PropName);
     }
+}
+
+//---------------------------------------------------------------------------
+// 渲染抽象层集成 / Rendering Abstraction Layer Integration
+//---------------------------------------------------------------------------
+
+void ViewProviderGeometryObject::initRenderNodes()
+{
+    // TEMPORARILY DISABLED: Render abstraction layer initialization
+    // This was causing crashes when loading documents
+    // TODO: Re-enable once render abstraction is fully stable
+#if 0
+    // 检查是否已初始化（幂等性）/ Check if already initialized (idempotent)
+    if (m_renderMaterial) {
+        return;
+    }
+
+    // 首先调用基类初始化 / First call base class init
+    ViewProviderDragger::initRenderNodes();
+
+    // 获取节点工厂 / Get node factory
+    auto* factory = getNodeFactory();
+    if (!factory) {
+        return;
+    }
+
+    // 创建抽象层材质节点 / Create abstraction layer material node
+    m_renderMaterial = factory->createMaterial();
+    if (m_renderMaterial) {
+        m_renderMaterial->setName("ShapeMaterial");
+        // 同步初始材质 / Sync initial material
+        App::Material mat = App::Material::getDefaultAppearance();
+        syncMaterialToRenderNode(mat);
+    }
+
+    // 创建抽象层拾取样式节点 / Create abstraction layer pick style node
+    m_renderPickStyle = factory->createPickStyle();
+    if (m_renderPickStyle) {
+        m_renderPickStyle->setName("PickStyle");
+        syncPickStyleToRenderNode(true);
+    }
+
+    // TODO: 创建边界框节点（需要 RenderBoundingBox 类型）
+    // TODO: Create bounding box node (needs RenderBoundingBox type)
+#endif
+}
+
+void ViewProviderGeometryObject::syncMaterialToRenderNode(const App::Material& mat)
+{
+    if (!m_renderMaterial) {
+        return;
+    }
+
+    // 尝试使用 Coin3D 特定接口（当前唯一实现）
+    // Try using Coin3D-specific interface (currently the only implementation)
+#ifdef RENDER_HAS_COIN3D_BACKEND
+    if (auto* coin3dMat = dynamic_cast<Render::Coin3DMaterial*>(m_renderMaterial.get())) {
+        // 使用 Coin3DMaterial 提供的 float 参数版本
+        // Use the float-parameter versions provided by Coin3DMaterial
+        coin3dMat->setAmbientColor(mat.ambientColor.r, mat.ambientColor.g, mat.ambientColor.b);
+        coin3dMat->setDiffuseColor(mat.diffuseColor.r, mat.diffuseColor.g, mat.diffuseColor.b);
+        coin3dMat->setSpecularColor(mat.specularColor.r, mat.specularColor.g, mat.specularColor.b);
+        coin3dMat->setEmissiveColor(mat.emissiveColor.r, mat.emissiveColor.g, mat.emissiveColor.b);
+        coin3dMat->setShininess(mat.shininess);
+        coin3dMat->setTransparency(mat.transparency);
+        return;
+    }
+#endif
+
+    // TODO: 添加 OsgVerse 后端支持
+    // TODO: Add OsgVerse backend support
+#ifdef RENDER_HAS_OSGVERSE_BACKEND
+    // if (auto* osgMat = dynamic_cast<Render::OsgVerseMaterial*>(m_renderMaterial.get())) {
+    //     // Set OsgVerse material properties
+    // }
+#endif
+}
+
+void ViewProviderGeometryObject::syncPickStyleToRenderNode(bool selectable)
+{
+    if (!m_renderPickStyle) {
+        return;
+    }
+
+    // TODO: 当 RenderPickStyle 类型实现后，在这里设置拾取样式
+    // TODO: When RenderPickStyle type is implemented, set pick style here
+    //
+    // auto* pickNode = dynamic_cast<Render::RenderPickStyle*>(m_renderPickStyle.get());
+    // if (pickNode) {
+    //     pickNode->setStyle(selectable ? PickStyle::Shape : PickStyle::Unpickable);
+    // }
+
+    (void)selectable;  // 避免未使用警告 / Avoid unused warning
 }

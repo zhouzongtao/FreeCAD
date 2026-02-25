@@ -77,8 +77,11 @@
 #include "WaitCursor.h"
 
 #include "Utilities.h"
+#include "Render/Core/RenderTypes.h"
+#include "View3D/Backends/Coin/CoinViewer.h"
 
 using namespace Gui;
+namespace Render = Gui::Render;
 
 void GLOverlayWidget::paintEvent(QPaintEvent*)
 {
@@ -89,7 +92,7 @@ void GLOverlayWidget::paintEvent(QPaintEvent*)
 
 /* TRANSLATOR Gui::View3DInventor */
 
-TYPESYSTEM_SOURCE_ABSTRACT(Gui::View3DInventor, Gui::MDIView)
+TYPESYSTEM_SOURCE_ABSTRACT(Gui::View3DInventor, Gui::View3DBase)
 
 View3DInventor::View3DInventor(
     Gui::Document* pcDocument,
@@ -97,9 +100,11 @@ View3DInventor::View3DInventor(
     const QOpenGLWidget* sharewidget,
     Qt::WindowFlags wflags
 )
-    : MDIView(pcDocument, parent, wflags)
+    : View3DBase(pcDocument, parent, wflags)
     , _viewerPy(nullptr)
 {
+    Base::Console().log("View3DInventor: Constructor called\n");
+    
     stack = new QStackedWidget(this);
     // important for highlighting
     setMouseTracking(true);
@@ -120,11 +125,51 @@ View3DInventor::View3DInventor(
         smoothing = true;
     }
 
-    if (glformat) {
-        _viewer = new View3DInventorViewer(f, this, sharewidget);
+    // View3DInventor is specifically for Coin3D rendering
+    // We must directly request Coin3D backend, not use createDefault()
+    // which uses the current RenderManager backend setting
+    try {
+        Base::Console().log("View3DInventor: Creating Coin3D viewer using ViewerFactory\n");
+
+        // Create viewer using factory with explicit Coin3D backend type
+        auto viewer = View3D::ViewerFactory::create(Render::BackendType::Coin3D, this, sharewidget);
+
+        // Extract the View3DInventorViewer from the CoinViewer wrapper
+        auto* coinViewer = dynamic_cast<View3D::Coin::CoinViewer*>(viewer.get());
+        if (coinViewer) {
+            _viewer = coinViewer->getCoinViewer();
+            viewer.release();  // Release ownership, _viewer now manages the object
+
+            Base::Console().log("View3DInventor: Successfully created Coin3D viewer via factory\n");
+        }
+        else {
+            // This shouldn't happen if Coin3D backend is properly registered
+            Base::Console().warning(
+                "View3DInventor: ViewerFactory did not return CoinViewer, "
+                "falling back to direct creation\n"
+            );
+
+            if (glformat) {
+                _viewer = new View3DInventorViewer(f, this, sharewidget);
+            }
+            else {
+                _viewer = new View3DInventorViewer(this, sharewidget);
+            }
+        }
     }
-    else {
-        _viewer = new View3DInventorViewer(this, sharewidget);
+    catch (const std::exception& e) {
+        // If factory fails, fall back to direct creation
+        Base::Console().error(
+            "View3DInventor: ViewerFactory failed: %s, falling back to direct creation\n",
+            e.what()
+        );
+
+        if (glformat) {
+            _viewer = new View3DInventorViewer(f, this, sharewidget);
+        }
+        else {
+            _viewer = new View3DInventorViewer(this, sharewidget);
+        }
     }
 
     if (smoothing) {
@@ -949,6 +994,13 @@ void View3DInventor::customEvent(QEvent* e)
             _viewer->setNavigationType(se->style());
         }
     }
+}
+
+View3D::IViewer3D* View3DInventor::getViewerInterface()
+{
+    // View3DInventor uses View3DInventorViewer which doesn't implement IViewer3D
+    // This is intentional - View3DInventor is Coin3D-specific and doesn't need abstraction
+    return nullptr;
 }
 
 

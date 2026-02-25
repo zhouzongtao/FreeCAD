@@ -733,10 +733,21 @@ MenuItem* StdWorkbench::setupMenuBar() const
           << "Separator" << "Std_ToggleObjects" << "Std_ShowObjects" << "Std_HideObjects"
           << "Separator" << "Std_ToggleSelectability";
 
+    // Rendering Backend
+#ifdef RENDER_HAS_OSGVERSE_BACKEND
+    auto renderBackend = new MenuItem;
+    renderBackend->setCommand("&Render Engine");
+    *renderBackend << "Std_RenderBackendCoin3D" << "Std_RenderBackendOsgVerse";
+#endif
+
     // View
     auto view = new MenuItem(menuBar);
     view->setCommand("&View");
-    *view << "Std_ViewCreate" << "Std_OrthographicCamera" << "Std_PerspectiveCamera"
+    *view << "Std_ViewCreate" << "Std_ViewCreateOsgVerse" << "Std_ViewCreateCoin3D"
+          << "Std_OrthographicCamera" << "Std_PerspectiveCamera"
+#ifdef RENDER_HAS_OSGVERSE_BACKEND
+          << "Separator" << renderBackend
+#endif
           << "Std_MainFullscreen" << "Separator" << stdviews << "Std_FreezeViews" << "Std_DrawStyle"
           << "Std_SelBoundingBox"
           << "Separator" << view3d << zoom << "Std_ViewDockUndockFullscreen" << "Std_AxisCross"

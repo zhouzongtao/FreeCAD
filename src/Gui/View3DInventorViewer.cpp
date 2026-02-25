@@ -138,6 +138,8 @@
 #include "Navigation/NavigationAnimator.h"
 #include "Navigation/NavigationAnimation.h"
 #include "Utilities.h"
+#include "Render/Core/RenderNode.h"
+#include "Render/Core/SceneGraphBridge.h"
 
 #include <Inventor/nodes/SoRotation.h>
 #include <Inventor/nodes/SoTransformSeparator.h>
@@ -451,6 +453,17 @@ void View3DInventorViewer::init()
     fpsEnabled = false;
     vboEnabled = false;
 
+    // TEMPORARILY DISABLED: SceneGraphBridge attachment
+#if 0
+    // Attach to SceneGraphBridge for render abstraction layer integration
+    try {
+        Render::SceneGraphBridge::instance().attachViewer(this);
+    }
+    catch (const std::exception& e) {
+        Base::Console().warning("View3DInventorViewer: Failed to attach to SceneGraphBridge: %s\n", e.what());
+    }
+#endif
+
     attachSelection();
 
     // Coin should not clear the pixel-buffer, so the background image
@@ -699,6 +712,17 @@ void View3DInventorViewer::init()
 
 View3DInventorViewer::~View3DInventorViewer()
 {
+    // TEMPORARILY DISABLED: SceneGraphBridge detachment
+#if 0
+    // Detach from SceneGraphBridge before cleanup
+    try {
+        Render::SceneGraphBridge::instance().detachViewer(this);
+    }
+    catch (...) {
+        // Ignore exceptions during cleanup
+    }
+#endif
+
     // to prevent following OpenGL error message: "Texture is not valid in the current context.
     // Texture has not been destroyed"
     aboutToDestroyGLContext();
@@ -914,7 +938,10 @@ void View3DInventorViewer::addViewProvider(ViewProvider* pcProvider)
     SoSeparator* root = pcProvider->getRoot();
 
     if (root) {
-        if (pcProvider->canAddToSceneGraph()) {
+        bool canAdd = pcProvider->canAddToSceneGraph();
+        bool isVisible = pcProvider->isShow();
+
+        if (canAdd) {
             // Add to the physical object group if related to the physical object otherwise add to
             // the scene graph
             if (pcProvider->isPartOfPhysicalObject()) {
@@ -923,9 +950,30 @@ void View3DInventorViewer::addViewProvider(ViewProvider* pcProvider)
             else {
                 pcViewProviderRoot->addChild(root);
             }
+
+            // Ensure display mode is properly set
+            const char* defaultMode = pcProvider->getDefaultDisplayMode();
+            if (defaultMode) {
+                pcProvider->setDisplayMode(defaultMode);
+            }
+
+            // Ensure ViewProvider is visible
+            // This is needed for opened documents where visibility wasn't properly restored
+            if (!isVisible) {
+                pcProvider->show();
+            }
         }
+
         _ViewProviderMap[root] = pcProvider;
     }
+
+    // TEMPORARILY DISABLED: RenderNode tracking
+#if 0
+    // Track RenderNode for render abstraction layer
+    if (auto* renderRoot = pcProvider->getRenderRoot()) {
+        _RenderNodeMap[renderRoot] = pcProvider;
+    }
+#endif
 
     if (SoSeparator* fore = pcProvider->getFrontRoot()) {
         foregroundroot->addChild(fore);
@@ -937,6 +985,17 @@ void View3DInventorViewer::addViewProvider(ViewProvider* pcProvider)
 
     pcProvider->setOverrideMode(this->getOverrideMode());
     _ViewProviderSet.insert(pcProvider);
+
+    // TEMPORARILY DISABLED: SceneGraphBridge notification
+#if 0
+    // Notify SceneGraphBridge of the addition
+    try {
+        Render::SceneGraphBridge::instance().addViewProvider(this, pcProvider);
+    }
+    catch (const std::exception& e) {
+        Base::Console().warning("View3DInventorViewer: Failed to notify SceneGraphBridge: %s\n", e.what());
+    }
+#endif
 }
 
 void View3DInventorViewer::removeViewProvider(ViewProvider* pcProvider)
@@ -944,6 +1003,17 @@ void View3DInventorViewer::removeViewProvider(ViewProvider* pcProvider)
     if (this->editViewProvider == pcProvider) {
         resetEditingViewProvider();
     }
+
+    // TEMPORARILY DISABLED: SceneGraphBridge notification
+#if 0
+    // Notify SceneGraphBridge before removal
+    try {
+        Render::SceneGraphBridge::instance().removeViewProvider(this, pcProvider);
+    }
+    catch (...) {
+        // Ignore exceptions during removal
+    }
+#endif
 
     SoSeparator* root = pcProvider->getRoot();
 
@@ -959,6 +1029,14 @@ void View3DInventorViewer::removeViewProvider(ViewProvider* pcProvider)
         }
         _ViewProviderMap.erase(root);
     }
+
+    // TEMPORARILY DISABLED: RenderNode map removal
+#if 0
+    // Remove from RenderNode map
+    if (auto* renderRoot = pcProvider->getRenderRoot()) {
+        _RenderNodeMap.erase(renderRoot);
+    }
+#endif
 
     if (SoSeparator* fore = pcProvider->getFrontRoot()) {
         foregroundroot->removeChild(fore);
@@ -4491,6 +4569,26 @@ ViewProvider* View3DInventorViewer::getViewProviderByPathFromTail(SoPath* path) 
         return nullptr;
     }
     return guiDocument->getViewProviderByPathFromTail(path);
+}
+
+ViewProvider* View3DInventorViewer::getViewProviderByRenderNode(Render::RenderNode* node) const
+{
+    if (!node) {
+        return nullptr;
+    }
+
+    // First check local map
+    auto it = _RenderNodeMap.find(node);
+    if (it != _RenderNodeMap.end()) {
+        return it->second;
+    }
+
+    // Fall back to document lookup
+    if (guiDocument) {
+        return guiDocument->getViewProvider(node);
+    }
+
+    return nullptr;
 }
 
 std::vector<ViewProvider*> View3DInventorViewer::getViewProvidersOfType(const Base::Type& typeId) const
