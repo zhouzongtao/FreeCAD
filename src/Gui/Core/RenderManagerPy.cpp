@@ -182,8 +182,8 @@ static PyObject* initializeRenderManager(PyObject* /*self*/, PyObject* args)
 // 方法表 / Method Table
 //===========================================================================
 
-// Export the methods array so it can be used from FreeCADGuiPy.cpp
-PyMethodDef RenderManager_methods[] = {
+// Static array of methods - kept internal
+static PyMethodDef renderManager_methods[] = {
     {"initializeRenderManager", initializeRenderManager, METH_VARARGS,
      "initializeRenderManager() -> bool\n"
      "Manually initialize the RenderManager.\n"
@@ -225,6 +225,13 @@ PyMethodDef RenderManager_methods[] = {
 
     {nullptr, nullptr, 0, nullptr}  // Sentinel
 };
+
+// Exported function to get the methods array
+// This is called by FreeCADGuiPy.cpp to add RenderManager methods to FreeCADGui module
+extern "C" GuiExport PyMethodDef* Gui_Core_RenderManager_methods()
+{
+    return renderManager_methods;
+}
 
 //===========================================================================
 // 模块初始化 / Module Initialization
@@ -276,10 +283,11 @@ void initRenderManagerPy()
     }
     
     Base::Console().log("initRenderManagerPy: Adding functions to FreeCADGui module dictionary...\n");
-    
+
     // 逐个添加函数
     // Add functions one by one
-    for (PyMethodDef* method = RenderManager_methods; method->ml_name != nullptr; ++method) {
+    PyMethodDef* methods = Gui_Core_RenderManager_methods();
+    for (PyMethodDef* method = methods; method->ml_name != nullptr; ++method) {
         Base::Console().log("initRenderManagerPy: Adding function '%s'...\n", method->ml_name);
         
         PyObject* func = PyCFunction_New(method, nullptr);

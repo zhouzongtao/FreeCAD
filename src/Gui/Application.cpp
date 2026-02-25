@@ -176,9 +176,12 @@ namespace Gui {
 namespace Core {
     extern void initRenderManagerPy();
     class RenderManager;  // Forward declaration
-    extern PyMethodDef RenderManager_methods[];  // Methods array
 }
 }
+
+// Forward declaration of the exported RenderManager methods array
+// Defined in RenderManagerPy.cpp with extern "C" linkage
+extern "C" PyMethodDef* Gui_Core_RenderManager_methods();
 
 namespace Gui
 {
@@ -625,8 +628,9 @@ Application::Application(bool GUIenabled)
         Base::Console().log("Application: Adding RenderManager methods to FreeCADGui module...\n");
         PyObject* dict = PyModule_GetDict(module);
         if (dict) {
-            // Get RenderManager methods from Gui::Core namespace
-            for (PyMethodDef* method = Core::RenderManager_methods; method->ml_name != nullptr; ++method) {
+            // Get RenderManager methods (extern "C" exported symbol)
+            PyMethodDef* methods = Gui_Core_RenderManager_methods();
+            for (PyMethodDef* method = methods; method->ml_name != nullptr; ++method) {
                 PyObject* func = PyCFunction_New(method, nullptr);
                 if (func) {
                     PyDict_SetItemString(dict, method->ml_name, func);

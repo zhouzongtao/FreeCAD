@@ -252,4 +252,26 @@ inline Render::BackendType getCurrentRenderBackend()
 } // namespace Core
 } // namespace Gui
 
+// Forward declaration for the Python methods array
+// This avoids including Python.h in this header
+struct PyMethodDef;
+
+// Export declaration for the RenderManager Python methods array
+// Used by FreeCADGuiPy.cpp to add RenderManager functions to the FreeCADGui module
+#ifdef _WIN32
+#define GuiArrayExport __declspec(dllexport)
+#else
+#define GuiArrayExport
+#endif
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+    // Python method definitions for RenderManager functions
+    // Defined in RenderManagerPy.cpp, used by FreeCADGuiPy.cpp
+    GuiArrayExport PyMethodDef* Gui_Core_RenderManager_methods();
+#ifdef __cplusplus
+}
+#endif
+
 #endif // GUI_CORE_RENDERMANAGER_H

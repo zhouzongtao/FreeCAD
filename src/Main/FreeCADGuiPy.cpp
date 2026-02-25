@@ -51,11 +51,8 @@
 #include <Gui/Core/RenderManager.h>
 
 // Forward declaration of RenderManager Python binding functions
-namespace Gui {
-namespace Core {
-    extern PyMethodDef RenderManager_methods[];
-}
-}
+// Function that returns the methods array (defined in RenderManagerPy.cpp)
+extern "C" PyMethodDef* Gui_Core_RenderManager_methods();
 #include <Gui/MainWindow.h>
 #include <Gui/StartupProcess.h>
 #include <Gui/SoFCDB.h>
@@ -389,7 +386,8 @@ PyMOD_INIT_FUNC(FreeCADGui)
         Base::Console().log("FreeCADGuiPy: Adding RenderManager methods to module...\n");
         PyObject* dict = PyModule_GetDict(module);
         if (dict) {
-            for (PyMethodDef* method = Gui::Core::RenderManager_methods; method->ml_name != nullptr; ++method) {
+            PyMethodDef* methods = Gui_Core_RenderManager_methods();
+            for (PyMethodDef* method = methods; method->ml_name != nullptr; ++method) {
                 PyObject* func = PyCFunction_New(method, nullptr);
                 if (func) {
                     PyDict_SetItemString(dict, method->ml_name, func);

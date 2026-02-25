@@ -28,6 +28,12 @@
 #ifndef FC_GLOBAL_H
 #define FC_GLOBAL_H
 
+// Disable Windows min/max macros when using Clang
+#ifdef __clang__
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#endif
 
 #if defined(WIN64) || defined(_WIN64) || defined(__WIN64__) || defined(__CYGWIN__)
 #  define FREECAD_DECL_EXPORT __declspec(dllexport)
