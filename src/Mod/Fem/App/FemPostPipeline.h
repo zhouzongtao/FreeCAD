@@ -20,8 +20,7 @@
  *                                                                         *
  ***************************************************************************/
 
-#ifndef Fem_FemPostPipeline_H
-#define Fem_FemPostPipeline_H
+#pragma once
 
 #include "Base/Unit.h"
 #include "FemPostGroupExtension.h"
@@ -32,7 +31,7 @@
 #include "FemResultObject.h"
 #include "VTKExtensions/vtkFemFrameSourceAlgorithm.h"
 
-#if VTK_VERSION_NUMBER < VTK_VERSION_CHECK(9, 3, 0)
+#if VTK_VERSION_NUMBER < VTK_VERSION_CHECK(9, 2, 20230125)
 # include "VTKExtensions/vtkCleanUnstructuredGrid.h"
 #else
 # include <vtkCleanUnstructuredGrid.h>
@@ -141,6 +140,3 @@ private:
 };
 
 }  // namespace Fem
-
-
-#endif  // Fem_FemPostPipeline_H
