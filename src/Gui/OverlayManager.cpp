@@ -999,8 +999,10 @@ public:
 
     void setupTitleBar(QDockWidget* dock)
     {
-        if (!dock->titleBarWidget()) {
-            dock->setTitleBarWidget(createTitleBar(dock));
+        auto* oldWidget = dock->titleBarWidget();
+        dock->setTitleBarWidget(createTitleBar(dock));
+        if (oldWidget) {
+            oldWidget->deleteLater();
         }
     }
 
@@ -1674,12 +1676,9 @@ void OverlayManager::onDockFeaturesChange(QDockWidget::DockWidgetFeatures featur
     }
 
     // Rebuild the title widget as it may have a different set of buttons shown.
-    if (auto* titleBarWidget = qobject_cast<OverlayTitleBar*>(dw->titleBarWidget())) {
-        dw->setTitleBarWidget(nullptr);
-        delete titleBarWidget;
+    if (auto tw = dw->titleBarWidget(); !tw || qobject_cast<OverlayTitleBar*>(tw)) {
+        setupTitleBar(dw);
     }
-
-    setupTitleBar(dw);
 }
 
 void OverlayManager::onTaskViewUpdate()
@@ -1770,6 +1769,12 @@ bool OverlayManager::eventFilter(QObject* o, QEvent* ev)
             if (Selection().hasPreselection() && !qobject_cast<View3DInventorViewer*>(o)
                 && !isUnderOverlay()) {
                 Selection().rmvPreselect();
+            }
+            break;
+        case QEvent::Leave:
+            // Clear mirrored cursor when leaving overlay.
+            if (auto tabWidget = qobject_cast<OverlayTabWidget*>(o)) {
+                tabWidget->unsetCursor();
             }
             break;
         case QEvent::ZOrderChange: {
@@ -2010,6 +2015,10 @@ bool OverlayManager::eventFilter(QObject* o, QEvent* ev)
 
             ev->accept();
             d->interceptEvent(hitWidget, ev);
+            // Mirror underlying widget cursor onto transparent overlay.
+            if (ev->type() == QEvent::MouseMove) {
+                activeTabWidget->setCursor(hitWidget->cursor());
+            }
             if (ev->isAccepted() && ev->type() == QEvent::MouseButtonPress) {
                 hitWidget->setFocus();
                 d->_trackingWidget = hitWidget;
