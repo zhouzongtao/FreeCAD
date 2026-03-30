@@ -22,8 +22,7 @@
  *                                                                         *
  ***************************************************************************/
 
-#ifndef MESHGUI_VIEWPROVIDERMESH_H
-#define MESHGUI_VIEWPROVIDERMESH_H
+#pragma once
 
 #include <vector>
 #include <memory>
@@ -432,6 +431,3 @@ private:
 };
 
 }  // namespace MeshGui
-
-
-#endif  // MESHGUI_VIEWPROVIDERMESH_H

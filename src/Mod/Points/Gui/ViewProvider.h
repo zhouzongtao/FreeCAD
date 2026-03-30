@@ -22,8 +22,7 @@
  *                                                                         *
  ***************************************************************************/
 
-#ifndef POINTSGUI_VIEWPROVIDERPOINTS_H
-#define POINTSGUI_VIEWPROVIDERPOINTS_H
+#pragma once
 
 #include <Inventor/SbVec2f.h>
 #include <memory>
@@ -217,6 +216,3 @@ protected:
 using ViewProviderPython = Gui::ViewProviderFeaturePythonT<ViewProviderScattered>;
 
 }  // namespace PointsGui
-
-
-#endif  // POINTSGUI_VIEWPROVIDERPOINTS_H

@@ -106,7 +106,6 @@ macro(InitializeFreeCADBuildOptions)
     option(BUILD_DRAFT "Build the FreeCAD draft module" ON)
     option(BUILD_DRAWING "Build the FreeCAD drawing module" ON)
     option(BUILD_HELP "Build the FreeCAD help module" ON)
-    option(BUILD_IDF "Build the FreeCAD idf module" ON)
     option(BUILD_IMPORT "Build the FreeCAD import module" ON)
     option(BUILD_INSPECTION "Build the FreeCAD inspection module" ON)
     option(BUILD_JTREADER "Build the FreeCAD jt reader module" OFF)
@@ -175,10 +174,6 @@ macro(InitializeFreeCADBuildOptions)
 
     # if this is set override some options
     if (FREECAD_BUILD_DEBIAN)
-        # Disable it until the upstream package has been fixed. See
-        # https://github.com/FreeCAD/FreeCAD/issues/13676#issuecomment-2539978468
-        # https://github.com/FreeCAD/FreeCAD/issues/13676#issuecomment-2541513308
-        set(FREECAD_USE_EXTERNAL_ZIPIOS OFF )
         # A Debian package for SMESH doesn't exist
         #set(FREECAD_USE_EXTERNAL_SMESH ON )
     endif (FREECAD_BUILD_DEBIAN)

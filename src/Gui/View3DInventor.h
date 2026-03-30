@@ -20,8 +20,7 @@
  *                                                                         *
  ***************************************************************************/
 
-#ifndef GUI_VIEW3DINVENTOR_H
-#define GUI_VIEW3DINVENTOR_H
+#pragma once
 
 #include <memory>
 #include <optional>
@@ -102,7 +101,7 @@ public:
     View3DInventor* clone() override;
 
     /// Message handler
-    bool onMsg(const char* pMsg, const char** ppReturn) override;
+    bool onMsg(const char* pMsg) override;
     bool onHasMsg(const char* pMsg) const override;
     void deleteSelf() override;
     /// get called when the document is updated
@@ -127,6 +126,7 @@ public:
      */
     void setCurrentViewMode(ViewMode b) override;
     RayPickInfo getObjInfoRay(Base::Vector3d* startvec, Base::Vector3d* dirvec);
+    const std::string& getCamera() const;
     bool setCamera(const char* pCamera);
     void toggleClippingPlane() override;
     bool hasClippingPlane() const override;
@@ -183,5 +183,3 @@ private:
 };
 
 }  // namespace Gui
-
-#endif  // GUI_VIEW3DINVENTOR_H
