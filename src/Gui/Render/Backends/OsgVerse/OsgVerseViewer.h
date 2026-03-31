@@ -190,6 +190,14 @@ public:
     void updateViewProvider(Gui::ViewProvider* vp);
 
     /**
+     * @brief Rebuild all pending ViewProviders that had no geometry when first added
+     *
+     * Called after document restore completes, when all shapes have been
+     * computed and geometry extraction should succeed.
+     */
+    void rebuildPendingViewProviders();
+
+    /**
      * @brief 检查是否包含指定 ViewProvider / Check if contains ViewProvider
      * @param vp ViewProvider 指针 / ViewProvider pointer
      * @return 是否包含 / Whether contains
@@ -890,6 +898,7 @@ private:
 
     // ViewProvider 管理 / ViewProvider Management
     std::set<Gui::ViewProvider*> _viewProviders;                       ///< ViewProvider 集合 / ViewProvider set
+    std::set<Gui::ViewProvider*> _pendingViewProviders;                 ///< VPs awaiting geometry retry / 待重试几何提取的VP
     std::map<Gui::ViewProvider*, osg::ref_ptr<osg::Node>> _vpToNodeMap; ///< VP到OSG节点的映射 / VP to OSG node mapping
     std::map<osg::Node*, Gui::ViewProvider*> _nodeToVPMap;            ///< OSG节点到VP的映射 / OSG node to VP mapping
 

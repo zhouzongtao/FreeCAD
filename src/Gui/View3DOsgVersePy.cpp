@@ -350,12 +350,8 @@ static const char* OsgVerseCameraTypeEnums[] = {"Orthographic", "Perspective", n
 Py::Object View3DOsgVersePy::getCamera()
 {
     try {
-        const char* ret = nullptr;
-        getView3DOsgVersePtr()->onMsg("GetCamera", &ret);
-        if (ret) {
-            return Py::String(ret);
-        }
-        return Py::String("");
+        std::string camStr = getView3DOsgVersePtr()->getCameraString();
+        return Py::String(camStr);
     }
     catch (const Base::Exception& e) {
         throw Py::RuntimeError(e.what());
@@ -371,7 +367,7 @@ Py::Object View3DOsgVersePy::setCamera(const Py::Tuple& args)
     try {
         // Build "SetCamera <string>" message
         std::string msg = std::string("SetCamera ") + buffer;
-        getView3DOsgVersePtr()->onMsg(msg.c_str(), nullptr);
+        getView3DOsgVersePtr()->onMsg(msg.c_str());
         return Py::None();
     }
     catch (const Base::Exception& e) {
@@ -599,7 +595,7 @@ Py::Object View3DOsgVersePy::fitAll(const Py::Tuple& args)
         throw Py::Exception();
     }
     try {
-        getView3DOsgVersePtr()->onMsg("ViewFit", nullptr);
+        getView3DOsgVersePtr()->onMsg("ViewFit");
     }
     catch (const Base::Exception& e) {
         throw Py::RuntimeError(e.what());
@@ -609,63 +605,63 @@ Py::Object View3DOsgVersePy::fitAll(const Py::Tuple& args)
 
 Py::Object View3DOsgVersePy::viewBottom()
 {
-    try { getView3DOsgVersePtr()->onMsg("ViewBottom", nullptr); }
+    try { getView3DOsgVersePtr()->onMsg("ViewBottom"); }
     catch (const Base::Exception& e) { throw Py::RuntimeError(e.what()); }
     return Py::None();
 }
 
 Py::Object View3DOsgVersePy::viewFront()
 {
-    try { getView3DOsgVersePtr()->onMsg("ViewFront", nullptr); }
+    try { getView3DOsgVersePtr()->onMsg("ViewFront"); }
     catch (const Base::Exception& e) { throw Py::RuntimeError(e.what()); }
     return Py::None();
 }
 
 Py::Object View3DOsgVersePy::viewLeft()
 {
-    try { getView3DOsgVersePtr()->onMsg("ViewLeft", nullptr); }
+    try { getView3DOsgVersePtr()->onMsg("ViewLeft"); }
     catch (const Base::Exception& e) { throw Py::RuntimeError(e.what()); }
     return Py::None();
 }
 
 Py::Object View3DOsgVersePy::viewRear()
 {
-    try { getView3DOsgVersePtr()->onMsg("ViewRear", nullptr); }
+    try { getView3DOsgVersePtr()->onMsg("ViewRear"); }
     catch (const Base::Exception& e) { throw Py::RuntimeError(e.what()); }
     return Py::None();
 }
 
 Py::Object View3DOsgVersePy::viewRight()
 {
-    try { getView3DOsgVersePtr()->onMsg("ViewRight", nullptr); }
+    try { getView3DOsgVersePtr()->onMsg("ViewRight"); }
     catch (const Base::Exception& e) { throw Py::RuntimeError(e.what()); }
     return Py::None();
 }
 
 Py::Object View3DOsgVersePy::viewTop()
 {
-    try { getView3DOsgVersePtr()->onMsg("ViewTop", nullptr); }
+    try { getView3DOsgVersePtr()->onMsg("ViewTop"); }
     catch (const Base::Exception& e) { throw Py::RuntimeError(e.what()); }
     return Py::None();
 }
 
 Py::Object View3DOsgVersePy::viewIsometric()
 {
-    try { getView3DOsgVersePtr()->onMsg("ViewAxo", nullptr); }
+    try { getView3DOsgVersePtr()->onMsg("ViewAxo"); }
     catch (const Base::Exception& e) { throw Py::RuntimeError(e.what()); }
     return Py::None();
 }
 
 Py::Object View3DOsgVersePy::zoomIn()
 {
-    try { getView3DOsgVersePtr()->onMsg("ZoomIn", nullptr); }
+    try { getView3DOsgVersePtr()->onMsg("ZoomIn"); }
     catch (const Base::Exception& e) { throw Py::RuntimeError(e.what()); }
     return Py::None();
 }
 
 Py::Object View3DOsgVersePy::zoomOut()
 {
-    try { getView3DOsgVersePtr()->onMsg("ZoomOut", nullptr); }
+    try { getView3DOsgVersePtr()->onMsg("ZoomOut"); }
     catch (const Base::Exception& e) { throw Py::RuntimeError(e.what()); }
     return Py::None();
 }

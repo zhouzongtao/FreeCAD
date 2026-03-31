@@ -1042,4 +1042,11 @@ void OsgVerseViewerAdapter::clearGraphicsItems()
     if (_viewer) _viewer->clearGraphicsItems();
 }
 
+void OsgVerseViewerAdapter::rebuildPendingViewProviders()
+{
+    if (_viewer) {
+        _viewer->rebuildPendingViewProviders();
+    }
+}
+
 #endif // RENDER_HAS_OSGVERSE_BACKEND

@@ -206,7 +206,64 @@ const char* View3DOsgVerse::getName() const
     return "View3DOsgVerse";
 }
 
-bool View3DOsgVerse::onMsg(const char* pMsg, const char** ppReturn)
+std::string View3DOsgVerse::getCameraString() const
+{
+    if (!_viewer) {
+        return std::string();
+    }
+
+    auto cam = _viewer->getCamera();
+    bool ortho = _viewer->isCameraOrthographic();
+    std::ostringstream ss;
+
+    auto buildOrientation = [&](const Gui::View3D::CameraParams& c) {
+        osg::Vec3d eye(c.position.x, c.position.y, c.position.z);
+        osg::Vec3d center(c.target.x, c.target.y, c.target.z);
+        osg::Vec3d up(c.upVector.x, c.upVector.y, c.upVector.z);
+        osg::Vec3d forward = center - eye;
+        forward.normalize();
+        osg::Vec3d right = forward ^ up;
+        right.normalize();
+        osg::Vec3d realUp = right ^ forward;
+        realUp.normalize();
+        osg::Matrixd rotMat;
+        rotMat.set(right.x(), right.y(), right.z(), 0,
+                   realUp.x(), realUp.y(), realUp.z(), 0,
+                   -forward.x(), -forward.y(), -forward.z(), 0,
+                   0, 0, 0, 1);
+        osg::Quat q;
+        q.set(rotMat);
+        double angle;
+        osg::Vec3d axis;
+        q.getRotate(angle, axis);
+        ss << "  orientation " << axis.x() << " " << axis.y() << " " << axis.z() << " " << angle << "\n";
+        double distance = (eye - center).length();
+        ss << "  nearDistance " << c.nearPlane << "\n"
+           << "  farDistance " << c.farPlane << "\n"
+           << "  aspectRatio " << c.aspectRatio << "\n"
+           << "  focalDistance " << distance << "\n";
+    };
+
+    if (ortho) {
+        ss << "OrthographicCamera {\n"
+           << "  viewportMapping ADJUST_CAMERA\n"
+           << "  position " << cam.position.x << " " << cam.position.y << " " << cam.position.z << "\n";
+        buildOrientation(cam);
+        ss << "  height " << cam.height << "\n"
+           << "}\n";
+    } else {
+        ss << "PerspectiveCamera {\n"
+           << "  viewportMapping ADJUST_CAMERA\n"
+           << "  position " << cam.position.x << " " << cam.position.y << " " << cam.position.z << "\n";
+        buildOrientation(cam);
+        ss << "  heightAngle " << (cam.fieldOfView * M_PI / 180.0) << "\n"
+           << "}\n";
+    }
+
+    return ss.str();
+}
+
+bool View3DOsgVerse::onMsg(const char* pMsg)
 {
     if (!_viewer) {
         return false;
@@ -314,81 +371,7 @@ bool View3DOsgVerse::onMsg(const char* pMsg, const char** ppReturn)
         return true;
     }
     else if (strcmp(pMsg, "GetCamera") == 0) {
-        // Construct an Inventor-compatible camera string for Python API
-        auto cam = _viewer->getCamera();
-        bool ortho = _viewer->isCameraOrthographic();
-
-        // Build Inventor ASCII format string
-        // Python code expects: "OrthographicCamera { ... }" or "PerspectiveCamera { ... }"
-        static std::string cameraStr;
-        std::ostringstream ss;
-        if (ortho) {
-            ss << "OrthographicCamera {\n"
-               << "  viewportMapping ADJUST_CAMERA\n"
-               << "  position " << cam.position.x << " " << cam.position.y << " " << cam.position.z << "\n";
-            // Compute orientation quaternion from eye/target/up
-            osg::Vec3d eye(cam.position.x, cam.position.y, cam.position.z);
-            osg::Vec3d center(cam.target.x, cam.target.y, cam.target.z);
-            osg::Vec3d up(cam.upVector.x, cam.upVector.y, cam.upVector.z);
-            osg::Vec3d forward = center - eye;
-            forward.normalize();
-            osg::Vec3d right = forward ^ up;
-            right.normalize();
-            osg::Vec3d realUp = right ^ forward;
-            realUp.normalize();
-            // Build rotation matrix (camera-to-world) then convert to axis-angle
-            osg::Matrixd rotMat;
-            rotMat.set(right.x(), right.y(), right.z(), 0,
-                       realUp.x(), realUp.y(), realUp.z(), 0,
-                       -forward.x(), -forward.y(), -forward.z(), 0,
-                       0, 0, 0, 1);
-            osg::Quat q;
-            q.set(rotMat);
-            double angle;
-            osg::Vec3d axis;
-            q.getRotate(angle, axis);
-            ss << "  orientation " << axis.x() << " " << axis.y() << " " << axis.z() << " " << angle << "\n";
-            double distance = (eye - center).length();
-            ss << "  nearDistance " << cam.nearPlane << "\n"
-               << "  farDistance " << cam.farPlane << "\n"
-               << "  aspectRatio " << cam.aspectRatio << "\n"
-               << "  focalDistance " << distance << "\n"
-               << "  height " << cam.height << "\n"
-               << "}\n";
-        } else {
-            ss << "PerspectiveCamera {\n"
-               << "  viewportMapping ADJUST_CAMERA\n"
-               << "  position " << cam.position.x << " " << cam.position.y << " " << cam.position.z << "\n";
-            osg::Vec3d eye(cam.position.x, cam.position.y, cam.position.z);
-            osg::Vec3d center(cam.target.x, cam.target.y, cam.target.z);
-            osg::Vec3d up(cam.upVector.x, cam.upVector.y, cam.upVector.z);
-            osg::Vec3d forward = center - eye;
-            forward.normalize();
-            osg::Vec3d right = forward ^ up;
-            right.normalize();
-            osg::Vec3d realUp = right ^ forward;
-            realUp.normalize();
-            osg::Matrixd rotMat;
-            rotMat.set(right.x(), right.y(), right.z(), 0,
-                       realUp.x(), realUp.y(), realUp.z(), 0,
-                       -forward.x(), -forward.y(), -forward.z(), 0,
-                       0, 0, 0, 1);
-            osg::Quat q;
-            q.set(rotMat);
-            double angle;
-            osg::Vec3d axis;
-            q.getRotate(angle, axis);
-            ss << "  orientation " << axis.x() << " " << axis.y() << " " << axis.z() << " " << angle << "\n";
-            double distance = (eye - center).length();
-            ss << "  nearDistance " << cam.nearPlane << "\n"
-               << "  farDistance " << cam.farPlane << "\n"
-               << "  aspectRatio " << cam.aspectRatio << "\n"
-               << "  focalDistance " << distance << "\n"
-               << "  heightAngle " << (cam.fieldOfView * M_PI / 180.0) << "\n"
-               << "}\n";
-        }
-        cameraStr = ss.str();
-        *ppReturn = cameraStr.c_str();
+        getCameraString();
         return true;
     }
     else if (strncmp(pMsg, "SetCamera", 9) == 0) {

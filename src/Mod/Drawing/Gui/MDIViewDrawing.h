@@ -79,7 +79,7 @@ public:
 
     // MDIView interface / MDIView 接口
     const char* getName() const override { return "MDIViewDrawing"; }
-    bool onMsg(const char* pMsg, const char** ppReturn) override;
+    bool onMsg(const char* pMsg) override;
     bool onHasMsg(const char* pMsg) const override;
     void onUpdate() override;
 

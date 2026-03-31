@@ -103,8 +103,13 @@ bool OsgVerseShadowMap::initialize(osg::Group* sceneRoot)
     // Disable color buffer writing
     _shadowCamera->setColorMask(false, false, false, false);
 
-    // Add scene as child of shadow camera so it renders the scene from light's POV
-    _shadowCamera->addChild(sceneRoot);
+    // Create an intermediate group for shadow scene content.
+    // IMPORTANT: Do NOT add sceneRoot directly as child of _shadowCamera,
+    // because _shadowCamera itself will be added as child of sceneRoot,
+    // which would create a parent-child cycle causing infinite recursion.
+    _shadowedScene = new osg::Group();
+    _shadowedScene->setName("ShadowedScene");
+    _shadowCamera->addChild(_shadowedScene.get());
 
     _initialized = true;
     Base::Console().log("OsgVerseShadowMap: Initialization complete\n");
@@ -117,6 +122,7 @@ void OsgVerseShadowMap::shutdown()
         _shadowCamera->removeChildren(0, _shadowCamera->getNumChildren());
         _shadowCamera = nullptr;
     }
+    _shadowedScene = nullptr;
     _depthTexture = nullptr;
     _initialized = false;
     Base::Console().log("OsgVerseShadowMap: Shutdown complete\n");

@@ -355,7 +355,7 @@ private:
     // 渲染特性 / Rendering features
     bool _pbrEnabled{true};                 ///< PBR 渲染 / PBR rendering
     bool _hdrEnabled{true};                 ///< HDR 渲染 / HDR rendering
-    bool _shadowsEnabled{true};             ///< 阴影 / Shadows
+    bool _shadowsEnabled{false};            ///< 阴影 / Shadows (disabled: shadow map creates scene graph cycle)
     int _shadowQuality{2};                  ///< 阴影质量 / Shadow quality
     int _aaSamples{4};                      ///< 抗锯齿采样数 / AA samples
 

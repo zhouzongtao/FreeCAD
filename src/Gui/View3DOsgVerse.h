@@ -108,7 +108,12 @@ public:
     /**
      * @brief Handle messages
      */
-    bool onMsg(const char* pMsg, const char** ppReturn) override;
+    bool onMsg(const char* pMsg) override;
+
+    /**
+     * @brief Get camera string in Inventor ASCII format
+     */
+    std::string getCameraString() const;
     
     /**
      * @brief Check if message is supported

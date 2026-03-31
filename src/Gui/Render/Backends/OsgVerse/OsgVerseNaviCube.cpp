@@ -19,10 +19,10 @@
 #include <numbers>
 #include <algorithm>
 
-#ifdef FC_OS_WIN32
+#ifdef _WIN32
 #include <windows.h>
 #endif
-#ifdef FC_OS_MACOSX
+#ifdef __APPLE__
 #include <OpenGL/gl.h>
 #else
 #include <GL/gl.h>

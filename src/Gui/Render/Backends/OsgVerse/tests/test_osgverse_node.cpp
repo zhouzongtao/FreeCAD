@@ -21,10 +21,10 @@ using namespace Gui::Render;
 
 TEST(OsgVerseNodeTest, CreateNode) {
     auto* osgNode = new osg::Node();
-    OsgVerseNode node(osgNode, true, RenderNode::NodeType::Unknown);
+    OsgVerseNode node(osgNode, true, NodeType::Node);
 
     EXPECT_NE(node.getOsgNode(), nullptr);
-    EXPECT_EQ(node.getType(), RenderNode::NodeType::Unknown);
+    EXPECT_EQ(node.getNodeType(), NodeType::Node);
     EXPECT_TRUE(node.ownsNode());
 }
 
@@ -52,7 +52,7 @@ TEST(OsgVerseGroupTest, CreateGroup) {
 
     EXPECT_NE(group.getOsgNode(), nullptr);
     EXPECT_NE(group.getOsgGroup(), nullptr);
-    EXPECT_EQ(group.getType(), RenderNode::NodeType::Group);
+    EXPECT_EQ(group.getNodeType(), NodeType::Group);
     EXPECT_EQ(group.getNumChildren(), 0);
 }
 
@@ -148,7 +148,7 @@ TEST(OsgVerseSeparatorTest, CreateSeparator) {
 
     EXPECT_NE(separator.getOsgNode(), nullptr);
     EXPECT_NE(separator.getOsgGroup(), nullptr);
-    EXPECT_EQ(separator.getType(), RenderNode::NodeType::Separator);
+    EXPECT_EQ(separator.getNodeType(), NodeType::Separator);
 
     // Separator should have a StateSet for state isolation
     EXPECT_NE(separator.getOsgGroup()->getStateSet(), nullptr);
@@ -172,7 +172,7 @@ TEST(OsgVerseTransformTest, CreateTransform) {
 
     EXPECT_NE(transform.getOsgNode(), nullptr);
     EXPECT_NE(transform.getOsgTransform(), nullptr);
-    EXPECT_EQ(transform.getType(), RenderNode::NodeType::Transform);
+    EXPECT_EQ(transform.getNodeType(), NodeType::Transform);
 }
 
 TEST(OsgVerseTransformTest, SetGetTranslation) {
@@ -229,7 +229,7 @@ TEST(OsgVerseSwitchTest, CreateSwitch) {
 
     EXPECT_NE(switchNode.getOsgNode(), nullptr);
     EXPECT_NE(switchNode.getOsgSwitch(), nullptr);
-    EXPECT_EQ(switchNode.getType(), RenderNode::NodeType::Switch);
+    EXPECT_EQ(switchNode.getNodeType(), NodeType::Switch);
 }
 
 TEST(OsgVerseSwitchTest, SetWhichChild) {

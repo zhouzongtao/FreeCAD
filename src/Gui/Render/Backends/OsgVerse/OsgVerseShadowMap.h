@@ -74,6 +74,9 @@ public:
     /// Get the shadow camera (for adding to scene graph)
     osg::Camera* getShadowCamera() const { return _shadowCamera.get(); }
 
+    /// Get the shadowed scene group (add geometry children here, NOT the scene root)
+    osg::Group* getShadowedScene() const { return _shadowedScene.get(); }
+
     /// Get the depth texture
     osg::Texture2D* getDepthTexture() const { return _depthTexture.get(); }
 
@@ -85,6 +88,7 @@ private:
     bool _initialized{false};
 
     osg::ref_ptr<osg::Camera> _shadowCamera;
+    osg::ref_ptr<osg::Group> _shadowedScene;  ///< Intermediate group to avoid scene graph cycle
     osg::ref_ptr<osg::Texture2D> _depthTexture;
     osg::Matrix _shadowMatrix;  // bias * lightProj * lightView
 

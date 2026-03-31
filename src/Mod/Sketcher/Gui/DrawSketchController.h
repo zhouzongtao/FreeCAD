@@ -27,6 +27,7 @@
 #include <Base/Console.h>
 #include <Base/Tools2D.h>
 #include <Gui/EditableDatumLabel.h>
+#include <Gui/View3DInventorViewer.h>
 
 #include "DrawSketchDefaultHandler.h"
 #include "SketcherToolDefaultWidget.h"

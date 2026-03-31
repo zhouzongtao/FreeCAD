@@ -60,6 +60,7 @@
 #include <Base/Console.h>
 #include <Gui/ViewProvider.h>
 #include <Gui/ViewProviderDocumentObject.h>
+#include <Gui/Document.h>
 #include <Gui/Selection/Selection.h>
 #include <App/DocumentObject.h>
 #include <App/Document.h>
@@ -725,18 +726,19 @@ QImage OsgVerseViewer::grabImage(int width, int height)
     osgImage->allocateImage(width, height, 1, GL_RGBA, GL_UNSIGNED_BYTE);
     rttCamera->attach(osg::Camera::COLOR_BUFFER, osgImage.get());
 
-    // Add scene as child of RTT camera
-    rttCamera->addChild(_viewer->getSceneData());
-
-    // Temporarily add RTT camera to the scene, render one frame, then remove
+    // Add scene children to RTT camera (NOT sceneRoot itself, to avoid cycle)
     auto* sceneRoot = dynamic_cast<osg::Group*>(_viewer->getSceneData());
     if (!sceneRoot) {
         return QImage();
     }
+    for (unsigned int i = 0; i < sceneRoot->getNumChildren(); ++i) {
+        rttCamera->addChild(sceneRoot->getChild(i));
+    }
 
-    sceneRoot->addChild(rttCamera.get());
+    // Add RTT camera as a slave camera to avoid scene graph cycle
+    _viewer->addSlave(rttCamera.get(), false);
     _viewer->frame();
-    sceneRoot->removeChild(rttCamera.get());
+    _viewer->removeSlave(_viewer->getNumSlaves() - 1);
 
     // Convert osg::Image to QImage (OSG stores bottom-up, Qt stores top-down)
     QImage result(width, height, QImage::Format_RGBA8888);
@@ -1822,10 +1824,6 @@ void OsgVerseViewer::addViewProvider(Gui::ViewProvider* vp)
 
     Base::Console().log("OsgVerseViewer::addViewProvider: Adding ViewProvider for %s\n", objName.c_str());
 
-    // 添加到集合
-    // Add to set
-    _viewProviders.insert(vp);
-
   try {  // Top-level try-catch to prevent crashes during document restore
 
     // 创建OSG节点
@@ -1842,32 +1840,109 @@ void OsgVerseViewer::addViewProvider(Gui::ViewProvider* vp)
     if (auto* vpDoc = dynamic_cast<Gui::ViewProviderDocumentObject*>(vp)) {
         App::DocumentObject* obj = vpDoc->getObject();
         if (obj) {
-            // Try multiple paths to find geometry:
-            // 1. Direct "Shape" property (Part::Feature and derived)
-            // 2. GeoFeature::getPropertyOfGeometry() (generic fallback for Arch, Mesh, etc.)
-            const App::PropertyComplexGeoData* geoDataProp = nullptr;
+            // Collect objects to extract geometry from.
+            // For leaf objects (Part::Feature etc.), this is just the object itself.
+            // For container objects (Assembly, Part, Body), we recursively collect
+            // child objects that have actual geometry.
+            std::vector<App::DocumentObject*> geoObjects;
 
-            App::Property* shapeProp = obj->getPropertyByName("Shape");
-            if (shapeProp) {
-                geoDataProp = dynamic_cast<const App::PropertyComplexGeoData*>(shapeProp);
-            }
+            // Try to find geometry on the object itself first
+            auto findGeoDataProp = [](App::DocumentObject* o) -> const App::PropertyComplexGeoData* {
+                App::Property* shapeProp = o->getPropertyByName("Shape");
+                if (shapeProp) {
+                    auto* p = dynamic_cast<const App::PropertyComplexGeoData*>(shapeProp);
+                    if (p && p->getComplexData()) return p;
+                }
+                if (auto* geoFeature = dynamic_cast<App::GeoFeature*>(o)) {
+                    auto* p = geoFeature->getPropertyOfGeometry();
+                    if (p && p->getComplexData()) return p;
+                }
+                return nullptr;
+            };
 
-            // Fallback: use GeoFeature generic interface
-            if (!geoDataProp) {
-                if (auto* geoFeature = dynamic_cast<App::GeoFeature*>(obj)) {
-                    geoDataProp = geoFeature->getPropertyOfGeometry();
+            if (findGeoDataProp(obj)) {
+                // Object has its own geometry
+                geoObjects.push_back(obj);
+            } else {
+                // No direct geometry — this is likely a container (Assembly, Part, Body).
+                // Recursively collect child objects that have geometry via outList.
+                std::vector<App::DocumentObject*> stack = obj->getOutList();
+                std::set<App::DocumentObject*> visited;
+                visited.insert(obj);
+                while (!stack.empty()) {
+                    App::DocumentObject* child = stack.back();
+                    stack.pop_back();
+                    if (!child || visited.count(child)) continue;
+                    visited.insert(child);
+                    if (findGeoDataProp(child)) {
+                        geoObjects.push_back(child);
+                    } else {
+                        // Also a container — recurse into its children
+                        auto childList = child->getOutList();
+                        stack.insert(stack.end(), childList.begin(), childList.end());
+                    }
+                }
+                if (!geoObjects.empty()) {
+                    Base::Console().log("OsgVerseViewer::addViewProvider: %s is a container, found %d child objects with geometry\n",
+                        objName.c_str(), (int)geoObjects.size());
                 }
             }
 
-            if (geoDataProp) {
-                const Data::ComplexGeoData* geoData = geoDataProp->getComplexData();
-                if (geoData) {
-                    Base::Console().log("OsgVerseViewer::addViewProvider: Getting mesh for %s via ComplexGeoData\n", objName.c_str());
+            // Extract geometry from each collected object
+            for (App::DocumentObject* geoObj : geoObjects) {
+            const App::PropertyComplexGeoData* geoDataProp = findGeoDataProp(geoObj);
+            if (!geoDataProp) continue;
+            const Data::ComplexGeoData* geoData = geoDataProp->getComplexData();
+            if (!geoData) continue;
+
+            // Determine object name for this child
+            std::string childName = objName;
+            if (geoObj != obj) {
+                const char* cn = geoObj->getNameInDocument();
+                if (cn) childName = cn;
+            }
+
+
+            Base::Console().log("OsgVerseViewer::addViewProvider: Getting mesh for %s via ComplexGeoData\n", childName.c_str());
+
+            // Get the VP for this child object (for color info)
+            Gui::ViewProvider* childVP = vp;
+            if (geoObj != obj) {
+                auto* doc = vpDoc->getDocument();
+                if (doc) {
+                    auto* childVPDoc = doc->getViewProvider(geoObj);
+                    if (childVPDoc) childVP = childVPDoc;
+                }
+            }
+
+            // Get placement for child objects relative to parent
+            osg::ref_ptr<osg::MatrixTransform> childTransform;
+            if (geoObj != obj) {
+                if (auto* childGeo = dynamic_cast<App::GeoFeature*>(geoObj)) {
+                    auto placement = childGeo->Placement.getValue();
+                    auto pos = placement.getPosition();
+                    Base::Rotation rot = placement.getRotation();
+                    double q0, q1, q2, q3;
+                    rot.getValue(q0, q1, q2, q3);
+                    childTransform = new osg::MatrixTransform();
+                    osg::Matrixd mat;
+                    mat.setRotate(osg::Quat(q0, q1, q2, q3));
+                    mat.setTrans(osg::Vec3d(pos.x, pos.y, pos.z));
+                    childTransform->setMatrix(mat);
+                }
+            }
+
+            // Target group for this child's geometry nodes
+            osg::Group* targetGroup = vpGroup.get();
+            if (childTransform) {
+                vpGroup->addChild(childTransform);
+                targetGroup = childTransform.get();
+            }
 
                     try {
                         // Get material list for color info
                         auto* matListProp = dynamic_cast<App::PropertyMaterialList*>(
-                            vp->getPropertyByName("ShapeAppearance"));
+                            childVP->getPropertyByName("ShapeAppearance"));
                         int matCount = (matListProp && matListProp->getSize() > 0) ? matListProp->getSize() : 0;
                         unsigned long numFaces = geoData->countSubElements("Face");
 
@@ -2100,11 +2175,11 @@ void OsgVerseViewer::addViewProvider(Gui::ViewProvider* vp)
 
                                 osg::ref_ptr<osg::Geode> geode = new osg::Geode();
                                 geode->addDrawable(geometry.get());
-                                vpGroup->addChild(geode);
+                                targetGroup->addChild(geode);
                                 hasGeometry = true;
 
                                 Base::Console().log("OsgVerseViewer::addViewProvider: Converted %s: %zu vertices, %zu triangles\n",
-                                    objName.c_str(), points.size(), facets.size());
+                                    childName.c_str(), points.size(), facets.size());
                             }
                         }
                     } catch (const std::exception& e) {
@@ -2112,8 +2187,7 @@ void OsgVerseViewer::addViewProvider(Gui::ViewProvider* vp)
                     } catch (...) {
                         Base::Console().error("OsgVerseViewer::addViewProvider: Unknown exception during geometry conversion\n");
                     }
-                }
-            }
+            } // end for (geoObjects)
         }
     }
 
@@ -2121,9 +2195,15 @@ void OsgVerseViewer::addViewProvider(Gui::ViewProvider* vp)
     // Keep the VP registered so it can be updated later when geometry becomes available
     // (e.g., during document restore, shapes may not be computed yet)
     if (!hasGeometry) {
-        Base::Console().log("OsgVerseViewer::addViewProvider: No geometry for %s (will retry on update)\n", objName.c_str());
+        Base::Console().warning("OsgVerseViewer::addViewProvider: No geometry for %s (registered as pending for retry)\n", objName.c_str());
+        // Still register the VP so it can be rebuilt later (e.g., after document restore)
+        _viewProviders.insert(vp);
+        _pendingViewProviders.insert(vp);
         return;
     }
+
+    // Geometry was found — remove from pending if it was there
+    _pendingViewProviders.erase(vp);
 
     // Respect VP visibility — hide node if VP is not visible
     // (e.g., construction geometry like Wires, Rectangles in Arch)
@@ -2137,6 +2217,8 @@ void OsgVerseViewer::addViewProvider(Gui::ViewProvider* vp)
         osg::Group* sceneRoot = _engine->getOsgSceneRoot();
         if (sceneRoot) {
             sceneRoot->addChild(vpGroup);
+            // Re-trigger fitAll so camera frames the newly added geometry
+            _pendingFitAll = true;
         }
     }
 
@@ -2144,6 +2226,7 @@ void OsgVerseViewer::addViewProvider(Gui::ViewProvider* vp)
     // Save mapping
     _vpToNodeMap[vp] = vpGroup;
     _nodeToVPMap[vpGroup.get()] = vp;
+    _viewProviders.insert(vp);  // Register AFTER successful geometry addition
 
     // Apply current override mode if set
     if (!_overrideMode.empty()) {
@@ -2194,6 +2277,7 @@ void OsgVerseViewer::removeViewProvider(Gui::ViewProvider* vp)
     // 从集合中移除
     // Remove from set
     _viewProviders.erase(vp);
+    _pendingViewProviders.erase(vp);
 
     Base::Console().log("OsgVerseViewer::removeViewProvider: Removal complete\n");
 }
@@ -2206,10 +2290,57 @@ void OsgVerseViewer::updateViewProvider(Gui::ViewProvider* vp)
 
     Base::Console().log("OsgVerseViewer::updateViewProvider: Updating ViewProvider\n");
 
-    // 简单实现：先删除再添加
     // Simple implementation: remove and re-add
+    // Must also remove from pending set since addViewProvider manages it
+    _pendingViewProviders.erase(vp);
     removeViewProvider(vp);
     addViewProvider(vp);
+}
+
+void OsgVerseViewer::rebuildPendingViewProviders()
+{
+    if (_pendingViewProviders.empty()) {
+        Base::Console().log("OsgVerseViewer::rebuildPendingViewProviders: No pending VPs\n");
+        return;
+    }
+
+    Base::Console().warning("OsgVerseViewer::rebuildPendingViewProviders: Rebuilding %zu pending ViewProviders...\n",
+        _pendingViewProviders.size());
+
+    // Copy the set since addViewProvider will modify _pendingViewProviders
+    std::set<Gui::ViewProvider*> pending = _pendingViewProviders;
+
+    for (Gui::ViewProvider* vp : pending) {
+        // Remove from all tracking first
+        _pendingViewProviders.erase(vp);
+        _viewProviders.erase(vp);
+
+        // Remove any existing (empty) node mapping
+        auto it = _vpToNodeMap.find(vp);
+        if (it != _vpToNodeMap.end()) {
+            if (_engine) {
+                osg::Group* sceneRoot = _engine->getOsgSceneRoot();
+                if (sceneRoot) {
+                    sceneRoot->removeChild(it->second.get());
+                }
+            }
+            _nodeToVPMap.erase(it->second.get());
+            _vpToNodeMap.erase(it);
+        }
+
+        // Re-add — this time shapes should be computed
+        addViewProvider(vp);
+    }
+
+    // Trigger fitAll to frame the newly added geometry
+    if (!_pendingViewProviders.empty()) {
+        Base::Console().warning("OsgVerseViewer::rebuildPendingViewProviders: %zu VPs still have no geometry\n",
+            _pendingViewProviders.size());
+    } else {
+        Base::Console().log("OsgVerseViewer::rebuildPendingViewProviders: All VPs rebuilt successfully\n");
+    }
+
+    _pendingFitAll = true;
 }
 
 bool OsgVerseViewer::hasViewProvider(Gui::ViewProvider* vp) const

@@ -72,6 +72,7 @@
 #include "View3DInventor.h"
 #ifdef RENDER_HAS_OSGVERSE_BACKEND
 #include "View3DOsgVerse.h"
+#include "View3D/Backends/OsgVerse/OsgVerseViewerAdapter.h"
 #endif
 #include "View3DInventorViewer.h"
 #include "View3D/ViewerFactory.h"
@@ -1318,6 +1319,23 @@ void Document::slotRecomputed(const App::Document& doc)
     }
     getMainWindow()->updateActions();
     TreeWidget::updateStatus();
+
+    // After recompute, rebuild any pending ViewProviders in OsgVerse views
+    // BIM/Assembly shapes are often computed during recompute, not during restore
+#ifdef RENDER_HAS_OSGVERSE_BACKEND
+    for (auto* view : d->baseViews) {
+        auto* osgVerseView = dynamic_cast<View3DOsgVerse*>(view);
+        if (osgVerseView) {
+            auto* viewer = osgVerseView->getViewerInterface();
+            if (viewer) {
+                auto* adapter = dynamic_cast<View3D::OsgVerse::OsgVerseViewerAdapter*>(viewer);
+                if (adapter) {
+                    adapter->rebuildPendingViewProviders();
+                }
+            }
+        }
+    }
+#endif
 }
 
 // This function is called when some asks to recompute a document that is marked
@@ -2099,6 +2117,25 @@ void Document::slotFinishRestoreDocument(const App::Document& doc)
 
     // reset modified flag
     setModified(doc.testStatus(App::Document::LinkStampChanged));
+
+    // After document restore, rebuild pending ViewProviders in OsgVerse views
+    // During restore, shapes may not be computed when VPs are first added.
+    // Now that restore is complete, all geometry should be available.
+#ifdef RENDER_HAS_OSGVERSE_BACKEND
+    for (auto* view : d->baseViews) {
+        auto* osgVerseView = dynamic_cast<View3DOsgVerse*>(view);
+        if (osgVerseView) {
+            auto* viewer = osgVerseView->getViewerInterface();
+            if (viewer) {
+                // Cast to OsgVerseViewerAdapter to access rebuildPendingViewProviders
+                auto* adapter = dynamic_cast<View3D::OsgVerse::OsgVerseViewerAdapter*>(viewer);
+                if (adapter) {
+                    adapter->rebuildPendingViewProviders();
+                }
+            }
+        }
+    }
+#endif
 }
 
 void Document::slotShowHidden(const App::Document& doc)

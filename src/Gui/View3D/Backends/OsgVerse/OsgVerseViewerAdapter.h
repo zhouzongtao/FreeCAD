@@ -213,6 +213,13 @@ public:
     void removeGraphicsItem(void* item) override;
     void clearGraphicsItems() override;
 
+    /**
+     * @brief Rebuild ViewProviders that had no geometry when first added
+     *
+     * Called after document restore to retry geometry extraction for pending VPs.
+     */
+    void rebuildPendingViewProviders();
+
 private:
     std::unique_ptr<Render::OsgVerseViewer> _viewer;  ///< The wrapped OsgVerseViewer instance
     std::unique_ptr<Render::OsgVersePickingService> _pickingService;  ///< Picking service

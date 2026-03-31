@@ -206,7 +206,7 @@ private:
     ~RenderManager();
 
     // 当前状态 / Current state
-    Render::BackendType _currentBackend{Render::BackendType::None};
+    Render::BackendType _currentBackend{Render::BackendType::OsgVerse};
     Render::RenderEngine::Ptr _currentEngine;
     bool _initialized{false};
 
