@@ -26,12 +26,9 @@
 #pragma once
 
 #include <CXX/Extensions.hxx>
-#include <QTranslator>
-#include <memory>
-#include <list>
-#ifndef FC_GLOBAL_H
-# include <FCGlobal.h>
-#endif
+#include <string>
+#include <vector>
+#include <FCGlobal.h>
 
 namespace Py
 {
@@ -57,7 +54,7 @@ private:
     Py::Object removeTranslators(const Py::Tuple& args);
 
 private:
-    std::list<std::shared_ptr<QTranslator>> translators;
+    std::vector<std::string> translators;
 };
 
 }  // namespace Base

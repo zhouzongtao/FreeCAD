@@ -101,7 +101,7 @@ public:
     View3DInventor* clone() override;
 
     /// Message handler
-    bool onMsg(const char* pMsg, const char** ppReturn) override;
+    bool onMsg(const char* pMsg) override;
     bool onHasMsg(const char* pMsg) const override;
     void deleteSelf() override;
     /// get called when the document is updated
@@ -126,7 +126,8 @@ public:
      */
     void setCurrentViewMode(ViewMode b) override;
     RayPickInfo getObjInfoRay(Base::Vector3d* startvec, Base::Vector3d* dirvec);
-    bool setCamera(const char* pCamera);
+    const std::string& getCamera() const override;
+    bool setCamera(const char* pCamera) override;
     void toggleClippingPlane();
     bool hasClippingPlane() const;
 

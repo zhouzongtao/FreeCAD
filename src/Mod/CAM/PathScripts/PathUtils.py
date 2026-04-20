@@ -515,17 +515,29 @@ def findParentJob(obj):
     if hasattr(obj, "Proxy") and isinstance(obj.Proxy, PathJob.ObjectJob):
         return obj
 
+    # we need to traverse the document tree in reverse order:
+    #
+    #    Job <- Operations <- Dressup <- Operation
+    #        <- Model <- Body
+    #        <- Stock <- Body
+    #        <- SetupSheet
+    #        <- Tools <- ToolController
+
     for i in obj.InList:
-        if hasattr(i, "Proxy") and isinstance(i.Proxy, PathJob.ObjectJob):
-            return i
         if (
-            i.TypeId == "Path::FeaturePython"
-            or i.TypeId == "Path::FeatureCompoundPython"
-            or i.TypeId == "App::DocumentObjectGroup"
+            hasattr(i, "Proxy")
+            and isinstance(i.Proxy, PathJob.ObjectJob)
+            and obj in [i.Operations, i.Model, i.Stock, i.SetupSheet, i.Tools]
+        ):
+            return i
+
+        if (i.isDerivedFrom("App::DocumentObjectGroup") and obj in i.Group) or (
+            i.isDerivedFrom("Path::Feature") and obj == getattr(i, "Base", None)
         ):
             grandParent = findParentJob(i)
             if grandParent is not None:
                 return grandParent
+
     return None
 
 
@@ -1024,14 +1036,6 @@ def applyPlacementToPath(placement, path):
     Applies the rotation, and then position of the placement to path
     """
 
-    CmdMoveRapid = ["G0", "G00"]
-    CmdMoveStraight = ["G1", "G01"]
-    CmdMoveCW = ["G2", "G02"]
-    CmdMoveCCW = ["G3", "G03"]
-    CmdDrill = ["G73", "G81", "G82", "G83"]
-    CmdMoveArc = CmdMoveCW + CmdMoveCCW
-    CmdMove = CmdMoveStraight + CmdMoveArc
-
     commands = []
     currX = 0
     currY = 0
@@ -1046,7 +1050,7 @@ def applyPlacementToPath(placement, path):
     transC0 = tparams.get("C", 0)
 
     for cmd in path.Commands:
-        if (cmd.Name in CmdMoveRapid) or (cmd.Name in CmdMove) or (cmd.Name in CmdDrill):
+        if cmd.Name in Path.Geom.CmdMoveAll:
             params = cmd.Parameters
             currX = x = params.get("X", currX)
             currY = y = params.get("Y", currY)
@@ -1062,7 +1066,7 @@ def applyPlacementToPath(placement, path):
                 params.update({"Z": z})
 
             # Arcs need to have the I and J params rotated as well
-            if cmd.Name in CmdMoveArc:
+            if cmd.Name in Path.Geom.CmdMoveArc:
                 currI = i = params.get("I", 0)
                 currJ = j = params.get("J", 0)
 

@@ -23,7 +23,7 @@
 #ifndef GUI_VIEW3DBASE_H
 #define GUI_VIEW3DBASE_H
 
-#include "MDIView.h"
+#include "MDIViewWithCamera.h"
 #include "View3D/IViewer3D.h"
 
 namespace Gui
@@ -32,7 +32,7 @@ namespace Gui
 /** Abstract base class for 3D views
  *  Provides common interface for different rendering backends (Coin3D, OsgVerse)
  */
-class GuiExport View3DBase : public MDIView
+class GuiExport View3DBase : public MDIViewWithCamera
 {
     Q_OBJECT
     TYPESYSTEM_HEADER_WITH_OVERRIDE();
@@ -45,7 +45,7 @@ public:
     };
 
     View3DBase(Gui::Document* pcDocument, QWidget* parent, Qt::WindowFlags wflags = Qt::WindowFlags())
-        : MDIView(pcDocument, parent, wflags)
+        : MDIViewWithCamera(pcDocument, parent, wflags)
     {}
 
     ~View3DBase() override = default;

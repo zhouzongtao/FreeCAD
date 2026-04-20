@@ -1727,8 +1727,7 @@ void ViewProviderMesh::faceInfoCallback(void* ud, SoEventCallback* cb)
             hGrp->SetBool("ShowNaviCube", hGrp->GetBool("ShowNaviCube", true));
         }
     }
-    else if (mbe->getButton() == SoMouseButtonEvent::BUTTON1
-             && mbe->getState() == SoButtonEvent::DOWN) {
+    else if (mbe->getButton() == SoMouseButtonEvent::BUTTON1 && mbe->getState() == SoButtonEvent::DOWN) {
         const SoPickedPoint* point = cb->getPickedPoint();
         if (!point) {
             Base::Console().message("No facet picked.\n");
@@ -1813,8 +1812,7 @@ void ViewProviderMesh::fillHoleCallback(void* ud, SoEventCallback* cb)
             view->removeEventCallback(SoMouseButtonEvent::getClassTypeId(), fillHoleCallback, ud);
         }
     }
-    else if (mbe->getButton() == SoMouseButtonEvent::BUTTON1
-             && mbe->getState() == SoButtonEvent::DOWN) {
+    else if (mbe->getButton() == SoMouseButtonEvent::BUTTON1 && mbe->getState() == SoButtonEvent::DOWN) {
         const SoPickedPoint* point = cb->getPickedPoint();
         if (!point) {
             Base::Console().message("No facet picked.\n");
@@ -1889,8 +1887,9 @@ void ViewProviderMesh::markPartCallback(void* ud, SoEventCallback* cb)
                 Gui::Application::Instance->activeDocument()->commitCommand();
             }
         }
-        else if (mbe->getButton() == SoMouseButtonEvent::BUTTON1
-                 && mbe->getState() == SoButtonEvent::DOWN) {
+        else if (
+            mbe->getButton() == SoMouseButtonEvent::BUTTON1 && mbe->getState() == SoButtonEvent::DOWN
+        ) {
             const SoPickedPoint* point = cb->getPickedPoint();
             if (!point) {
                 Base::Console().message("No facet picked.\n");

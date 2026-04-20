@@ -104,6 +104,9 @@ public:
     virtual void showBoundingBox(bool);
     //@}
 
+    void hide() override;
+    void show() override;
+
     /// Get the python wrapper for that ViewProvider
     PyObject* getPyObject() override;
 

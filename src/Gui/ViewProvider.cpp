@@ -59,6 +59,7 @@
 #include "Document.h"
 #include "DockWindowManager.h"
 #include "SoFCDB.h"
+#include "SoFullPathHelper.h"
 #include "View3DInventor.h"
 #include "View3DInventorViewer.h"
 #include "ViewParams.h"
@@ -209,7 +210,10 @@ void ViewProvider::setEditViewer(View3DInventorViewer*, int ModNum)
 
 void ViewProvider::unsetEditViewer(View3DInventorViewer*)
 {}
-
+void ViewProvider::setActive(bool active)
+{
+    Q_UNUSED(active);
+}
 bool ViewProvider::isUpdatesEnabled() const
 {
     return testStatus(UpdateData);
@@ -1313,7 +1317,7 @@ int ViewProvider::partialRender(const std::vector<std::string>& elements, bool c
         }
     }
     int count = 0;
-    auto path = static_cast<SoFullPath*>(new SoPath);
+    auto path = Gui::toFullPath(new SoPath);
     path->ref();
     SoSelectionElementAction action;
     action.setSecondary(true);
