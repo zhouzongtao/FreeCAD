@@ -98,11 +98,13 @@ public:
      * @return "View3DOsgVerse"
      */
     const char* getName() const override;
+
+    bool containsViewProvider(const ViewProvider*) const override;
     
     /**
      * @brief Handle messages
      */
-    bool onMsg(const char* pMsg, const char** ppReturn) override;
+    bool onMsg(const char* pMsg) override;
     
     /**
      * @brief Check if message is supported
@@ -150,9 +152,13 @@ protected:
      */
     void resizeEvent(QResizeEvent* event) override;
 
+    // MDIViewWithCamera interface
+    const std::string& getCamera() const override;
+    bool setCamera(const char* pCamera) override;
+
 private:
-    bool setCamera(const char* pCamera);
     std::unique_ptr<View3D::IViewer3D> _viewer;  ///< The OsgVerse viewer
+    mutable std::string _cameraString;
 };
 
 } // namespace Gui

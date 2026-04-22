@@ -30,6 +30,7 @@
 #include <QOpenGLContext>
 #include <QSurfaceFormat>
 #include <QApplication>
+#include <QTimer>
 #include <fstream>
 #endif
 
@@ -209,11 +210,17 @@ void OsgVerseViewer::setCamera(const CameraParams& params)
 
     if (!_viewer) return;
 
-    // 设置投影矩阵 / Set projection matrix
+    // Do NOT set near/far here -- let OSG's COMPUTE_NEAR_FAR_USING_BOUNDING_VOLUMES
+    // (configured in setupDefaultCamera) auto-compute tight near/far each frame
+    // during the cull traversal. Manually setting near/far defeats the auto-
+    // computation and causes z-fighting (the hardcoded ratio can be 1:1000000+).
     osg::Camera* camera = _viewer->getCamera();
     if (camera) {
-        camera->setProjectionMatrixAsPerspective(
-            params.fieldOfView, params.aspectRatio, params.nearPlane, params.farPlane);
+        double fovy, ratio, zNear, zFar;
+        if (camera->getProjectionMatrixAsPerspective(fovy, ratio, zNear, zFar)) {
+            camera->setProjectionMatrixAsPerspective(
+                params.fieldOfView, params.aspectRatio, zNear, zFar);
+        }
     }
 
     // 核心策略：通过Manipulator设置Camera，不要直接设置Camera的ViewMatrix
@@ -469,10 +476,10 @@ void OsgVerseViewer::fitSelection()
                 // Adjust FOV to fit selected object size
                 float maxDimension = std::max({size.x(), size.y(), size.z()});
                 float fov = std::min(60.0f, std::max(30.0f, maxDimension * 5.0f));
-                camera->setProjectionMatrixAsPerspective(fov,
-                                                                 _cameraParams.aspectRatio,
-                                                                 _cameraParams.nearPlane,
-                                                                 _cameraParams.farPlane);
+                double curFovy, curRatio, curNear, curFar;
+                if (camera->getProjectionMatrixAsPerspective(curFovy, curRatio, curNear, curFar)) {
+                    camera->setProjectionMatrixAsPerspective(fov, curRatio, curNear, curFar);
+                }
 
                 Base::Console().log("OsgVerseViewer::fitSelection: Fitted to selection\n");
                 Base::Console().log("OsgVerseViewer::fitSelection: Center (%.2f, %.2f, %.2f)\n",
@@ -638,13 +645,13 @@ void OsgVerseViewer::onResize(int width, int height)
         osg::Camera* camera = _viewer->getCamera();
         if (camera) {
             camera->setViewport(0, 0, physW, physH);
-            double aspectRatio = static_cast<double>(width) / static_cast<double>(height);
-            camera->setProjectionMatrixAsPerspective(
-                _cameraParams.fieldOfView,
-                aspectRatio,
-                _cameraParams.nearPlane,
-                _cameraParams.farPlane
-            );
+            // Only update the aspect ratio, preserving OSG's auto-computed
+            // near/far planes (COMPUTE_NEAR_FAR_USING_BOUNDING_VOLUMES).
+            double fovy, ratio, zNear, zFar;
+            if (camera->getProjectionMatrixAsPerspective(fovy, ratio, zNear, zFar)) {
+                double aspectRatio = static_cast<double>(width) / static_cast<double>(height);
+                camera->setProjectionMatrixAsPerspective(fovy, aspectRatio, zNear, zFar);
+            }
         }
     }
 }
@@ -831,8 +838,8 @@ void OsgVerseViewer::setupDefaultCamera()
     _cameraParams.upVector = Vec3f(0.0f, 1.0f, 0.0f);
     _cameraParams.fieldOfView = 45.0f;  // Match Coin3D's default heightAngle (pi/4)
     _cameraParams.aspectRatio = 1.333f;
-    _cameraParams.nearPlane = 0.1f;
-    _cameraParams.farPlane = 100000.0f;
+    _cameraParams.nearPlane = 1.0f;
+    _cameraParams.farPlane = 10000.0f;
 
     // Apply camera parameters
     camera->setProjectionMatrixAsPerspective(
@@ -845,7 +852,7 @@ void OsgVerseViewer::setupDefaultCamera()
     // Let OSG auto-compute near/far planes based on scene bounding volumes each frame.
     // Critical for large scenes (e.g. ArchDetail with radius ~124000 units).
     camera->setComputeNearFarMode(osg::CullSettings::COMPUTE_NEAR_FAR_USING_BOUNDING_VOLUMES);
-    camera->setNearFarRatio(0.00005);
+    camera->setNearFarRatio(0.001);
 
     camera->setClearColor(osg::Vec4(_backgroundColor.r, _backgroundColor.g, _backgroundColor.b, _backgroundColor.a));
     camera->setClearMask(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -998,6 +1005,7 @@ OsgVerseViewer::ViewerWidget::ViewerWidget(OsgVerseViewer* osgVerseViewer,
     QSurfaceFormat format;
     format.setRenderableType(QSurfaceFormat::OpenGL);
     format.setProfile(QSurfaceFormat::CompatibilityProfile);
+    format.setDepthBufferSize(24);
     format.setSamples(4);
     setFormat(format);
 
@@ -1035,6 +1043,13 @@ OsgVerseViewer::ViewerWidget::~ViewerWidget()
 void OsgVerseViewer::ViewerWidget::initializeGL()
 {
     Base::Console().log("OsgVerseViewer::ViewerWidget::initializeGL: OpenGL context initialized\n");
+
+    // Start render loop timer (~60 fps) after GL context is ready
+    if (!_renderTimer) {
+        _renderTimer = new QTimer(this);
+        connect(_renderTimer, &QTimer::timeout, this, QOverload<>::of(&QOpenGLWidget::update));
+        _renderTimer->start(16);
+    }
 }
 
 void OsgVerseViewer::ViewerWidget::paintGL()
@@ -1125,6 +1140,14 @@ void OsgVerseViewer::ViewerWidget::mousePressEvent(QMouseEvent* event)
         event->accept();
     }
     update();
+}
+
+void OsgVerseViewer::ViewerWidget::mouseDoubleClickEvent(QMouseEvent* event)
+{
+    // Treat double-click as a regular press so OSG handles it normally.
+    // Must accept the event to prevent propagation to the MDI area,
+    // which would otherwise create a new view.
+    mousePressEvent(event);
 }
 
 void OsgVerseViewer::ViewerWidget::mouseReleaseEvent(QMouseEvent* event)
@@ -1676,28 +1699,53 @@ void OsgVerseViewer::addViewProvider(Gui::ViewProvider* vp)
             App::Property* shapeProp = obj->getPropertyByName("Shape");
             if (shapeProp) {
                 geoDataProp = dynamic_cast<App::PropertyComplexGeoData*>(shapeProp);
-                if (!geoDataProp) {
-                    Base::Console().log("  '%s': Shape property exists but is not PropertyComplexGeoData (type: %s)\n",
-                                        objName.c_str(), shapeProp->getTypeId().getName());
-                }
             }
             if (!geoDataProp) {
-                // Fallback: use GeoFeature::getPropertyOfGeometry()
                 if (auto* geoFeature = dynamic_cast<App::GeoFeature*>(obj)) {
                     geoDataProp = geoFeature->getPropertyOfGeometry();
-                    if (geoDataProp) {
-                        Base::Console().log("  '%s': Using GeoFeature::getPropertyOfGeometry() fallback\n", objName.c_str());
-                    }
                 }
             }
             if (!geoDataProp) {
-                Base::Console().log("  '%s': No geometry property found\n", objName.c_str());
+                Base::Console().log("  '%s': No geometry property found (type: %s)\n",
+                                    objName.c_str(), objTypeName.c_str());
             }
 
             if (geoDataProp) {
                 const Data::ComplexGeoData* geoData = geoDataProp->getComplexData();
                 if (geoData) {
                     try {
+                        // Like Coin3D (ViewProviderExt.cpp), we need local-space vertices
+                        // because the Placement is applied via a scene graph MatrixTransform.
+                        // ComplexGeoData::getFaces() returns world-space vertices (Placement
+                        // baked into OCCT Location), so we compute the inverse transform and
+                        // apply it to every vertex after tessellation.
+                        Base::Matrix4D invPlacement;
+                        bool hasPlacement = false;
+                        auto* placementProp = dynamic_cast<App::PropertyPlacement*>(
+                            obj->getPropertyByName("Placement"));
+                        if (placementProp) {
+                            const Base::Placement& plc = placementProp->getValue();
+                            Base::Vector3d axis;
+                            double angle;
+                            plc.getRotation().getRawValue(axis, angle);
+                            if (plc.getPosition().Length() > 1e-7 || std::abs(angle) > 1e-7) {
+                                hasPlacement = true;
+                                invPlacement = plc.toMatrix();
+                                invPlacement.inverse();
+                            }
+                        }
+
+                        // For normals: rotation only (no translation).
+                        // FreeCAD Placement is rigid (rotation+translation), so
+                        // the normal transform is just the rotation part.
+                        Base::Matrix4D invRotation;
+                        if (hasPlacement) {
+                            invRotation = invPlacement;
+                            invRotation[0][3] = 0.0;
+                            invRotation[1][3] = 0.0;
+                            invRotation[2][3] = 0.0;
+                        }
+
                         // Get material list for color info
                         auto* matListProp = dynamic_cast<App::PropertyMaterialList*>(
                             vp->getPropertyByName("ShapeAppearance"));
@@ -1706,7 +1754,7 @@ void OsgVerseViewer::addViewProvider(Gui::ViewProvider* vp)
 
                         bool usePerFaceColor = (matCount > 1 && numFaces > 0);
 
-                        if (usePerFaceColor) {
+                        if (numFaces > 0) {
                             // === Per-face color path ===
                             // Group faces by color, create separate geometry per color group
                             // (gl_Color with BIND_PER_VERTEX is unreliable on macOS GL 2.1,
@@ -1738,6 +1786,17 @@ void OsgVerseViewer::addViewProvider(Gui::ViewProvider* vp)
                                     continue;
                                 }
                                 if (facePoints.empty() || faceFacets.empty()) continue;
+
+                                // Transform vertices from world-space to local-space
+                                if (hasPlacement) {
+                                    for (auto& pt : facePoints) {
+                                        invPlacement.multVec(pt, pt);
+                                    }
+                                    for (auto& n : faceNormals) {
+                                        invRotation.multVec(n, n);
+                                        n.Normalize();
+                                    }
+                                }
 
                                 // Get color for this face
                                 osg::Vec4 faceColor(0.8f, 0.8f, 0.9f, 1.0f);
@@ -1790,25 +1849,37 @@ void OsgVerseViewer::addViewProvider(Gui::ViewProvider* vp)
                                 osg::ref_ptr<osg::DrawElementsUInt> ia =
                                     new osg::DrawElementsUInt(osg::PrimitiveSet::TRIANGLES, grp.indices.begin(), grp.indices.end());
 
-                                // Normals
+                                // Normals: use per-face normals from OCCT when available,
+                                // fall back to flat (per-triangle) normals to preserve sharp edges
                                 osg::ref_ptr<osg::Vec3Array> na;
                                 if (grp.normals.size() == grp.vertices.size()) {
                                     na = new osg::Vec3Array(grp.normals.begin(), grp.normals.end());
                                 } else {
-                                    na = new osg::Vec3Array(grp.vertices.size());
-                                    for (size_t i = 0; i < grp.vertices.size(); i++)
-                                        (*na)[i] = osg::Vec3(0, 0, 0);
-                                    for (size_t i = 0; i + 2 < grp.indices.size(); i += 3) {
-                                        osg::Vec3 fn = ((*va)[grp.indices[i+1]] - (*va)[grp.indices[i]])
-                                                     ^ ((*va)[grp.indices[i+2]] - (*va)[grp.indices[i]]);
-                                        (*na)[grp.indices[i]]   += fn;
-                                        (*na)[grp.indices[i+1]] += fn;
-                                        (*na)[grp.indices[i+2]] += fn;
+                                    // Flat normals: duplicate vertices so each triangle has its own
+                                    size_t numVerts = grp.indices.size();
+                                    osg::ref_ptr<osg::Vec3Array> flatVa = new osg::Vec3Array(numVerts);
+                                    na = new osg::Vec3Array(numVerts);
+                                    osg::ref_ptr<osg::DrawElementsUInt> flatIa =
+                                        new osg::DrawElementsUInt(osg::PrimitiveSet::TRIANGLES, numVerts);
+                                    for (size_t i = 0; i + 2 < numVerts; i += 3) {
+                                        osg::Vec3 v0 = (*va)[grp.indices[i]];
+                                        osg::Vec3 v1 = (*va)[grp.indices[i+1]];
+                                        osg::Vec3 v2 = (*va)[grp.indices[i+2]];
+                                        osg::Vec3 fn = (v1 - v0) ^ (v2 - v0);
+                                        float len = fn.length();
+                                        fn = (len > 1e-7f) ? fn / len : osg::Vec3(0, 0, 1);
+                                        (*flatVa)[i]   = v0;
+                                        (*flatVa)[i+1] = v1;
+                                        (*flatVa)[i+2] = v2;
+                                        (*na)[i]   = fn;
+                                        (*na)[i+1] = fn;
+                                        (*na)[i+2] = fn;
+                                        (*flatIa)[i]   = static_cast<unsigned int>(i);
+                                        (*flatIa)[i+1] = static_cast<unsigned int>(i+1);
+                                        (*flatIa)[i+2] = static_cast<unsigned int>(i+2);
                                     }
-                                    for (size_t i = 0; i < grp.vertices.size(); i++) {
-                                        float len = (*na)[i].length();
-                                        (*na)[i] = (len > 1e-7f) ? (*na)[i] / len : osg::Vec3(0, 0, 1);
-                                    }
+                                    va = flatVa;
+                                    ia = flatIa;
                                 }
 
                                 osg::ref_ptr<osg::Geometry> geometry = new osg::Geometry();
@@ -1846,45 +1917,47 @@ void OsgVerseViewer::addViewProvider(Gui::ViewProvider* vp)
                             Base::Console().log("OsgVerseViewer::addViewProvider: %s per-face: %lu faces, %zu color groups\n",
                                 objName.c_str(), numFaces, colorGroups.size());
                         } else {
-                            // === Single color path (original) ===
+                            // === Fallback for objects without sub-faces ===
                             std::vector<Base::Vector3d> points;
                             std::vector<Data::ComplexGeoData::Facet> facets;
                             double accuracy = geoData->getAccuracy();
                             geoData->getFaces(points, facets, accuracy);
 
+                            // Transform vertices from world-space to local-space
+                            if (hasPlacement) {
+                                for (auto& pt : points) {
+                                    invPlacement.multVec(pt, pt);
+                                }
+                            }
+
                             if (!points.empty() && !facets.empty()) {
-                                osg::ref_ptr<osg::Vec3Array> vertexArray = new osg::Vec3Array(points.size());
-                                for (size_t i = 0; i < points.size(); i++) {
-                                    (*vertexArray)[i] = osg::Vec3(
-                                        static_cast<float>(points[i].x),
-                                        static_cast<float>(points[i].y),
-                                        static_cast<float>(points[i].z));
-                                }
+                                // Use flat normals (per-triangle) to preserve sharp edges
+                                size_t numTriVerts = facets.size() * 3;
+                                osg::ref_ptr<osg::Vec3Array> vertexArray = new osg::Vec3Array(numTriVerts);
+                                osg::ref_ptr<osg::Vec3Array> normalArray = new osg::Vec3Array(numTriVerts);
+                                osg::ref_ptr<osg::DrawArrays> drawArrays =
+                                    new osg::DrawArrays(osg::PrimitiveSet::TRIANGLES, 0, static_cast<int>(numTriVerts));
 
-                                osg::ref_ptr<osg::DrawElementsUInt> indexArray =
-                                    new osg::DrawElementsUInt(osg::PrimitiveSet::TRIANGLES, facets.size() * 3);
                                 for (size_t i = 0; i < facets.size(); i++) {
-                                    (*indexArray)[i * 3 + 0] = facets[i].I1;
-                                    (*indexArray)[i * 3 + 1] = facets[i].I2;
-                                    (*indexArray)[i * 3 + 2] = facets[i].I3;
-                                }
+                                    osg::Vec3 v0(static_cast<float>(points[facets[i].I1].x),
+                                                 static_cast<float>(points[facets[i].I1].y),
+                                                 static_cast<float>(points[facets[i].I1].z));
+                                    osg::Vec3 v1(static_cast<float>(points[facets[i].I2].x),
+                                                 static_cast<float>(points[facets[i].I2].y),
+                                                 static_cast<float>(points[facets[i].I2].z));
+                                    osg::Vec3 v2(static_cast<float>(points[facets[i].I3].x),
+                                                 static_cast<float>(points[facets[i].I3].y),
+                                                 static_cast<float>(points[facets[i].I3].z));
+                                    osg::Vec3 fn = (v1 - v0) ^ (v2 - v0);
+                                    float len = fn.length();
+                                    fn = (len > 1e-7f) ? fn / len : osg::Vec3(0, 0, 1);
 
-                                osg::ref_ptr<osg::Vec3Array> normalArray = new osg::Vec3Array(points.size());
-                                for (size_t i = 0; i < points.size(); i++)
-                                    (*normalArray)[i] = osg::Vec3(0, 0, 0);
-                                for (size_t i = 0; i < facets.size(); i++) {
-                                    const osg::Vec3& v0 = (*vertexArray)[facets[i].I1];
-                                    const osg::Vec3& v1 = (*vertexArray)[facets[i].I2];
-                                    const osg::Vec3& v2 = (*vertexArray)[facets[i].I3];
-                                    osg::Vec3 faceNormal = (v1 - v0) ^ (v2 - v0);
-                                    (*normalArray)[facets[i].I1] += faceNormal;
-                                    (*normalArray)[facets[i].I2] += faceNormal;
-                                    (*normalArray)[facets[i].I3] += faceNormal;
-                                }
-                                for (size_t i = 0; i < points.size(); i++) {
-                                    osg::Vec3& n = (*normalArray)[i];
-                                    float len = n.length();
-                                    n = (len > 1e-7f) ? n / len : osg::Vec3(0, 0, 1);
+                                    (*vertexArray)[i * 3 + 0] = v0;
+                                    (*vertexArray)[i * 3 + 1] = v1;
+                                    (*vertexArray)[i * 3 + 2] = v2;
+                                    (*normalArray)[i * 3 + 0] = fn;
+                                    (*normalArray)[i * 3 + 1] = fn;
+                                    (*normalArray)[i * 3 + 2] = fn;
                                 }
 
                                 // Get single diffuse color
@@ -1902,7 +1975,7 @@ void OsgVerseViewer::addViewProvider(Gui::ViewProvider* vp)
                                 geometry->setVertexArray(vertexArray.get());
                                 geometry->setNormalArray(normalArray.get());
                                 geometry->setNormalBinding(osg::Geometry::BIND_PER_VERTEX);
-                                geometry->addPrimitiveSet(indexArray.get());
+                                geometry->addPrimitiveSet(drawArrays.get());
 
                                 osg::StateSet* stateSet = geometry->getOrCreateStateSet();
                                 stateSet->addUniform(new osg::Uniform("baseColor", diffuseColor));
@@ -1933,7 +2006,7 @@ void OsgVerseViewer::addViewProvider(Gui::ViewProvider* vp)
                                 vpGroup->addChild(geode);
                                 hasGeometry = true;
 
-                                Base::Console().log("OsgVerseViewer::addViewProvider: Converted %s: %zu vertices, %zu triangles\n",
+                                Base::Console().log("OsgVerseViewer::addViewProvider: Converted %s (fallback): %zu vertices, %zu triangles\n",
                                     objName.c_str(), points.size(), facets.size());
                             }
                         }
@@ -1957,6 +2030,46 @@ void OsgVerseViewer::addViewProvider(Gui::ViewProvider* vp)
     if (!hasGeometry) {
         // Don't erase from _viewProviders - geometry may arrive later via property change
         return;
+    }
+
+    // Apply Placement transform via scene graph MatrixTransform.
+    // Vertices are now in local coordinates (inverse-transformed above),
+    // matching Coin3D's approach where SoTransform handles Placement.
+    if (auto* vpDoc = dynamic_cast<Gui::ViewProviderDocumentObject*>(vp)) {
+        App::DocumentObject* obj = vpDoc->getObject();
+        if (obj) {
+            auto* placementProp = dynamic_cast<App::PropertyPlacement*>(obj->getPropertyByName("Placement"));
+            if (placementProp) {
+                const Base::Placement& plc = placementProp->getValue();
+                // FreeCAD Matrix4D: column-vector pre-multiply (v' = M * v),
+                //   translation in column 3: [0][3], [1][3], [2][3]
+                // OSG Matrixd: row-vector post-multiply (v' = v * M),
+                //   translation in row 3: _mat[3][0], _mat[3][1], _mat[3][2]
+                // OSG matrix = transpose of FreeCAD matrix.
+                Base::Matrix4D fcMat = plc.toMatrix();
+                osg::Matrixd osgMat(
+                    fcMat[0][0], fcMat[1][0], fcMat[2][0], fcMat[3][0],
+                    fcMat[0][1], fcMat[1][1], fcMat[2][1], fcMat[3][1],
+                    fcMat[0][2], fcMat[1][2], fcMat[2][2], fcMat[3][2],
+                    fcMat[0][3], fcMat[1][3], fcMat[2][3], fcMat[3][3]
+                );
+
+                osg::ref_ptr<osg::MatrixTransform> transform = new osg::MatrixTransform();
+                transform->setMatrix(osgMat);
+                transform->setName(objName + "_Transform");
+
+                // Re-parent: move vpGroup's children under transform
+                osg::ref_ptr<osg::Group> tempGroup = new osg::Group();
+                for (unsigned int i = 0; i < vpGroup->getNumChildren(); ++i) {
+                    tempGroup->addChild(vpGroup->getChild(i));
+                }
+                vpGroup->removeChildren(0, vpGroup->getNumChildren());
+                for (unsigned int i = 0; i < tempGroup->getNumChildren(); ++i) {
+                    transform->addChild(tempGroup->getChild(i));
+                }
+                vpGroup->addChild(transform);
+            }
+        }
     }
 
     // 添加到场景图（通过 SelectionRoot 包裹）
@@ -2008,6 +2121,11 @@ void OsgVerseViewer::addViewProvider(Gui::ViewProvider* vp)
     }
 
     Base::Console().log("OsgVerseViewer::addViewProvider: Complete for '%s'\n", objName.c_str());
+
+    // Request repaint so the newly added geometry becomes visible
+    if (hasGeometry && _widget) {
+        _widget->update();
+    }
 
   } catch (const std::exception& e) {
     Base::Console().error("OsgVerseViewer::addViewProvider: CAUGHT exception for %s: %s\n",

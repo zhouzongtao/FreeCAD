@@ -161,7 +161,15 @@ const char* View3DOsgVerse::getName() const
     return "View3DOsgVerse";
 }
 
-bool View3DOsgVerse::onMsg(const char* pMsg, const char** ppReturn)
+bool View3DOsgVerse::containsViewProvider(const ViewProvider* vp) const
+{
+    if (_viewer) {
+        return _viewer->hasViewProvider(const_cast<ViewProvider*>(vp));
+    }
+    return false;
+}
+
+bool View3DOsgVerse::onMsg(const char* pMsg)
 {
     if (!_viewer) {
         return false;
@@ -284,6 +292,35 @@ bool View3DOsgVerse::onHasMsg(const char* pMsg) const
     }
     
     return false;
+}
+
+const std::string& View3DOsgVerse::getCamera() const
+{
+    _cameraString.clear();
+    if (!_viewer) {
+        return _cameraString;
+    }
+
+    auto cam = _viewer->getCamera();
+
+    std::ostringstream oss;
+    if (cam.orthographic) {
+        oss << "OrthographicCamera {\n";
+    } else {
+        oss << "PerspectiveCamera {\n";
+    }
+    oss << "  position " << cam.position.x << " " << cam.position.y << " " << cam.position.z << "\n"
+        << "  nearDistance " << cam.nearPlane << "\n"
+        << "  farDistance " << cam.farPlane << "\n";
+    if (cam.orthographic) {
+        oss << "  height " << cam.height << "\n";
+    } else {
+        double heightAngle = cam.fieldOfView * M_PI / 180.0;
+        oss << "  heightAngle " << heightAngle << "\n";
+    }
+    oss << "}";
+    _cameraString = oss.str();
+    return _cameraString;
 }
 
 // Parse Inventor ASCII camera string and apply to OsgVerse viewer.

@@ -1158,9 +1158,10 @@ void Document::slotChangedObject(const App::DocumentObject& Obj, const App::Prop
                 }
             }
 
-            // Update OsgVerse views when shape or appearance properties change
+            // Update OsgVerse views when shape, placement, or appearance properties change
             const char* propName = Prop.getName();
             bool isShapeChange = propName && (strcmp(propName, "Shape") == 0 ||
+                                              strcmp(propName, "Placement") == 0 ||
                                               strstr(propName, "Length") ||
                                               strstr(propName, "Width") ||
                                               strstr(propName, "Height") ||
@@ -2054,6 +2055,54 @@ void Document::slotFinishRestoreDocument(const App::Document& doc)
 
     // reset modified flag
     setModified(doc.testStatus(App::Document::LinkStampChanged));
+
+#ifdef RENDER_HAS_OSGVERSE_BACKEND
+    // After full document restore, retry all VPs in OsgVerse views.
+    // During restore, addViewProvider is called before shapes are computed,
+    // so geometry extraction fails. Now that restore is complete, shapes
+    // are ready — re-add all VPs that previously had no geometry.
+    try {
+        for (auto* v : d->baseViews) {
+            auto* osgVerseView = dynamic_cast<View3DOsgVerse*>(v);
+            if (!osgVerseView) {
+                continue;
+            }
+            auto* viewer = osgVerseView->getViewerInterface();
+            if (!viewer) {
+                continue;
+            }
+            Base::Console().log("Document::slotFinishRestoreDocument: Refreshing OsgVerse VPs\n");
+            // Collect all VP pointers first, then update
+            auto vps = viewer->getViewProviders();
+            for (auto* vp : vps) {
+                viewer->updateViewProvider(vp);
+            }
+            // Also add any VPs that may not have been added yet
+            for (auto& kv : d->_ViewProviderMap) {
+                if (!viewer->hasViewProvider(kv.second)) {
+                    viewer->addViewProvider(kv.second);
+                }
+            }
+            // Remove claimed children to avoid duplicate geometry (Z-fighting)
+            std::vector<App::DocumentObject*> child_objs;
+            for (auto& kv : d->_ViewProviderMap) {
+                auto children = kv.second->claimChildren3D();
+                child_objs.insert(child_objs.end(), children.begin(), children.end());
+            }
+            for (App::DocumentObject* obj : child_objs) {
+                ViewProvider* childVP = getViewProvider(obj);
+                if (childVP && viewer->hasViewProvider(childVP)) {
+                    viewer->removeViewProvider(childVP);
+                }
+            }
+            viewer->viewAll();
+        }
+    } catch (const std::exception& e) {
+        Base::Console().error("Document::slotFinishRestoreDocument: OsgVerse refresh failed: %s\n", e.what());
+    } catch (...) {
+        Base::Console().error("Document::slotFinishRestoreDocument: OsgVerse refresh failed (unknown)\n");
+    }
+#endif
 }
 
 void Document::slotShowHidden(const App::Document& doc)
@@ -2373,10 +2422,10 @@ MDIView* Document::createView(const Base::Type& typeId, CreateViewMode mode)
 
         // Attach view providers
         std::map<const App::DocumentObject*, ViewProviderDocumentObject*>::const_iterator It1;
-        std::vector<App::DocumentObject*> child_vps;
 
         auto* viewer = view3D->getViewerInterface();
         if (viewer) {
+            std::vector<App::DocumentObject*> child_vps;
             for (It1 = d->_ViewProviderMap.begin(); It1 != d->_ViewProviderMap.end(); ++It1) {
                 viewer->addViewProvider(It1->second);
                 std::vector<App::DocumentObject*> children = It1->second->claimChildren3D();
@@ -2391,8 +2440,14 @@ MDIView* Document::createView(const Base::Type& typeId, CreateViewMode mode)
                 child_vps.insert(child_vps.end(), children.begin(), children.end());
             }
 
+            // Remove claimed children to avoid duplicate geometry (z-fighting).
+            // Parent VPs (Body, Part, BIM components) have Shape properties that
+            // include all child geometry, so rendering both causes coplanar faces.
             for (App::DocumentObject* obj : child_vps) {
-                viewer->removeViewProvider(getViewProvider(obj));
+                ViewProvider* childVP = getViewProvider(obj);
+                if (childVP) {
+                    viewer->removeViewProvider(childVP);
+                }
             }
 
             // Fit camera to scene after all VPs are added
@@ -2861,6 +2916,9 @@ MDIView* Document::setActiveView(const ViewProviderDocumentObject* vp, Base::Typ
                     if (active && active->containsViewProvider(vp)) {
                         view = active;
                     }
+                    else if (active && active->isDerivedFrom<View3DBase>()) {
+                        typeId = active->getTypeId();
+                    }
                     else {
                         typeId = View3DInventor::getClassTypeId();
                     }
@@ -3215,6 +3273,15 @@ void Document::handleChildren3D(ViewProvider* viewProvider, bool deleting)
                                 // check for that.
                                 activeView->getViewer()->removeViewProvider(ChildViewProvider);
                             }
+#ifdef RENDER_HAS_OSGVERSE_BACKEND
+                            auto osgView = dynamic_cast<View3DOsgVerse*>(vIt);
+                            if (osgView) {
+                                auto* osgViewer = osgView->getViewerInterface();
+                                if (osgViewer && osgViewer->hasViewProvider(ChildViewProvider)) {
+                                    osgViewer->removeViewProvider(ChildViewProvider);
+                                }
+                            }
+#endif
                         }
                     }
                 }
@@ -3232,6 +3299,15 @@ void Document::handleChildren3D(ViewProvider* viewProvider, bool deleting)
                     if (activeView && !activeView->getViewer()->hasViewProvider(vpd)) {
                         activeView->getViewer()->addViewProvider(vpd);
                     }
+#ifdef RENDER_HAS_OSGVERSE_BACKEND
+                    auto osgView = dynamic_cast<View3DOsgVerse*>(view);
+                    if (osgView) {
+                        auto* osgViewer = osgView->getViewerInterface();
+                        if (osgViewer && !osgViewer->hasViewProvider(vpd)) {
+                            osgViewer->addViewProvider(vpd);
+                        }
+                    }
+#endif
                 }
             }
         }

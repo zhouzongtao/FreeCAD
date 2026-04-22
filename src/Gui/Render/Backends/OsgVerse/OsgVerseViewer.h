@@ -34,6 +34,7 @@
 QT_BEGIN_NAMESPACE
 class QMouseEvent;
 class QKeyEvent;
+class QTimer;
 QT_END_NAMESPACE
 
 #include <functional>
@@ -505,6 +506,7 @@ protected:
 
     // 鼠标事件 / Mouse events
     void mousePressEvent(QMouseEvent* event) override;
+    void mouseDoubleClickEvent(QMouseEvent* event) override;
     void mouseReleaseEvent(QMouseEvent* event) override;
     void mouseMoveEvent(QMouseEvent* event) override;
     void wheelEvent(QWheelEvent* event) override;
@@ -520,6 +522,7 @@ private:
     bool _firstFrame{true};
     MouseEventCallback _mouseEventCallback;
     KeyEventCallback _keyEventCallback;
+    QTimer* _renderTimer{nullptr};
 };
 
 } // namespace Render
