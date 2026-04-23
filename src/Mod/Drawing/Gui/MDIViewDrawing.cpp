@@ -214,9 +214,8 @@ void MDIViewDrawing::setupToolbar()
 // ============================================================================
 // MDIView interface implementation / MDIView 接口实现
 // ============================================================================
-bool MDIViewDrawing::onMsg(const char* pMsg, const char** ppReturn)
+bool MDIViewDrawing::onMsg(const char* pMsg)
 {
-    Q_UNUSED(ppReturn);
     if (strcmp(pMsg, "ViewFit") == 0) { cmdZoomFit(); return true; }
     if (strcmp(pMsg, "ZoomIn") == 0) { cmdZoomIn(); return true; }
     if (strcmp(pMsg, "ZoomOut") == 0) { cmdZoomOut(); return true; }

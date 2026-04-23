@@ -69,6 +69,8 @@
 #include <osg/Array>
 #include <osg/PrimitiveSet>
 #include <osg/Geometry>
+#include <osg/LineWidth>
+#include <osg/Point>
 
 using namespace Gui::Render;
 
@@ -1750,11 +1752,17 @@ void OsgVerseViewer::addViewProvider(Gui::ViewProvider* vp)
                         auto* matListProp = dynamic_cast<App::PropertyMaterialList*>(
                             vp->getPropertyByName("ShapeAppearance"));
                         int matCount = (matListProp && matListProp->getSize() > 0) ? matListProp->getSize() : 0;
-                        unsigned long numFaces = geoData->countSubElements("Face");
+
+                        // Only count sub-faces when multiple materials exist (per-face coloring needed).
+                        // countSubElements("Face") is extremely slow for BIM compound shapes.
+                        unsigned long numFaces = 0;
+                        if (matCount > 1) {
+                            numFaces = geoData->countSubElements("Face");
+                        }
 
                         bool usePerFaceColor = (matCount > 1 && numFaces > 0);
 
-                        if (numFaces > 0) {
+                        if (usePerFaceColor && numFaces <= 2000) {
                             // === Per-face color path ===
                             // Group faces by color, create separate geometry per color group
                             // (gl_Color with BIND_PER_VERTEX is unreliable on macOS GL 2.1,
@@ -2014,6 +2022,101 @@ void OsgVerseViewer::addViewProvider(Gui::ViewProvider* vp)
                         Base::Console().error("OsgVerseViewer::addViewProvider: Exception: %s\n", e.what());
                     } catch (...) {
                         Base::Console().error("OsgVerseViewer::addViewProvider: Unknown exception during geometry conversion\n");
+                    }
+
+                    // === Edge/line rendering for wire-only objects ===
+                    if (!hasGeometry) {
+                        try {
+                            Base::Matrix4D invPlcE;
+                            bool hasPlcE = false;
+                            auto* ppE = dynamic_cast<App::PropertyPlacement*>(obj->getPropertyByName("Placement"));
+                            if (ppE) {
+                                const Base::Placement& plcE = ppE->getValue();
+                                Base::Vector3d axE; double angE;
+                                plcE.getRotation().getRawValue(axE, angE);
+                                if (plcE.getPosition().Length() > 1e-7 || std::abs(angE) > 1e-7) {
+                                    hasPlcE = true;
+                                    invPlcE = plcE.toMatrix();
+                                    invPlcE.inverse();
+                                }
+                            }
+                            std::vector<Base::Vector3d> edgePts;
+                            std::vector<Data::ComplexGeoData::Line> edgeSegs;
+                            geoData->getLines(edgePts, edgeSegs, geoData->getAccuracy());
+                            if (hasPlcE) { for (auto& p : edgePts) invPlcE.multVec(p, p); }
+                            if (!edgePts.empty() && !edgeSegs.empty()) {
+                                osg::ref_ptr<osg::Vec3Array> va = new osg::Vec3Array(edgeSegs.size() * 2);
+                                for (size_t i = 0; i < edgeSegs.size(); i++) {
+                                    auto& p1 = edgePts[edgeSegs[i].I1]; auto& p2 = edgePts[edgeSegs[i].I2];
+                                    (*va)[i*2]   = osg::Vec3(float(p1.x), float(p1.y), float(p1.z));
+                                    (*va)[i*2+1] = osg::Vec3(float(p2.x), float(p2.y), float(p2.z));
+                                }
+                                osg::ref_ptr<osg::Geometry> lg = new osg::Geometry();
+                                lg->setVertexArray(va.get());
+                                lg->addPrimitiveSet(new osg::DrawArrays(osg::PrimitiveSet::LINES, 0, int(edgeSegs.size()*2)));
+                                osg::Vec4 lc(0,0,0,1);
+                                auto* lcP = dynamic_cast<App::PropertyColor*>(vp->getPropertyByName("LineColor"));
+                                if (lcP) { auto& c = lcP->getValue(); lc = osg::Vec4(c.r,c.g,c.b,1); }
+                                osg::StateSet* ss = lg->getOrCreateStateSet();
+                                ss->setMode(GL_LIGHTING, osg::StateAttribute::OFF);
+                                osg::ref_ptr<osg::Material> m = new osg::Material();
+                                m->setEmission(osg::Material::FRONT_AND_BACK, lc);
+                                m->setColorMode(osg::Material::OFF);
+                                ss->setAttributeAndModes(m.get(), osg::StateAttribute::ON);
+                                osg::ref_ptr<osg::LineWidth> lw = new osg::LineWidth(2.0f);
+                                auto* lwP = dynamic_cast<App::PropertyFloat*>(vp->getPropertyByName("LineWidth"));
+                                if (lwP && lwP->getValue() > 0.1) lw->setWidth(float(lwP->getValue()));
+                                ss->setAttributeAndModes(lw.get(), osg::StateAttribute::ON);
+                                osg::ref_ptr<osg::Geode> geode = new osg::Geode(); geode->addDrawable(lg.get());
+                                vpGroup->addChild(geode); hasGeometry = true;
+                                Base::Console().log("  '%s': %zu line segments\n", objName.c_str(), edgeSegs.size());
+                            }
+                        } catch (...) {}
+                    }
+                    // === Point rendering ===
+                    if (!hasGeometry) {
+                        try {
+                            Base::Matrix4D invPlcP;
+                            bool hasPlcP = false;
+                            auto* ppP = dynamic_cast<App::PropertyPlacement*>(obj->getPropertyByName("Placement"));
+                            if (ppP) {
+                                const Base::Placement& plcP = ppP->getValue();
+                                Base::Vector3d axP; double angP;
+                                plcP.getRotation().getRawValue(axP, angP);
+                                if (plcP.getPosition().Length() > 1e-7 || std::abs(angP) > 1e-7) {
+                                    hasPlcP = true;
+                                    invPlcP = plcP.toMatrix();
+                                    invPlcP.inverse();
+                                }
+                            }
+                            std::vector<Base::Vector3d> pts; std::vector<Base::Vector3d> ptN;
+                            geoData->getPoints(pts, ptN, geoData->getAccuracy());
+                            if (hasPlcP) { for (auto& p : pts) invPlcP.multVec(p, p); }
+                            if (!pts.empty()) {
+                                osg::ref_ptr<osg::Vec3Array> va = new osg::Vec3Array(pts.size());
+                                for (size_t i = 0; i < pts.size(); i++)
+                                    (*va)[i] = osg::Vec3(float(pts[i].x), float(pts[i].y), float(pts[i].z));
+                                osg::ref_ptr<osg::Geometry> pg = new osg::Geometry();
+                                pg->setVertexArray(va.get());
+                                pg->addPrimitiveSet(new osg::DrawArrays(osg::PrimitiveSet::POINTS, 0, int(pts.size())));
+                                osg::Vec4 pc(0,0,0,1);
+                                auto* pcP = dynamic_cast<App::PropertyColor*>(vp->getPropertyByName("PointColor"));
+                                if (pcP) { auto& c = pcP->getValue(); pc = osg::Vec4(c.r,c.g,c.b,1); }
+                                osg::StateSet* ss = pg->getOrCreateStateSet();
+                                ss->setMode(GL_LIGHTING, osg::StateAttribute::OFF);
+                                osg::ref_ptr<osg::Material> m = new osg::Material();
+                                m->setEmission(osg::Material::FRONT_AND_BACK, pc);
+                                m->setColorMode(osg::Material::OFF);
+                                ss->setAttributeAndModes(m.get(), osg::StateAttribute::ON);
+                                osg::ref_ptr<osg::Point> ptSz = new osg::Point(4.0f);
+                                auto* psP = dynamic_cast<App::PropertyFloat*>(vp->getPropertyByName("PointSize"));
+                                if (psP && psP->getValue() > 0.1) ptSz->setSize(float(psP->getValue()));
+                                ss->setAttributeAndModes(ptSz.get(), osg::StateAttribute::ON);
+                                osg::ref_ptr<osg::Geode> geode = new osg::Geode(); geode->addDrawable(pg.get());
+                                vpGroup->addChild(geode); hasGeometry = true;
+                                Base::Console().log("  '%s': %zu points\n", objName.c_str(), pts.size());
+                            }
+                        } catch (...) {}
                     }
                 } else {
                     Base::Console().log("  '%s': getComplexData() returned null\n", objName.c_str());

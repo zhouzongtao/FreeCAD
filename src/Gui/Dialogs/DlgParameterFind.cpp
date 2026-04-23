@@ -315,7 +315,7 @@ void DlgParameterFind::accept()
                 QMessageBox::Yes | QMessageBox::No
             );
             if (ret == QMessageBox::Yes) {
-                opt.text = "BaseApp";
+                opt.text = QStringLiteral("BaseApp");
                 opt.group = ui->checkGroups->isChecked();
                 opt.name = ui->checkNames->isChecked();
                 opt.value = ui->checkValues->isChecked();

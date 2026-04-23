@@ -1581,6 +1581,8 @@ void OsgVerseViewer::addViewProvider(Gui::ViewProvider* vp)
         return;
     }
 
+    Base::Console().log("OsgVerseViewer::addViewProvider: type=%s\n", vp->getTypeId().getName());
+
     // Create scene node for this ViewProvider
     osg::ref_ptr<osg::Node> node = createNodeForViewProvider(vp);
 
@@ -2919,10 +2921,13 @@ osg::ref_ptr<osg::Node> OsgVerseViewer::createNodeForViewProvider(Gui::ViewProvi
         return nullptr;
     }
 
-    // Check if this is a Part::Feature
-    if (!obj->isDerivedFrom(Part::Feature::getClassTypeId())) {
-        return nullptr;
-    }
+    Base::Console().log("OsgVerseViewer::createNodeForViewProvider: obj=%s type=%s\n",
+                        obj->getNameInDocument() ? obj->getNameInDocument() : "?",
+                        obj->getTypeId().getName());
+
+    // Note: We don't restrict to Part::Feature here because
+    // Part::Feature::getTopoShape() can handle any DocumentObject
+    // (including App::Part, Assembly, Link, etc.)
 
     // Extract TopoDS_Shape and convert to OSG geometry
     try {
@@ -2934,8 +2939,14 @@ osg::ref_ptr<osg::Node> OsgVerseViewer::createNodeForViewProvider(Gui::ViewProvi
         const TopoDS_Shape& shape = topoShape.getShape();
 
         if (shape.IsNull()) {
+            Base::Console().log("OsgVerseViewer::createNodeForViewProvider: shape is null for %s\n",
+                                obj->getNameInDocument() ? obj->getNameInDocument() : "?");
             return nullptr;
         }
+
+        Base::Console().log("OsgVerseViewer::createNodeForViewProvider: got shape for %s, type=%d\n",
+                            obj->getNameInDocument() ? obj->getNameInDocument() : "?",
+                            static_cast<int>(shape.ShapeType()));
 
         // Convert using GeometryConverter
         GeometryConverter::ConversionOptions options;
